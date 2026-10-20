@@ -303,6 +303,7 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 - (a) HTTPS GET via `wg0`-bound client (source 10.2.0.2) to two targets, 3 s timeout each: `https://www.cloudflare.com/cdn-cgi/trace` (also yields exit `ip`/`loc`) and `https://www.google.com/generate_204`. Pass if ≥1 OK.
 - (b) DNS A query to 10.2.0.1 for a stable name, 2 s timeout.
 - (c) handshake age < 180 s (probes generate traffic, so a stale handshake under load = dead).
+- Note (Phase 0 finding): Proton servers complete the WireGuard handshake even for unregistered keys, yet pass no traffic. A fresh handshake therefore never proves health on its own; (a) is the authoritative signal.
 - Cycle fails if (a) fails, or (b) fails, or (c) fails. **3 consecutive failed cycles → UNHEALTHY → failover.**
 - States: `HEALTHY`, `SUSPECT(n)`, `FAILING_OVER`, `DEGRADED` (no candidate worked; kill switch holding).
 
