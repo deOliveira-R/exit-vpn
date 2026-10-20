@@ -80,23 +80,25 @@ class Controller:
         return self.state.current.name if self.state.current else None
 
     async def init(self) -> None:
-        """Adopt whatever peer init-wg configured (last-good state, or the config's)."""
+        """Adopt whatever peer init-wg configured (last-good state, or the config's).
+        Identity, in order: the catalog entry with this (pubkey, IP); the config's own
+        peer name; the saved state (a server since dropped from the catalog)."""
         peers = await self.wg.peers()
         if not peers:
             raise WgError(f"{self.s.wg_if} has no peer")
         p = peers[0]
         now = self.clock()
         cur = self.state.current
-        if not cur or (cur.pubkey, cur.endpoint) != (p.pubkey, p.endpoint):
-            srv = self.catalog.by_peer(p.pubkey, p.endpoint.rsplit(":", 1)[0])
-            self.state.current = Current(
-                name=srv.name if srv else (
-                    self.conf.peer_name if (p.pubkey, p.endpoint) == (
-                        self.conf.peer_pubkey, self.conf.peer_endpoint) and self.conf.peer_name
-                    else "config peer"),
-                pubkey=p.pubkey, endpoint=p.endpoint,
-                country=srv.country if srv else "", city=srv.city if srv else "",
-                since=now)
+        same = cur is not None and (cur.pubkey, cur.endpoint) == (p.pubkey, p.endpoint)
+        srv = self.catalog.by_peer(p.pubkey, p.endpoint.rsplit(":", 1)[0])
+        since = cur.since if same and cur else now
+        if srv:
+            self.state.current = Current(srv.name, p.pubkey, p.endpoint, srv.country, srv.city, since)
+        elif (p.pubkey, p.endpoint) == (self.conf.peer_pubkey, self.conf.peer_endpoint):
+            self.state.current = Current(self.conf.peer_name or "config peer", p.pubkey,
+                                         p.endpoint, since=since)
+        elif not same:
+            self.state.current = Current("unknown peer", p.pubkey, p.endpoint, since=now)
         self.tracker.start_grace(now)
         self._event("started", server=self._cur_name())
         self._save()

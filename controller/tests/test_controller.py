@@ -158,4 +158,15 @@ async def test_init_unknown_config_peer_is_not_misidentified(setup, catalog):
     ctl, wg, _, _, start = setup
     wg.peer = Peer(start.pubkey, "203.0.113.5:51820", 0, 0, 0)  # same key, other IP
     await ctl.init()
-    assert ctl.state.current.name == "config peer" and ctl.state.current.country == ""
+    assert ctl.state.current.name == "unknown peer" and ctl.state.current.country == ""
+
+
+async def test_init_prefers_config_name_over_stale_state(setup):
+    """A stale saved name (e.g. from a pubkey-only match) is replaced at start."""
+    from exit_vpn.state import Current
+    ctl, wg, _, _, _ = setup
+    wg.peer = Peer("cfgkey=", "203.0.113.9:51820", 0, 0, 0)
+    ctl.conf = WgConf("10.2.0.2", "10.2.0.1", "cfgkey=", "203.0.113.9:51820", "US-CA#556")
+    ctl.state.current = Current("SE-US#1", "cfgkey=", "203.0.113.9:51820", "United States", "", 5.0)
+    await ctl.init()
+    assert ctl.state.current.name == "US-CA#556" and ctl.state.current.since == 5.0
