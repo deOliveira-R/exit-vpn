@@ -453,15 +453,45 @@ Later (3b.2): `exitctl proton servers --push` → `PUT /v1/catalog`, a live cata
 status from Proton's `vpn/v1/logicals`, replacing the pinned gluetun list (D12) as the source.
 
 Acceptance:
-- **T16** `rotate --slot a --netshield 1` → new key live, Mac curl still shows a Proton IP, a
-  NetShield malware test domain no longer resolves via the exit, `GET /v1/keys` shows
-  NetShield 1, the old certificate is gone from `list`. Rotate back to `--netshield 0`.
+- **T16** `rotate --slot a --netshield 2` → new key live, Mac curl still shows a Proton IP, ad
+  domains no longer resolve via Proton's resolver, `GET /v1/keys` shows NetShield 2, the old
+  certificate is gone from `list`. Rotate back to `--netshield 0`. (Level 2 rather than 1:
+  well-known ad domains make a measurable test; no reliable public malware test domain.)
 - **T17** Upload a bogus key → 409 within one warm-up window, previous key restored, the exit
   never leaks (T6-style curl loop).
 - **T18** Grep the VPS filesystem (outside the key volumes), container logs and controller
   responses for the Proton session tokens and private keys → nothing.
 - **T19** `renew --slot a` → expiry moves, the WireGuard public key and the session don't change.
 - **T20** `rotate --slot b` → the prober reloads; a `/v1/find` job succeeds afterwards.
+
+**Phase 3b results (2026-10-20)** — unit tests: 53 controller, 19 prober, 13 helper (fake Proton
+session: exact API payloads, 2FA in two steps, CAPTCHA retry, rotate/rollback/renew flows,
+X25519 derivation vs the registered Ed25519 key). Acceptance `tests/acceptance/phase3b-client.sh`
+10/10 against the live Proton API: T16 rotate slot a → NetShield 2 in 9 s (≈1.5 s of dropped
+samples during the key swap, never the Oracle IP), 0 → 3 of 3 ad domains blocked by Proton's
+resolver, the old (dashboard-made) certificate deleted from the account; T19 renew: expiry moved,
+same key, same server; T17 an unregistered key → 409 after 49 s (45 s key warm-up), previous key
+back, no leak; T20 slot b rotated, prober reloaded, find job probes went through `wg-probe`;
+T18 no session token in container logs, `/opt/exit-node` or the stack's volumes, no private key in
+API responses or logs. Phase 3 suite re-run green (T9 recovery 19 s). Notes:
+- **Proton accepts this client.** `x-pm-appversion: Other` (proton-core's default) works for
+  login and for persistent certificates. The first login from a new client gets a CAPTCHA (422,
+  code 9001): open the printed `verify.proton.me` URL, solve, press Enter; the retry carries the
+  token headers. proton-core raises 9001 from `/auth` as a plain `ProtonAPIError` (fixed in our
+  adapter by matching the code).
+- **Certificates: 365 days**, renewable in place (`Renew: true`, same key; expiry is then
+  counted from the renewal). `list` matches certificates to slots through the Ed25519 → X25519
+  public-key map, so dashboard-made keys are recognised and cleaned up on the first rotate;
+  other devices' certificates are never touched (exact key match only).
+- Key swap on the exit costs ~1.5 s of traffic (fresh session warm-up); a rejected key costs the
+  45 s warm-up plus the re-handshake of the old key.
+- **The bootstrap configs in `secrets/` are now dead keys** (their certificates were deleted by
+  the first rotations). They are only used while a slot volume is empty; if `keys-a`/`keys-b` are
+  ever lost, the exit fails closed (kill switch) until `exitctl proton rotate --slot a|b`, which
+  works because the controller API rides on the tailnet underlay, not on wg0.
+- An unnamed spare dashboard certificate (the old config C) is still on the account, unused.
+- Host-level changes: two Docker-managed named volumes, `exit-vpn_keys-a` and `exit-vpn_keys-b`.
+  Nothing else on the host changed.
 
 ### Phase 4 — Prober and "find a server for this URL"
 

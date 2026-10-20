@@ -7,9 +7,9 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-20)
 
-Phases 0–4 done and deployed; all acceptance suites green. Remaining, in PLAN order:
-**3b** (`exitctl`: Mac-side Proton key/catalog helper, D18), **5** (macOS menu-bar app),
-**6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
+Phases 0–4 and 3b done and deployed; all acceptance suites green. Remaining: **3b.2**
+(optional: live catalog push from Proton's API), **5** (macOS menu-bar app driving
+`exitctl --json`), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
 ## Layout
@@ -23,6 +23,10 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   failover, state, auth (whois), finder, api. Tests in `controller/tests`.
 - `prober/` — prober container (own netns, key B tunnel `wg-probe`, curl_cffi + Debian
   `chromium --headless=new` over CDP), package `prober`, tests in `prober/tests`.
+- `helper/` — `exitctl` (Mac): provider adapters in `providers/` (`base.py` interface,
+  `proton.py`, `manual.py`), controller client, CLI with `--json` (D20). uv project
+  (`uv.lock`); proton-core from git, pinned (never the PyPI `proton-core`). Tests in
+  `helper/tests`. Proton session lives in the Keychain (`exitctl` / `proton:session`).
 - `compose.yaml` (project `exit-vpn`, services `exit` and `prober`, network `exitnet`
   172.30.42.0/24: exit .2, prober .10), `.env.example`, `tests/acceptance/phase*.sh`.
 - Tailnet policy lives in the separate **private** repo `deOliveira-R/tailnet-policy`
@@ -54,16 +58,21 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
 
 - VPS deploy dir `/opt/exit-node` (git checkout of this repo, root-owned; `.env` 0600,
   `secrets/` 0700 with `proton_{a,b,c}.conf` and `ts_authkey`). Docker needs sudo.
+- Live keys are in the named volumes `exit-vpn_keys-a` / `exit-vpn_keys-b` (uploaded via
+  `exitctl`); the `secrets/` configs are bootstrap-only and now dead keys (PLAN 3b results).
 - **SSH over the tailnet** (public-IP sessions were reset twice during deploys):
   `ssh -o HostName=$(tailscale ip -4 fin-intel) -o HostKeyAlias=$(ssh -G fin-intel | awk '$1=="hostname"{print $2}') fin-intel`
 - Deploy: `cd /opt/exit-node && sudo git pull --ff-only && sudo docker compose up -d --build`
   (push from the Mac first).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
-  `prober/.venv/bin/pytest -q prober` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
+  `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
   Mac (Proton app **off**; scripts select and clear the exit node themselves)
-  `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`.
-- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events}`.
+  `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`,
+  `phase3b-client.sh` (needs `helper/.venv/bin/exitctl proton login` first, done by the owner
+  in their own terminal: password/2FA/CAPTCHA prompts).
+- Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
+- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events,keys}`.
 
 ## Gotchas learned
 
@@ -75,3 +84,6 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   table-100 routes when wg0 goes down (route-keeper restores them); tailscaled warns about
   `src_valid_mark` (read-only /proc/sys; compose sets it — cosmetic).
 - Cloudflare's speed endpoint rejects 100 MB downloads (use 25 MB).
+- FastAPI's default 422 echoes the request body: the controller overrides it (keys!).
+- proton-core raises the login CAPTCHA (422/9001) as a plain `ProtonAPIError`.
+- tailscaled logs "SetPrivateKey called": grep for `PrivateKey *=`, not the bare word.
