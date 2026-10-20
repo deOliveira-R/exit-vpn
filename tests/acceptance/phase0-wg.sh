@@ -12,12 +12,16 @@ COUNTRY=${2:-United States}
 IMAGE=alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 CATALOG_URL=https://raw.githubusercontent.com/qdm12/gluetun-servers/main/pkg/servers/protonvpn.json
 
-for k in proton_key_a proton_key_b; do
-  [ -s "$SECRETS/$k" ] || { echo "missing $SECRETS/$k" >&2; exit 1; }
-done
-
 work=$(mktemp -d)
 trap 'docker rm -f p0-a p0-b >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+# Only the PrivateKey is used; Proton binds the connection options to the key (PLAN D17).
+for k in a b; do
+  conf="$SECRETS/proton_$k.conf"
+  [ -s "$conf" ] || { echo "missing $conf" >&2; exit 1; }
+  (umask 077; sed -n 's/^PrivateKey[[:space:]]*=[[:space:]]*//p' "$conf" > "$work/key_$k")
+  [ -s "$work/key_$k" ] || { echo "no PrivateKey in $conf" >&2; exit 1; }
+  echo "proton_$k.conf options: $(grep -E '^# *(NetShield|Moderate NAT|NAT-PMP|VPN Accelerator)' "$conf" | sed 's/^# *//' | paste -sd ';' -)"
+done
 curl -fsSL -o "$work/protonvpn.json" "$CATALOG_URL"
 
 # Three distinct non-secure-core, non-tor WireGuard servers: "name ip pubkey" per line.
@@ -66,15 +70,15 @@ chmod +x "$work/tun.sh"
 run() { # name keyfile args...
   local name=$1 key=$2; shift 2
   docker run -d --rm --name "$name" --cap-add NET_ADMIN \
-    -v "$SECRETS/$key:/key:ro" -v "$work/tun.sh:/tun.sh:ro" "$IMAGE" /tun.sh "$@" >/dev/null
+    -v "$work/$key:/key:ro" -v "$work/tun.sh:/tun.sh:ro" "$IMAGE" /tun.sh "$@" >/dev/null
 }
 set -- ${S[0]} ; A1_IP=$2 A1_PK=$3
 set -- ${S[1]} ; A2_IP=$2 A2_PK=$3
 set -- ${S[2]} ; B_IP=$2  B_PK=$3
 
 echo "== V1 (key A, peer swap ${S[0]%% *} -> ${S[1]%% *}) and V2 (key B on ${S[2]%% *}, concurrently)"
-run p0-a proton_key_a "$A1_IP" "$A1_PK" "$A2_IP" "$A2_PK"
-run p0-b proton_key_b "$B_IP" "$B_PK"
+run p0-a key_a "$A1_IP" "$A1_PK" "$A2_IP" "$A2_PK"
+run p0-b key_b "$B_IP" "$B_PK"
 for _ in $(seq 60); do
   docker exec p0-a test -f /tmp/ready 2>/dev/null && docker exec p0-b test -f /tmp/ready 2>/dev/null && break
   sleep 1

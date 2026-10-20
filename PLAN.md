@@ -51,6 +51,8 @@ ProtonVPN-backed Tailscale exit node, hosted on the existing Oracle Always-Free 
 | D13 | Controller auth = Tailscale identity (**LocalAPI `whois`**) + ACL grant restricted to the owner's devices | No tokens to manage |
 | D14 | Tailscale **API token (policy-file write) lives only on the Mac** (Keychain), never on any server | Policy write = full tailnet control; a compromised VPS must not be able to rewrite ACLs |
 | D15 | Residential exits/allow-list via **app connectors** (Phase 6/7), as separate tailnet nodes | Per-domain routing that coexists with the Proton exit node; app connectors are on all plans |
+| D16 | **Provider-agnostic core, Proton as the first provider.** A `provider` module supplies: catalog source (gluetun-servers has the same schema for Mullvad, AirVPN, IVPN, …), tunnel address and DNS (Proton: `10.2.0.2/32`, `10.2.0.1`; other providers assign per key), and feature metadata. Routing, kill switch, health, failover and API never hard-code Proton values. Node name = `exit-<provider>` (`exit-proton`); repo/stack = `exit-vpn` | Someone else on the tailnet may use another VPN; also lets us switch providers without a redesign |
+| D17 | Proton **connection options are bound to the key**, not the config file: the dashboard registers the WireGuard public key with a signed certificate carrying `NetShieldLevel`, `SplitTCP` (VPN Accelerator), `RandomNAT` (off = Moderate NAT) and `PortForwarding` (NAT-PMP). The `# NetShield = 1` lines in the downloaded `.conf` are comments only. So one key keeps its options on every server, and changing an option means generating a new key. We store the full downloaded `.conf` (mode 600) and parse `PrivateKey` plus the option comments, so `/v1/status` can report them | Verified against Proton's open-source client (`python-proton-vpn-api-core`, `/vpn/v1/certificate`) and support docs |
 
 ---
 
@@ -130,7 +132,7 @@ Note: tailscaled installs its own `ts-forward` iptables(-nft) chains that ACCEPT
 
 1. `init-sysctl` (oneshot): assert `net.ipv4.ip_forward=1`, `net.ipv6.conf.all.forwarding=1` (namespaced; set via compose `sysctls`), `rp_filter` loose (2) on all/default.
 2. `init-killswitch` (oneshot): nftables tables + ip rules + `unreachable` routes. **Must complete before anything else.**
-3. `init-wg` (oneshot): `ip link add wg0 type wireguard`; `wg set wg0 private-key /secrets/proton_key_a`; addr `10.2.0.2/32`; peer = last-good server from state (or default country); `persistent-keepalive 25`; `ip link set wg0 mtu 1420 up`; add `default dev wg0 table 100`.
+3. `init-wg` (oneshot): `ip link add wg0 type wireguard`; `wg set wg0 private-key <PrivateKey parsed from /secrets/proton_a.conf>`; addr `10.2.0.2/32`; peer = last-good server from state (or default country); `persistent-keepalive 25`; `ip link set wg0 mtu 1420 up`; add `default dev wg0 table 100`.
 4. `tailscaled` (longrun, depends on 2): `tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock --port=41642 --tun=tailscale0`.
 5. `tailscale-up` (oneshot, depends on 4): `tailscale up --authkey=file:/secrets/ts_authkey --hostname=exit-proton --advertise-exit-node --advertise-tags=tag:exit` (idempotent; skip authkey if state exists).
 6. `controller` (longrun, depends on 3 and 5).
@@ -145,7 +147,7 @@ exit-proton/
 ├── CLAUDE.md                    # short: conventions + pointer to PLAN.md
 ├── compose.yaml
 ├── .env.example                 # documents variables; real .env is gitignored
-├── secrets/ (gitignored)        # proton_key_a, proton_key_b, ts_authkey_exit, ts_authkey_prober?(none)
+├── secrets/ (gitignored)        # proton_a.conf, proton_b.conf, ts_authkey_exit, ts_authkey_prober?(none)
 ├── exit/
 │   ├── Dockerfile               # debian:bookworm-slim + tailscale (pkgs.tailscale.com) + wireguard-tools
 │   │                            # + nftables + iproute2 + python3.12 venv + s6-overlay
@@ -179,7 +181,8 @@ exit-proton/
 
 | Item | How | Notes |
 |---|---|---|
-| Proton WireGuard **key A** and **key B** | account.proton.me → VPN → WireGuard configuration → create two configs (any server) | Take only `PrivateKey` from each. NetShield: owner's choice (off or malware-only). Moderate NAT / port forwarding: not needed |
+| Proton WireGuard **config A** (exit) | account.proton.me → Downloads → WireGuard configuration; any server (D17) | NetShield: owner's choice (applies to exit clients' DNS via 10.2.0.1); Moderate NAT **off**; NAT-PMP **off**; VPN Accelerator **on**. Upload the whole `.conf` to `secrets/proton_a.conf` |
+| Proton WireGuard **config B** (prober) | same | NetShield **off** (so probes see sites unfiltered, like a normal browser); Moderate NAT off; NAT-PMP off; VPN Accelerator on → `secrets/proton_b.conf` |
 | Tailscale **tagged auth key** for `tag:exit` | Admin → Settings → Keys → generate, tagged `tag:exit`, pre-approved, non-reusable | Tag must exist in policy first (Phase 2) |
 | VPS facts | `uname -m; cat /etc/os-release; docker --version; ip -br a; sudo iptables -S \| head -50; sudo nft list ruleset \| head -50` | Arch (expect aarch64), OS, whether Docker exists |
 | Current tailnet policy file | Admin → Access controls → copy | To extend, not replace |
@@ -350,7 +353,7 @@ Compose addition:
     devices: [/dev/net/tun:/dev/net/tun]
     sysctls: { net.ipv4.conf.all.rp_filter: "2" }
     dns: [10.2.0.1]
-    volumes: ["./secrets/proton_key_b:/secrets/proton_key_b:ro"]
+    volumes: ["./secrets/proton_b.conf:/secrets/proton_b.conf:ro"]
     networks: [exitnet]
     mem_limit: 2g
     restart: unless-stopped
@@ -453,7 +456,7 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 
 - Logs: JSON lines to stdout; `docker compose logs -f exit-proton prober`.
 - Status: `curl http://exit-proton:8080/v1/status` from the Mac.
-- Rotate Proton keys: create new config in Proton dashboard → replace `secrets/proton_key_a` → `docker compose restart exit-proton` → delete old config in Proton dashboard.
+- Rotate Proton keys: create new config in Proton dashboard → replace `secrets/proton_a.conf` → `docker compose restart exit-proton` → delete old config in Proton dashboard.
 - Update: pin image digests; monthly rebuild; re-run T1–T7 after updates.
 - Catalog stale/broken: controller keeps last-good catalog; alert in `/v1/status`.
 - Emergency: Mac → Tailscale menu → Exit node → None.
