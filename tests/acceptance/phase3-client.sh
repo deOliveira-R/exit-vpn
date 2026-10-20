@@ -59,9 +59,16 @@ while [ $(( $(date +%s) - t0 )) -lt 90 ]; do
   if [ -n "$ip" ] && [ "$ip" != "$ip_before" ]; then recovered=$(( $(date +%s) - t0 )); break; fi
   sleep 0.5
 done
-st=$(api "$API/v1/status"); to=$(echo "$st" | j 'd["server"]')
+# The controller commits the new server after one fully passing cycle: wait for it
+for _ in $(seq 30); do
+  st=$(api "$API/v1/status"); to=$(echo "$st" | j 'd["server"]')
+  [ "$to" != "$from" ] && break; sleep 1
+done
+detect=$(echo "$st" | j 'next((round(e["ts"]-'"$t0"',1) for e in d["events"] if e["kind"]=="failover_start" and e["ts"]>='"$t0"'), None)')
+done_s=$(echo "$st" | j 'next((round(e["ts"]-'"$t0"',1) for e in d["events"] if e["kind"]=="failover_done" and e["ts"]>='"$t0"'), None)')
+echo "INFO T9 failover_start at +${detect}s, failover_done at +${done_s}s (controller clock)"
 if grep -q " $oracle$" "$log"; then bad "T9 LEAK: Oracle IP seen during failover"
-elif [ -n "$recovered" ]; then
+elif [ -n "$recovered" ] && [ "$to" != "$from" ]; then
   ok "T9 silent drop: $from → $to, traffic back via a new Proton IP after ${recovered}s (target ≤ 35 s)"
   [ "$recovered" -le 35 ] || echo "WARN T9 recovery ${recovered}s exceeds 35 s"
 else bad "T9 no recovery within 90 s (server now $to)"; fi

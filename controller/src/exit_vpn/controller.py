@@ -142,6 +142,7 @@ class Controller:
 
     async def run(self) -> None:
         while True:
+            started = self.clock()
             try:
                 if self.tracker.state == Health.DEGRADED:
                     await asyncio.sleep(self.backoff.step())
@@ -157,7 +158,9 @@ class Controller:
                 await self.health_step()
             except Exception:  # never let the loop die; the kill switch holds meanwhile
                 log.exception("health loop error")
-            await asyncio.sleep(self.s.health_interval)
+            # Fixed cadence: a failing cycle already spent its probe timeouts, so waiting a
+            # full interval on top would stretch 3 strikes from ~15 s to ~24 s.
+            await asyncio.sleep(max(0.5, self.s.health_interval - (self.clock() - started)))
 
     # Switching ----------------------------------------------------------------------
     async def _try(self, srv: Server) -> bool:
