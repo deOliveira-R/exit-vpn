@@ -54,6 +54,7 @@ ProtonVPN-backed Tailscale exit node, hosted on the existing Oracle Always-Free 
 | D16 | **Provider-agnostic core, Proton as the first provider.** A `provider` module supplies: catalog source (gluetun-servers has the same schema for Mullvad, AirVPN, IVPN, …), tunnel address and DNS (Proton: `10.2.0.2/32`, `10.2.0.1`; other providers assign per key), and feature metadata. Routing, kill switch, health, failover and API never hard-code Proton values. Node name = `exit-<provider>` (`exit-proton`); repo/stack = `exit-vpn` | Someone else on the tailnet may use another VPN; also lets us switch providers without a redesign |
 | D17 | Proton **connection options are bound to the key**, not the config file: the dashboard registers the WireGuard public key with a signed certificate carrying `NetShieldLevel`, `SplitTCP` (VPN Accelerator), `RandomNAT` (off = Moderate NAT) and `PortForwarding` (NAT-PMP). The `# NetShield = 1` lines in the downloaded `.conf` are comments only. So one key keeps its options on every server, and changing an option means generating a new key. We store the full downloaded `.conf` (mode 600) and parse `PrivateKey` plus the option comments, so `/v1/status` can report them | Verified against Proton's open-source client (`python-proton-vpn-api-core`, `/vpn/v1/certificate`) and support docs |
 | D18 | **VPN credentials helper runs on the Mac, never on a server.** Proton configs are created, listed, rotated and deleted through Proton's internal API (the same calls the web dashboard makes: `POST/GET/DELETE vpn/v1/certificate`, `Mode: persistent`, `Features`), authenticated by a Proton session (SRP login + 2FA) kept in the macOS Keychain. Only the resulting WireGuard key reaches the VPS | A Proton session grants the whole Proton account (Mail, Drive), so it gets the same treatment as the policy-write token in D14. Undocumented API → the helper is a convenience; manual dashboard generation stays the fallback |
+| D19 | **Prober = two tiers.** Tier 1: `curl_cffi` (Chrome TLS/HTTP2 impersonation, no JS) for fast HTTP-level verdicts (403/451/429, Cloudflare/WAF challenges, geo redirects) across many candidates. Tier 2: Debian's full `chromium --headless=new`, driven over CDP (Playwright `connect_over_cdp` or a small CDP client, not Playwright's bundled browsers), for finalists and JS-revealed blocks. Verdicts compare against a same-engine baseline | Benchmark 2026-10-20 (below): the engine itself is part of what sites detect; only full Chromium new-headless loaded Amazon, Hulu and Netflix normally (headless shell was flagged as a bot by Amazon; Lightpanda 1.0.1 broke Hulu's JS). curl_cffi is ~20 MB/page vs Chromium's 300–600 MB. Lightpanda revisit tracked in an issue |
 
 ---
 
@@ -167,7 +168,7 @@ exit-proton/
 │   │   └── api.py               # FastAPI app
 │   └── tests/
 ├── prober/
-│   ├── Dockerfile               # mcr.microsoft.com/playwright/python (arm64) + wireguard-tools
+│   ├── Dockerfile               # debian:trixie-slim + chromium (--headless=new) + curl_cffi + wireguard-tools (D19)
 │   ├── entrypoint.sh            # killswitch for prober netns, wg-probe init
 │   └── src/prober/{api.py,tunnel.py,classify.py}
 ├── mac/ExitControl/             # Xcode project (SwiftUI MenuBarExtra)
@@ -209,7 +210,7 @@ exit-proton/
 | V8 ✅ | With wg0 down and resolv.conf → 10.2.0.1, tailscaled stays connected (bootstrap DNS / cached DERP map) | Medium | Phase 2 test T2b: down wg0 for 5 min, node stays online in admin console |
 | V9 | App connector `/32` routes take precedence over the exit node default route on macOS/iOS | Medium-high (more specific route) | Phase 6 test T13 |
 | V10 | App connector device may sit behind home NAT (docs say "must have a public IP address") | Medium (community setups run at home) | Phase 6 smoke |
-| V11 | Playwright Python image available for arm64 | High | `docker pull --platform linux/arm64 mcr.microsoft.com/playwright/python:<tag>` |
+| V11 ✅ | A browser engine that works for probing on arm64 | — | Superseded by D19: Debian `chromium` (arm64, security-updated) + `curl_cffi` (aarch64 wheels); benchmarked 2026-10-20 |
 
 **Exit criterion:** V1–V4 confirmed; V5–V11 have a verification hook in later phases.
 
@@ -418,10 +419,21 @@ Compose addition:
     restart: unless-stopped
 ```
 
+**Engine benchmark (2026-10-20, VPS, datacenter egress, one run per site)** — basis for D19:
+
+| Engine | Image | Peak RAM/page | Amazon | Hulu | Netflix | bot.sannysoft.com |
+|---|---|---|---|---|---|---|
+| curl_cffi 0.16.3 (impersonate chrome) | 274 MB | ~20 MB | WAF 202 (empty) | page | page (pre-JS) | – |
+| Lightpanda 1.0.1 | 266 MB | 7–133 MB | page | **JS error** | page | 6 failed |
+| chromium-headless-shell 155 (Debian) | 919 MB | 74–503 MB | **bot interstitial** | page | page | 9 failed |
+| chromium 155 `--headless=new` (Debian) | 1.15 GB | 300–600 MB | page | page | page | 1 failed (WebGL renderer) |
+
+All engines saw Reddit's datacenter block (HTTP 403).
+
 **Probe procedure** (`POST /probe {server, url}`):
 1. Swap `wg-probe` peer to `server` (never the active server; controller enforces).
 2. Wait for handshake ≤ 5 s; verify exit via cdn-cgi/trace: `ip` ≠ Oracle IP and `loc` matches. Abort the probe if not.
-3. Fresh Playwright browser context (persistent Chromium process, new context per probe; realistic UA/locale/timezone for the server country), `goto(url, wait_until="domcontentloaded")`, then wait up to 10 s for `networkidle`. 20 s hard cap.
+3. Tier 1 `curl_cffi` fetch; if inconclusive or the site is marked JS-dependent, tier 2: fresh browser context in a persistent `chromium --headless=new` process over CDP (new context per probe; realistic UA/locale/timezone for the server country), `goto(url, wait_until="domcontentloaded")`, then wait up to 10 s for `networkidle`. 20 s hard cap.
 4. Classify (`classify.py`), return `{server, exit_ip, exit_loc, outcome, signals[], http_status, final_url, title, elapsed_ms}`.
 
 **Classifier** (ordered; first match wins for outcome, but collect all signals):
