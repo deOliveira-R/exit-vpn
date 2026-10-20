@@ -35,6 +35,7 @@ class HealthTracker:
         """Record one cycle. Returns True when failover should start."""
         if ok:
             self.strikes = 0
+            self.grace_until = 0.0  # warm-up ends at the first passing cycle
             self._set(Health.HEALTHY, now)
             return False
         if now < self.grace_until:

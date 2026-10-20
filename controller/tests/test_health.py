@@ -39,3 +39,12 @@ def test_backoff():
     assert [b.step() for _ in range(6)] == [30, 60, 120, 240, 300, 300]
     b.reset()
     assert b.step() == 30
+
+
+def test_grace_ends_at_first_success():
+    """After a switch, a server that passed once and then dies is caught at once."""
+    t = HealthTracker(3, 20)
+    t.start_grace(100)
+    t.feed(True, 104)
+    t.feed(False, 105); t.feed(False, 110)
+    assert t.feed(False, 115) is True
