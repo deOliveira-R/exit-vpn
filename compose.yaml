@@ -18,10 +18,10 @@ services:
     environment:
       EXIT_VPN_CONF: /secrets/${EXIT_VPN_CONF:-proton_a.conf}
       WG_MTU: ${WG_MTU:-1420}
-    # Only what routing, WireGuard and (Phase 2) tailscaled need. s6-overlay as root
-    # needs CHOWN/FOWNER/SETUID/SETGID/KILL/DAC_OVERRIDE for its own setup.
+    # Only what routing, WireGuard and (Phase 2) tailscaled need; s6-overlay runs
+    # without further capabilities (tested).
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, NET_RAW, CHOWN, FOWNER, SETUID, SETGID, KILL, DAC_OVERRIDE]
+    cap_add: [NET_ADMIN, NET_RAW]
     security_opt: [no-new-privileges:true]
     devices: [/dev/net/tun:/dev/net/tun]
     # Namespaced: these change only the container's network namespace, not the host.
