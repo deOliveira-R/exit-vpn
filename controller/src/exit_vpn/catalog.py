@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .state import atomic_write
 
 MIN_SERVERS = 50  # a smaller list means a broken or truncated download
+_CODE = re.compile(r"^(?:node-)?([a-z]{2})-")
 
 
 class CatalogError(ValueError):
@@ -89,6 +92,7 @@ class Catalog:
         self._by_name: dict[str, Server] = {}
         for s in servers:  # several physical servers can share a logical name
             self._by_name.setdefault(s.name.lower(), s)
+        self._codes: dict[str, str] | None = None
 
     def __len__(self) -> int:
         return len(self.servers)
@@ -99,6 +103,18 @@ class Catalog:
     def by_name(self, name: str) -> list[Server]:
         n = name.lower()
         return [s for s in self.servers if s.name.lower() == n or s.hostname.lower() == n]
+
+    def country_for_code(self, code: str) -> str | None:
+        """Catalog country name for an ISO code (e.g. Cloudflare's loc=US), voted from
+        hostnames like us-ca-01 / node-ch-03 (Proton's scheme; None if unknown)."""
+        if self._codes is None:
+            votes: dict[str, Counter] = {}
+            for srv in self.servers:
+                m = _CODE.match(srv.hostname)
+                if m and not srv.secure_core:
+                    votes.setdefault(m.group(1), Counter())[srv.country] += 1
+            self._codes = {k: v.most_common(1)[0][0] for k, v in votes.items()}
+        return self._codes.get(code.lower())
 
     def countries(self) -> list[str]:
         return sorted({s.country for s in self.servers})

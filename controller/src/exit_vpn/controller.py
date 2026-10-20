@@ -116,7 +116,8 @@ class Controller:
             self.last_ok_at = self.clock()
             c = self.state.current
             if c and not c.country and res.loc:
-                c.country = res.loc  # unknown server: at least the exit country code
+                # a server not in the catalog: at least its country, from the exit
+                c.country = self.catalog.country_for_code(res.loc) or res.loc
         return res
 
     async def health_step(self) -> None:

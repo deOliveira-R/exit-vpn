@@ -170,3 +170,12 @@ async def test_init_prefers_config_name_over_stale_state(setup):
     ctl.state.current = Current("SE-US#1", "cfgkey=", "203.0.113.9:51820", "United States", "", 5.0)
     await ctl.init()
     assert ctl.state.current.name == "US-CA#556" and ctl.state.current.since == 5.0
+
+
+async def test_unknown_server_gets_catalog_country_from_exit(setup):
+    ctl, wg, _, _, _ = setup
+    wg.peer = Peer("cfgkey=", "203.0.113.9:51820", 0, 0, 0)
+    await ctl.init()
+    await ctl.health_step()  # FakeProber reports loc=US
+    assert ctl.state.current.country == "United States"
+    assert ctl.candidates("country"), "rotate within the country must find candidates"

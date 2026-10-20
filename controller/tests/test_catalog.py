@@ -68,3 +68,9 @@ def test_shared_pubkey_identity_is_pubkey_and_ip(raw_catalog):
     cat = Catalog(parse_gluetun(d))
     assert cat.by_peer(regular["wgpubkey"], regular["ips"][0]).name == regular["server_name"]
     assert cat.by_peer(regular["wgpubkey"], "198.51.100.7").name == "SE-US#99"
+
+
+def test_country_for_code(catalog):
+    assert catalog.country_for_code("US") == "United States"
+    assert catalog.country_for_code("ch") == "Switzerland"
+    assert catalog.country_for_code("zz") is None
