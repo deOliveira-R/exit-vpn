@@ -34,7 +34,10 @@ services:
     dns:
       - "${VPN_DNS:-10.2.0.1}"
     read_only: true
-    tmpfs: [/run, /tmp]
+    # s6-overlay executes from /run, so it must not be noexec
+    tmpfs:
+      - /run:exec,mode=755
+      - /tmp
     volumes:
       - ./secrets:/secrets:ro
       - exit-state:/var/lib/exit-vpn
