@@ -3,6 +3,9 @@
 set -eu
 
 : "${EXIT_VPN_CONF:?EXIT_VPN_CONF must point to the WireGuard config}"
+# An uploaded key (slot a, PLAN Phase 3b) takes precedence over the bootstrap config
+KEY_DIR_A=${KEY_DIR_A:-/keys/a}
+if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
 WG_IF=${WG_IF:-wg0}
 EXIT_TABLE=${EXIT_TABLE:-100}
 STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}

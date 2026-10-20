@@ -17,7 +17,9 @@ from .catalog import Catalog, CatalogError, parse_gluetun
 from .config import Settings
 from .controller import Controller
 from .finder import Finder, ProberClient
+from .keys import KeyStore
 from .probes import Prober
+from .slots import SlotManager
 from .state import StateStore
 from .wg import WireGuard
 from .wgconf import parse as parse_conf
@@ -83,7 +85,8 @@ async def amain() -> None:
     s = Settings.from_env()
     if not s.owners:
         raise SystemExit("EXIT_OWNERS is empty: nobody could use the API")
-    conf = parse_conf(s.vpn_conf)
+    store = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf})
+    conf = parse_conf(store.path("a") or s.vpn_conf)   # init-wg used the same file
     catalog = await load_catalog(s)
     prober = Prober(conf.address, conf.dns, s.probe_urls, s.dns_probe_name,
                     s.probe_timeout, s.dns_timeout, s.handshake_max_age)
@@ -92,11 +95,12 @@ async def amain() -> None:
     await ctl.init()
     ip = await tailnet_ip(s)
     forbid: list[str] = []
-    finder = None
+    finder, client = None, None
     if os.environ.get("PROBER_URL"):
-        finder = Finder(ProberClient(os.environ["PROBER_URL"]), catalog.code_for_country,
-                        lambda: list(forbid))
-    app = create_app(ctl, Whois(s.ts_socket), s.owners, finder)
+        client = ProberClient(os.environ["PROBER_URL"])
+        finder = Finder(client, catalog.code_for_country, lambda: list(forbid))
+    slots = SlotManager(ctl, store, client, catalog.code_for_country, lambda: list(forbid))
+    app = create_app(ctl, Whois(s.ts_socket), s.owners, finder, slots)
     server = uvicorn.Server(uvicorn.Config(app, host=ip, port=s.api_port, lifespan="off",
                                            access_log=False, log_level="warning"))
     log.info("API on http://%s:%d (owners: %s)", ip, s.api_port, ", ".join(s.owners))

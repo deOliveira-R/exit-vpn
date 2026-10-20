@@ -10,7 +10,7 @@ import os
 import time
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .classify import CHALLENGE, ERROR, INCONCLUSIVE, SUSPICIOUS, classify
@@ -57,6 +57,16 @@ def create_app(tunnel: ProbeTunnel | None = None, browser: Browser | None = None
     @app.get("/healthz")
     async def healthz():
         return {"ok": True, "busy": lock.locked(), "browser": browser.version or None}
+
+    @app.post("/key/reload")
+    async def reload_key():
+        async with lock:   # not while a probe uses the tunnel
+            try:
+                await tunnel.reload_key()
+            except (TunnelError, OSError) as e:
+                raise HTTPException(409, f"key reload failed: {e}") from None
+        log.info("wg-probe key reloaded")
+        return {"ok": True}
 
     @app.post("/probe")
     async def probe(req: ProbeRequest):

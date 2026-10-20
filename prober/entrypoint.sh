@@ -4,6 +4,9 @@
 # out of eth0 are wg-probe's own (marked) WireGuard packets and replies to exitnet.
 set -eu
 CONF=${PROBE_VPN_CONF:-/secrets/proton_b.conf}
+# An uploaded key (slot b, PLAN Phase 3b) takes precedence; POST /key/reload re-reads it
+KEY_DIR=${KEY_DIR_B:-/keys/b}
+if [ -r "$KEY_DIR/wg.conf" ]; then CONF=$KEY_DIR/wg.conf; fi
 IF=wg-probe; TABLE=200; MARK=0xca6c
 EXITNET=${EXITNET_SUBNET:?}; EXIT_IP=${EXIT_IP:?}
 log() { echo "exit-vpn[prober-init]: $*" >&2; }

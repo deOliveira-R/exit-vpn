@@ -33,8 +33,12 @@ def _first_ipv4(values: str) -> str:
 
 
 def parse(path: Path) -> WgConf:
+    return parse_text(path.read_text(), str(path))
+
+
+def parse_text(text: str, where: str = "config") -> WgConf:
     section, vals, options, peer_name = "", {}, {}, ""
-    for raw in path.read_text().splitlines():
+    for raw in text.splitlines():
         line = raw.strip()
         if line.startswith("["):
             section = line.strip("[]").lower()
@@ -57,5 +61,5 @@ def parse(path: Path) -> WgConf:
         peer_endpoint=vals.get("peer.endpoint", ""),
         peer_name=peer_name, options=options)
     if not (conf.address and conf.dns and conf.peer_pubkey and conf.peer_endpoint):
-        raise ValueError(f"{path}: missing IPv4 Address/DNS or [Peer] PublicKey/Endpoint")
+        raise ValueError(f"{where}: missing IPv4 Address/DNS or [Peer] PublicKey/Endpoint")
     return conf

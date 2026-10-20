@@ -19,10 +19,11 @@ class Peer:
     tx: int
 
 
-async def _run(*args: str) -> str:
+async def _run(*args: str, stdin: str | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    out, err = await proc.communicate()
+        *args, stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, err = await proc.communicate(stdin.encode() if stdin is not None else None)
     if proc.returncode != 0:
         raise WgError(f"{' '.join(args[:3])}...: {err.decode().strip()}")
     return out.decode()
@@ -54,3 +55,11 @@ class WireGuard:
         args += ["peer", pubkey, "endpoint", endpoint,
                  "allowed-ips", "0.0.0.0/0,::/0", "persistent-keepalive", "25"]
         await _run(*args)
+
+    async def set_private_key(self, private_key: str) -> None:
+        """Replace the interface key; peers stay (they re-handshake). Via stdin, never argv."""
+        await _run("wg", "set", self.ifname, "private-key", "/dev/stdin", stdin=private_key + "\n")
+
+
+async def public_key(private_key: str) -> str:
+    return (await _run("wg", "pubkey", stdin=private_key + "\n")).strip()

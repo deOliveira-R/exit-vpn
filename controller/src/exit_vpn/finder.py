@@ -49,6 +49,13 @@ class ProberClient:
             r.raise_for_status()
             return r.json()
 
+    async def reload_key(self) -> dict:
+        """The prober re-reads its key (slot b) and sets it on wg-probe."""
+        async with httpx.AsyncClient(timeout=self.timeout) as c:
+            r = await c.post(f"{self.base_url}/key/reload")
+            r.raise_for_status()
+            return r.json()
+
 
 class Finder:
     def __init__(self, client: ProberClient, code_for: callable, forbid_ips: callable):

@@ -7,8 +7,9 @@ import json
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from urllib.parse import urlsplit
 
@@ -16,6 +17,8 @@ from .auth import Whois, decide
 from .controller import Controller, SwitchError
 from .failover import find_candidates
 from .finder import Finder
+from .keys import MAX_CONF_BYTES, KeyRejected
+from .slots import KeyFailed, SlotManager
 
 
 class RotateBody(BaseModel):
@@ -48,10 +51,34 @@ class PrefsBody(BaseModel):
     allow_free: bool | None = None
 
 
+class KeyMeta(BaseModel):
+    """Public facts the helper knows about a key (never the key itself)."""
+    model_config = ConfigDict(extra="ignore")
+    provider: str | None = Field(None, max_length=40)
+    cert_id: str | None = Field(None, max_length=200)      # provider's certificate id/fingerprint
+    device_name: str | None = Field(None, max_length=100)
+    created_at: int | None = None
+    expires_at: int | None = None
+    options: dict[str, str | int | bool] = {}
+    client_public_key: str | None = Field(None, max_length=200)  # e.g. Proton's Ed25519 key, for renew
+    wg_public_key: str | None = Field(None, max_length=60)       # which key these facts describe
+
+
+class KeyBody(BaseModel):
+    conf: str = Field(max_length=MAX_CONF_BYTES)
+    meta: KeyMeta = KeyMeta()
+
+
 def create_app(ctl: Controller, whois: Whois, owners: list[str],
-               finder: Finder | None = None) -> FastAPI:
+               finder: Finder | None = None, slots: SlotManager | None = None) -> FastAPI:
     app = FastAPI(title="exit-vpn controller", docs_url=None, redoc_url=None,
                   openapi_url=None)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid(_request: Request, exc: RequestValidationError):
+        # FastAPI's default echoes the offending input, which for /v1/keys is a private key
+        return JSONResponse(status_code=422, content={"detail": [
+            {"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")} for e in exc.errors()]})
 
     async def owner(request: Request) -> str:
         client = request.client
@@ -163,6 +190,32 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
         except SwitchError as e:
             raise HTTPException(409, str(e)) from None
         return ctl.status()
+
+    @app.get("/v1/keys")
+    async def get_keys(_: str = Depends(owner)):
+        if not slots:
+            raise HTTPException(503, "key slots not configured")
+        return {"slots": await slots.views()}
+
+    @app.put("/v1/keys/{slot}")
+    async def put_key(slot: str, body: KeyBody, who: str = Depends(owner)):
+        if not slots:
+            raise HTTPException(503, "key slots not configured")
+        try:
+            return await slots.put(slot, body.conf, body.meta.model_dump(exclude_none=True), who)
+        except KeyRejected as e:
+            raise HTTPException(400, str(e)) from None
+        except KeyFailed as e:
+            raise HTTPException(409, str(e)) from None
+
+    @app.put("/v1/keys/{slot}/meta")
+    async def put_key_meta(slot: str, body: KeyMeta, who: str = Depends(owner)):
+        if not slots:
+            raise HTTPException(503, "key slots not configured")
+        try:
+            return await slots.put_meta(slot, body.model_dump(exclude_none=True), who)
+        except KeyRejected as e:
+            raise HTTPException(400, str(e)) from None
 
     @app.get("/v1/events")
     async def events(request: Request, _: str = Depends(owner)):

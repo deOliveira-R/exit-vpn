@@ -1,0 +1,30 @@
+[project]
+name = "exitctl"
+version = "0.1.0"
+description = "exit-vpn helper (Mac): VPN provider adapters + the exit node's key slots (PLAN Phase 3b, D20)"
+requires-python = ">=3.13"
+dependencies = [
+    # Proton's SRP/2FA session library (GPLv3). From git, pinned: the PyPI name
+    # 'proton-core' is an unrelated placeholder. Its modulus check needs `gpg` on PATH.
+    "proton-core @ git+https://github.com/ProtonVPN/python-proton-core@9bd4662ddde2d439e4e8c900f0431e23958bd512",
+    "cryptography>=44",
+    "httpx>=0.28",
+    "keyring>=25",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+exitctl = "exitctl.cli:main"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

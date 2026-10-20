@@ -37,6 +37,12 @@ class Settings:
     strikes: int = 3
     # A fresh session drops TCP for 4-14 s (PLAN Phase 0 results)
     warmup: float = 20.0
+    # A new key may also need its registration to reach the server
+    key_warmup: float = 45.0
+    key_dirs: dict[str, Path] = field(
+        default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b")})
+    probe_conf: Path | None = None       # slot b's bootstrap config (the prober's)
+    key_expiry_warn_days: float = 14.0
     handshake_max_age: float = 180.0
     blacklist_ttl: float = 30 * 60
     probe_timeout: float = 3.0
@@ -76,11 +82,17 @@ class Settings:
             "HEALTH_INTERVAL": ("health_interval", float),
             "HEALTH_STRIKES": ("strikes", int),
             "WARMUP_SECONDS": ("warmup", float),
+            "KEY_WARMUP_SECONDS": ("key_warmup", float),
             "BLACKLIST_SECONDS": ("blacklist_ttl", float),
         }
         for var, (name, conv) in simple.items():
             if e.get(var):
                 kw[name] = conv(e[var])
+        if e.get("PROBE_VPN_CONF"):
+            kw["probe_conf"] = Path(e["PROBE_VPN_CONF"])
+        if e.get("KEY_DIR_A") or e.get("KEY_DIR_B"):
+            kw["key_dirs"] = {"a": Path(e.get("KEY_DIR_A", "/keys/a")),
+                              "b": Path(e.get("KEY_DIR_B", "/keys/b"))}
         if e.get("EXIT_COUNTRIES"):
             kw["countries"] = _list(e["EXIT_COUNTRIES"])
         if e.get("EXIT_OWNERS"):

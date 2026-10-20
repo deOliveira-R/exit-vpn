@@ -22,6 +22,7 @@ from .health import Backoff, Health, HealthTracker
 from .probes import CycleResult, Prober
 from .state import Current, State, StateStore
 from .wg import WireGuard, WgError
+from .keys import KeyFile
 from .wgconf import WgConf
 
 log = logging.getLogger("exit_vpn")
@@ -47,6 +48,9 @@ class Controller:
         self.last: CycleResult | None = None
         self.last_ok_at = 0.0
         self._subscribers: set[asyncio.Queue] = set()
+        # The private key wg0 runs with (slot a); set by __main__ from the key store
+        self.conf_key: Callable[[], str] = lambda: ""
+        self.warnings: Callable[[], list[str]] = lambda: []
 
     # Events -----------------------------------------------------------------------
     def subscribe(self) -> asyncio.Queue:
@@ -163,6 +167,20 @@ class Controller:
             await asyncio.sleep(max(0.5, self.s.health_interval - (self.clock() - started)))
 
     # Switching ----------------------------------------------------------------------
+    async def _healthy_within(self, seconds: float) -> bool:
+        """After a tunnel change: wait up to `seconds` for one fully passing cycle."""
+        now = self.clock()
+        self.tracker.start_grace(now)
+        deadline = now + seconds
+        while True:
+            res = await self.check()
+            if res.ok:
+                self.tracker.feed(True, self.clock())
+                return True
+            if self.clock() >= deadline:
+                return False
+            await asyncio.sleep(1.0)
+
     async def _try(self, srv: Server) -> bool:
         """Swap to `srv` and wait up to the warm-up for one fully passing cycle."""
         endpoint = srv.endpoint(self.s.wg_port)
@@ -171,20 +189,30 @@ class Controller:
         except WgError as e:
             self._event("swap_error", server=srv.name, error=str(e))
             return False
-        now = self.clock()
-        self.tracker.start_grace(now)
-        deadline = now + self.s.warmup
-        while True:
-            res = await self.check()
-            if res.ok:
-                self.state.current = Current(srv.name, srv.pubkey, endpoint,
-                                             srv.country, srv.city, self.clock())
-                self.tracker.feed(True, self.clock())
-                self._save()
+        if not await self._healthy_within(self.s.warmup):
+            return False
+        self.state.current = Current(srv.name, srv.pubkey, endpoint,
+                                     srv.country, srv.city, self.clock())
+        self._save()
+        return True
+
+    async def replace_key(self, key: KeyFile, commit: Callable[[], None], reason: str) -> bool:
+        """Swap wg0's private key (same peer); keep it only if traffic passes within the
+        key warm-up, else put the old key back. `commit` persists the new key."""
+        async with self.lock:
+            old = self.conf_key()
+            t0 = self.clock()
+            await self.wg.set_private_key(key.private_key)
+            if await self._healthy_within(self.s.key_warmup):
+                commit()
+                self.conf = key.conf
+                self._event("key_replaced", slot="a", reason=reason,
+                            seconds=round(self.clock() - t0, 1))
                 return True
-            if self.clock() >= deadline:
-                return False
-            await asyncio.sleep(1.0)
+            await self.wg.set_private_key(old)
+            back = await self._healthy_within(self.s.warmup)
+            self._event("key_rejected", slot="a", reason=reason, restored_healthy=back)
+            return False
 
     def _blacklist(self, pubkey: str) -> None:
         self.state.blacklist_add(pubkey, self.clock() + self.s.blacklist_ttl)
@@ -258,6 +286,7 @@ class Controller:
             "country": c.country if c else None,
             "city": c.city if c else None,
             "endpoint": c.endpoint if c else None,
+            "pubkey": c.pubkey if c else None,
             "since": c.since if c else None,
             "health": str(self.tracker.state),
             "health_since": self.tracker.since,
@@ -266,6 +295,7 @@ class Controller:
             "handshake_age": round(r.handshake_age, 1) if r and r.handshake_age is not None else None,
             "last_ok_age": round(now - self.last_ok_at, 1) if self.last_ok_at else None,
             "errors": r.errors if r else [],
+            "warnings": self.warnings(),
             "prefs": vars(self.state.prefs),
             "provider": self.s.provider,
             "key_options": self.conf.options,
