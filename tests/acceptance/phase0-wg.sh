@@ -49,14 +49,14 @@ cat > "$work/tun.sh" <<'SH'
 set -eu
 apk add -q --no-cache wireguard-tools-wg iproute2 curl >/dev/null
 # A fresh Proton session drops TCP data for ~4 s while the server probes the path
-# (growing ICMP echoes from 10.2.0.1), so retry for up to 15 s and report the delay.
+# (growing ICMP echoes from 10.2.0.1), so retry for up to 20 s and report the delay.
 trace() {
   t0=$(date +%s)
-  while [ $(( $(date +%s) - t0 )) -lt 15 ]; do
+  while [ $(( $(date +%s) - t0 )) -lt 20 ]; do
     r=$(curl -s --max-time 3 --interface wg0 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc)=' | tr '\n' ' ')
     [ -n "$r" ] && { echo "$r(after $(( $(date +%s) - t0 ))s)"; return; }
   done
-  echo "FAIL (no traffic within 15s)"
+  echo "FAIL (no traffic within 20s)"
 }
 peer() { wg set wg0 peer "$2" endpoint "$1:51820" allowed-ips 0.0.0.0/0 persistent-keepalive 25; }
 ip link add wg0 type wireguard

@@ -218,7 +218,8 @@ exit-proton/
 - **Handshake ≠ authorised:** handshakes complete even for unregistered keys (see Phase 3 health note).
 - **Rule 120 is required:** without `to 10.2.0.1 lookup 100`, DNS queries to 10.2.0.1 leave via eth0 (observed: `dig @10.2.0.1` timed out via the underlay).
 - **Catalog staleness:** the server Proton assigned to config A today (US-CA#556) is absent from gluetun-servers (2026-08-06). Failover tolerates dead entries; Phase 3b's helper can also fetch the live server list with the Proton session and push it to the controller (preferred catalog when present; gluetun-servers as fallback).
-- **`Bouncing` label:** key A (created for US-CA#556) works on other servers; the label does not restrict use (open question 7 closed).
+- **`Bouncing` label:** key A (created for US-CA#556) works on other servers; the label does not restrict use (open question 7 closed). It appears on regular configs too, so it is not Secure Core specific.
+- **Secure Core needs no special key:** key A on CH-US#3, IS-US#1, SE-US#1 entered via CH/IS/SE and exited with US IPs. Warm-up on the IS route was 14 s. → Secure Core is an opt-in lever (`features.secure_core` in prefs, default off), selected purely by catalog entry.
 - Configs A, B (US) and spare C are in `/opt/exit-node/secrets/proton_{a,b,c}.conf` (root, 0600), all NetShield 0 / Moderate NAT off / NAT-PMP off / VPN Accelerator on.
 
 ### Phase 1 — Data plane container (no Tailscale yet)
@@ -304,7 +305,7 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 **Catalog (`catalog.py`)**
 - Fetch gluetun `servers.json` (pin to a commit or release tag; refresh daily; keep last-good copy in `/var/lib/exit-proton/catalog.json`).
 - Normalize to `Server{name, country, city, endpoint_ip, wg_pubkey, features{secure_core, tor, p2p, streaming}}`.
-- Exclude secure_core and tor by default.
+- Exclude secure_core and tor by default; secure_core can be enabled via prefs (works with any key, Phase 0).
 - Optional later: Proton logicals API for load/score; must not be a hard dependency.
 
 **Tunnel ops (`wg.py`)**
@@ -321,7 +322,7 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 
 **Failover policy (`failover.py`)**
 - Candidates: same city → same country → preference list countries; exclude servers that failed in the last 30 min; exclude secure_core/tor; shuffle within tier to spread load.
-- For each candidate (max 5 per tier): swap peer, allow ≤ 15 s warm-up (Phase 0 finding) for one passing probe cycle; on success persist state; on failure blacklist and continue.
+- For each candidate (max 5 per tier): swap peer, allow ≤ 20 s warm-up (Phase 0 finding; up to 14 s seen on Secure Core) for one passing probe cycle; on success persist state; on failure blacklist and continue.
 - No automatic fail-back. Exponential backoff in `DEGRADED` (retry every 30 s → 5 min).
 - Pure-function core (`choose_candidates(catalog, state, prefs, now)`) with unit tests.
 
