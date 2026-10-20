@@ -5,13 +5,13 @@ include "/run/exit-vpn/defines.nft"
 table inet killswitch
 delete table inet killswitch
 table inet killswitch {
-  chain fwd {
+  chain forward {
     type filter hook forward priority -10; policy accept;
     # Exit traffic may only leave through the tunnel. A drop here is final, whatever
     # tailscaled's own ts-forward chains accept.
     iifname "tailscale0" oifname != $WG_IF drop
   }
-  chain out {
+  chain output {
     type filter hook output priority -10; policy accept;
     # The VPN's DNS server must never be asked over the underlay.
     ip daddr $VPN_DNS oifname != $WG_IF drop
@@ -21,7 +21,7 @@ table inet killswitch {
 table ip nat_exit
 delete table ip nat_exit
 table ip nat_exit {
-  chain post {
+  chain postrouting {
     type nat hook postrouting priority 100; policy accept;
     oifname $WG_IF masquerade
   }
@@ -30,7 +30,7 @@ table ip nat_exit {
 table inet mss
 delete table inet mss
 table inet mss {
-  chain fwd {
+  chain forward {
     type filter hook forward priority 0; policy accept;
     oifname $WG_IF tcp flags syn tcp option maxseg size set rt mtu
   }
