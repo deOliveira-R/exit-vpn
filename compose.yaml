@@ -60,7 +60,8 @@ services:
       - /run:exec,mode=755
       - /tmp
     volumes:
-      - ./secrets:/secrets:ro
+      # rw: accepted keys are mirrored to secrets/<provider>_<slot>.conf (PLAN Phase 3b)
+      - ./secrets:/secrets
       # Key slots uploaded via PUT /v1/keys (PLAN Phase 3b); empty = use secrets/
       - keys-a:/keys/a
       - keys-b:/keys/b

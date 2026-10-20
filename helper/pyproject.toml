@@ -2,6 +2,7 @@
 name = "exitctl"
 version = "0.1.0"
 description = "exit-vpn helper (Mac): VPN provider adapters + the exit node's key slots (PLAN Phase 3b, D20)"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     # Proton's SRP/2FA session library (GPLv3). From git, pinned: the PyPI name
@@ -19,7 +20,7 @@ test = ["pytest>=8", "pytest-asyncio>=0.24"]
 exitctl = "exitctl.cli:main"
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

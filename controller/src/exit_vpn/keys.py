@@ -2,8 +2,9 @@
 
 An uploaded key lives in its slot directory (a named volume) as `wg.conf` (0600) plus
 `meta.json` (public facts from the provider: certificate id, expiry, options). While a
-slot is empty, the bootstrap config from `secrets/` is used. The previous uploaded
-config is kept as `wg.conf.prev` for one rollback. Private keys are only ever read
+slot is empty, the bootstrap config from `secrets/` is used. Every accepted key is also
+mirrored to that bootstrap file, so the fallback is never a dead key (a rotation deletes
+the old key's certificate). The previous uploaded config is kept as `wg.conf.prev`. Private keys are only ever read
 from these files and passed on via stdin; they never appear in responses or logs.
 """
 
@@ -12,6 +13,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -20,6 +22,7 @@ from pathlib import Path
 from .state import atomic_write
 from .wgconf import WgConf, parse_text
 
+log = logging.getLogger("exit_vpn")
 SLOTS = ("a", "b")
 CONF, PREV, META = "wg.conf", "wg.conf.prev", "meta.json"
 MAX_CONF_BYTES = 8192
@@ -106,6 +109,16 @@ class KeyStore:
             os.replace(d / CONF, d / PREV)
         atomic_write(d / CONF, key.text if key.text.endswith("\n") else key.text + "\n")
         self.write_meta(slot, meta)
+        self._mirror(slot, key.text)
+
+    def _mirror(self, slot: str, text: str) -> None:
+        b = self.bootstrap.get(slot)
+        if not b:
+            return
+        try:
+            atomic_write(b, text if text.endswith("\n") else text + "\n")
+        except OSError as e:   # e.g. secrets/ mounted read-only: the fallback goes stale
+            log.warning("could not mirror slot %s key to %s: %s", slot, b, e)
 
     def write_meta(self, slot: str, meta: dict) -> None:
         self.dirs[slot].mkdir(parents=True, exist_ok=True)
@@ -115,6 +128,8 @@ class KeyStore:
                 was_uploaded: bool) -> None:
         """Undo a `commit` (used for slot b, which is committed before it is tested)."""
         d = self.dirs[slot]
+        if previous:
+            self._mirror(slot, previous.text)
         if was_uploaded and previous:
             atomic_write(d / CONF, previous.text)
             self.write_meta(slot, previous_meta)

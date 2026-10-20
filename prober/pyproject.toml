@@ -2,6 +2,7 @@
 name = "exit-vpn-prober"
 version = "0.4.0"
 description = "exit-vpn prober: probe a URL through a given VPN server (two tiers, PLAN D19)"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = ["fastapi>=0.115", "uvicorn>=0.32", "curl_cffi>=0.16", "playwright>=1.64"]
 
@@ -9,7 +10,7 @@ dependencies = ["fastapi>=0.115", "uvicorn>=0.32", "curl_cffi>=0.16", "playwrigh
 test = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.28"]
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

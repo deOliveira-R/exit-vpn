@@ -224,3 +224,23 @@ async def test_meta_update_only_for_the_slots_key(env):
     # a new key makes the old facts irrelevant
     await slots.put("a", conf(new_key()), {"provider": "manual"}, "o@github")
     assert (await slots.view("a"))["meta"]["provider"] == "manual"
+
+
+async def test_accepted_keys_are_mirrored_to_bootstrap(env):
+    ctl, wg, store, slots, prober, _ = env
+    await ctl.init()
+    k = new_key()
+    await slots.put("a", conf(k), {}, "o@github")
+    assert k in store.bootstrap["a"].read_text()
+    kb = new_key()
+    await slots.put("b", conf(kb), {}, "o@github")
+    assert kb in store.bootstrap["b"].read_text()
+    bad = new_key()
+    prober.dead.add(bad)
+    with pytest.raises(KeyFailed):
+        await slots.put("b", conf(bad), {}, "o@github")
+    assert kb in store.bootstrap["b"].read_text()   # the mirror is rolled back too
+    wg.dead.add(bad)
+    with pytest.raises(KeyFailed):
+        await slots.put("a", conf(bad), {}, "o@github")
+    assert k in store.bootstrap["a"].read_text()    # never committed

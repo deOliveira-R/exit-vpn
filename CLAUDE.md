@@ -36,6 +36,12 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
 
 ## Conventions
 
+- Licence: MIT (`LICENSE`), chosen to stay compatible with GPLv2/GPLv3 and permissive code.
+  Third-party: `helper/` imports Proton's `python-proton-core` (GPLv3) as a dependency, not
+  vendored. Our source stays MIT; a *distributed bundle* that includes proton-core (e.g. a
+  packaged Phase 5 app) must be distributed under GPLv3 terms. Don't vendor GPL code into
+  the MIT tree.
+
 - One phase at a time; a phase is done when its acceptance tests pass on the VPS; then
   record a "Phase N results" block in PLAN.
 - Never commit secrets (`.env`, `secrets/`, keys) or site-specific values (IPs, tailnet
