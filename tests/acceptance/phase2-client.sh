@@ -28,7 +28,8 @@ for _ in $(seq 20); do t=$(trace 3); [ -n "$t" ] && [ "$t" != "$before" ] && bre
 t=$(trace)
 case "$t" in ""|*"ip=$oracle"*) bad "T1 egress via exit node: '$t'";; *) ok "T1 egress via exit node is a VPN IP: $t";; esac
 
-r=$(dig +short +time=3 +tries=1 whoami.akamai.net @100.100.100.100 | head -1)
+# The first lookup through a freshly selected exit node can time out: retry
+for _ in 1 2 3; do r=$(dig +short +time=3 +tries=1 whoami.akamai.net @100.100.100.100 | head -1); [ -n "$r" ] && break; done
 g=$(dig +short +time=3 +tries=1 TXT o-o.myaddr.l.google.com @ns1.google.com | tr -d '"' | head -1)
 if [ -n "$r" ] && [ "$r" != "$oracle" ] && [ -n "$g" ] && [ "$g" != "$oracle" ]; then
   ok "T3 DNS: resolver egress $r, direct-query egress $g (neither is the VPS)"
