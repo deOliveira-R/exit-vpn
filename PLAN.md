@@ -53,6 +53,7 @@ ProtonVPN-backed Tailscale exit node, hosted on the existing Oracle Always-Free 
 | D15 | Residential exits/allow-list via **app connectors** (Phase 6/7), as separate tailnet nodes | Per-domain routing that coexists with the Proton exit node; app connectors are on all plans |
 | D16 | **Provider-agnostic core, Proton as the first provider.** A `provider` module supplies: catalog source (gluetun-servers has the same schema for Mullvad, AirVPN, IVPN, …), tunnel address and DNS (Proton: `10.2.0.2/32`, `10.2.0.1`; other providers assign per key), and feature metadata. Routing, kill switch, health, failover and API never hard-code Proton values. Node name = `exit-<provider>` (`exit-proton`); repo/stack = `exit-vpn` | Someone else on the tailnet may use another VPN; also lets us switch providers without a redesign |
 | D17 | Proton **connection options are bound to the key**, not the config file: the dashboard registers the WireGuard public key with a signed certificate carrying `NetShieldLevel`, `SplitTCP` (VPN Accelerator), `RandomNAT` (off = Moderate NAT) and `PortForwarding` (NAT-PMP). The `# NetShield = 1` lines in the downloaded `.conf` are comments only. So one key keeps its options on every server, and changing an option means generating a new key. We store the full downloaded `.conf` (mode 600) and parse `PrivateKey` plus the option comments, so `/v1/status` can report them | Verified against Proton's open-source client (`python-proton-vpn-api-core`, `/vpn/v1/certificate`) and support docs |
+| D18 | **VPN credentials helper runs on the Mac, never on a server.** Proton configs are created, listed, rotated and deleted through Proton's internal API (the same calls the web dashboard makes: `POST/GET/DELETE vpn/v1/certificate`, `Mode: persistent`, `Features`), authenticated by a Proton session (SRP login + 2FA) kept in the macOS Keychain. Only the resulting WireGuard key reaches the VPS | A Proton session grants the whole Proton account (Mail, Drive), so it gets the same treatment as the policy-write token in D14. Undocumented API → the helper is a convenience; manual dashboard generation stays the fallback |
 
 ---
 
@@ -340,6 +341,27 @@ Acceptance:
 - **T11** API from fin-intel host (`curl http://exit-proton:8080/v1/status`) → blocked by ACL; from the Mac → 200.
 - Unit tests for catalog parsing (real fixture), candidate selection, health state machine (fake clock).
 
+### Phase 3b — VPN credentials helper (Mac) + key slots on the controller
+
+Goal: no more manual config generation; options (NetShield, VPN Accelerator, …) become levers we set.
+
+**Mac CLI `exitctl` (Python, later wrapped by the Phase 5 app)**
+- `exitctl proton login`: SRP login + 2FA via Proton's open-source `proton-vpn-api-core` (check its licence, GPLv3 expected, before vendoring/importing); session/refresh token in the Keychain (`keyring`). Never written to disk elsewhere, never sent to the VPS.
+- `exitctl proton create --slot a|b --netshield 0|1|2 --accelerator on|off [--moderate-nat] [--port-forward]`: generate Ed25519 key pair in memory → derive the X25519 WireGuard key → `POST vpn/v1/certificate {ClientPublicKey, Mode: "persistent", DeviceName: "exit-<slot>-<date>", Features}` → render the `.conf` in memory → upload it to the controller → record serial + expiry.
+- `exitctl proton list | delete <serial>`: show/delete certificates (`GET vpn/v1/certificate/all`, `DELETE vpn/v1/certificate`), flag certs that no slot uses.
+- `exitctl proton rotate --slot a`: create new → upload → controller swaps key → health passes → delete the old certificate. On failure, keep the old key and certificate.
+- The helper is provider-pluggable (D16): `exitctl <provider> …`; a provider without an API just accepts `exitctl <provider> import <file.conf>`.
+
+**Controller additions**
+- `PUT /v1/keys/{slot}` (body: `.conf`), owner-only via whois (D13). Validates, writes `secrets/<provider>_<slot>.conf` atomically (0600), hot-swaps with `wg set wg0 private-key` for slot a (prober reload for slot b), runs a health cycle, rolls back on failure. Keys never appear in responses or logs.
+- `GET /v1/keys`: per slot: provider, public-key fingerprint, options (parsed from the `#` comments), certificate expiry if the helper supplied it. No private material.
+- `/v1/status` warns when a certificate expires within 14 days.
+
+Acceptance:
+- **T16** `exitctl proton create --slot a --netshield 1` → new key live, Mac curl still shows a Proton IP; `dig` of a known malware test domain via the exit is blocked; old certificate still listed until `rotate` deletes it.
+- **T17** Upload a config with a bogus key → controller rolls back within one failover window; exit never leaks (T6-style curl loop).
+- **T18** Grep VPS filesystem, container logs and controller responses for the Proton session/refresh token → nothing.
+
 ### Phase 4 — Prober and "find a server for this URL"
 
 **Prober container**: own netns; `entrypoint.sh` sets up `wg-probe` with key B (`Table=off`, own table, `unreachable` fallback, nft drop of any non-wg-probe egress except to `exitnet` subnet and the current WireGuard endpoint). API on `exitnet:9000` only (not published).
@@ -488,3 +510,5 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 3. Default country preference order for the exit?
 4. Proton NetShield on the generated keys: off or malware-only?
 5. ~~Repo location~~ → GitHub.
+6. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
+7. Proton certificates carry `Bouncing = <label>` (the physical server picked at creation). Phase 0 V1 shows whether it matters when the key is used on other servers.
