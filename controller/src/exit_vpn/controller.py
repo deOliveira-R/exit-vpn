@@ -261,6 +261,13 @@ class Controller:
             self._save()
             raise SwitchError(f"none of {min(len(candidates), MAX_SWITCH_TRIES)} candidates worked")
 
+    async def replace_catalog(self, catalog: Catalog) -> None:
+        async with self.lock:
+            old = len(self.catalog)
+            self.catalog = catalog
+            catalog.save(self.s.catalog_file)
+        self._event("catalog", source=catalog.source, servers=len(catalog), before=old)
+
     def candidates(self, scope: str) -> list[Server]:
         self.state.prune(self.clock())
         return choose_candidates(self.catalog.servers, self.current_server(), self.state.prefs,
@@ -277,6 +284,13 @@ class Controller:
                 and not self.state.blacklisted(s.pubkey, self.clock())]
         self.rng.shuffle(pool)
         return pool
+
+    def _catalog_warnings(self, now: float) -> list[str]:
+        cat = self.catalog
+        if cat.pushed and now - cat.fetched_at > self.s.pushed_catalog_max_age:
+            return [f"pushed catalog is {(now - cat.fetched_at) / 86400:.0f} days old "
+                    "(exitctl <provider> servers --push)"]
+        return []
 
     # Views --------------------------------------------------------------------------
     def status(self) -> dict:
@@ -295,12 +309,13 @@ class Controller:
             "handshake_age": round(r.handshake_age, 1) if r and r.handshake_age is not None else None,
             "last_ok_age": round(now - self.last_ok_at, 1) if self.last_ok_at else None,
             "errors": r.errors if r else [],
-            "warnings": self.warnings(),
+            "warnings": self.warnings() + self._catalog_warnings(now),
             "prefs": vars(self.state.prefs),
             "provider": self.s.provider,
             "key_options": self.conf.options,
             "catalog": {"servers": len(self.catalog), "source": self.catalog.source,
-                        "fetched_at": self.catalog.fetched_at},
+                        "pushed": self.catalog.pushed, "fetched_at": self.catalog.fetched_at,
+                        "enabled": sum(1 for s in self.catalog.servers if s.enabled)},
             "blacklisted": len([1 for v in self.state.blacklist.values() if v > now]),
             "events": self.state.events[-10:],
         }

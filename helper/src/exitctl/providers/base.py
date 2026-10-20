@@ -14,6 +14,7 @@ from ..wgkeys import Peer
 
 # Capabilities an adapter may declare
 LOGIN, CREATE, RENEW, LIST, DELETE, IMPORT = "login", "create", "renew", "list", "delete", "import"
+SERVERS = "servers"   # a live server catalog (PLAN 3b.2)
 
 
 class ProviderError(RuntimeError):
@@ -128,3 +129,9 @@ class Provider:
 
     async def delete_key(self, key_id: str) -> None:
         raise ProviderError(f"{self.name} cannot delete keys")
+
+    async def servers(self) -> list[dict]:
+        """Provider-neutral rows for the controller's PUT /v1/catalog: name, country_code,
+        city, hostname, ip, pubkey, secure_core, tor, free, stream, port_forward, load
+        (0-100 or None), enabled."""
+        raise ProviderError(f"{self.name} has no live server list")

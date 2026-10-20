@@ -18,8 +18,8 @@ import time
 from .. import keychain
 from ..wgkeys import (Ed25519Pair, Peer, b64, render_conf, wg_public_for_client_key,
                       x25519_public)
-from .base import (CREATE, DELETE, LIST, LOGIN, RENEW, NeedInput, NewKey, Option, Prompt,
-                   Provider, ProviderError)
+from .base import (CREATE, DELETE, LIST, LOGIN, RENEW, SERVERS, NeedInput, NewKey, Option,
+                   Prompt, Provider, ProviderError)
 
 KEYCHAIN_NAME = "proton:session"
 VERIFY_URL = "https://verify.proton.me/?methods={methods}&token={token}"
@@ -76,6 +76,31 @@ def cert_view(c: dict) -> dict:
             "options": values_from_features(c.get("Features") or {})}
 
 
+# vpn/v1/logicals `Features` bits (python-proton-vpn-api-core ServerFeatureEnum)
+F_SECURE_CORE, F_TOR, F_P2P, F_STREAMING = 1, 2, 4, 8
+
+
+def catalog_rows(logicals: list[dict]) -> list[dict]:
+    """One row per physical server (the WireGuard peer), deduplicated by (key, IP)."""
+    rows, seen = [], set()
+    for lg in logicals:
+        feat = int(lg.get("Features") or 0)
+        for ps in lg.get("Servers") or []:
+            key, ip = ps.get("X25519PublicKey"), ps.get("EntryIP")
+            if not key or not ip or (key, ip) in seen:
+                continue
+            seen.add((key, ip))
+            rows.append({
+                "name": lg.get("Name", ""), "country_code": lg.get("ExitCountry", ""),
+                "city": lg.get("City") or "", "hostname": ps.get("Domain", ""), "ip": ip,
+                "pubkey": key, "secure_core": bool(feat & F_SECURE_CORE),
+                "tor": bool(feat & F_TOR), "port_forward": bool(feat & F_P2P),
+                "stream": bool(feat & F_STREAMING), "free": int(lg.get("Tier", 2)) == 0,
+                "load": lg.get("Load"),
+                "enabled": lg.get("Status") == 1 and ps.get("Status") == 1})
+    return rows
+
+
 class _KeychainObserver:
     """proton-core calls this around every change of session state (login, refresh,
     logout); we mirror the state into the Keychain."""
@@ -93,7 +118,7 @@ class _KeychainObserver:
 class ProtonProvider(Provider):
     name = "proton"
     title = "Proton VPN"
-    capabilities = frozenset({LOGIN, CREATE, RENEW, LIST, DELETE})
+    capabilities = frozenset({LOGIN, CREATE, RENEW, LIST, DELETE, SERVERS})
     tunnel_address = "10.2.0.2/32"
     tunnel_dns = "10.2.0.1"
 
@@ -256,3 +281,7 @@ class ProtonProvider(Provider):
                             method="delete")
         if not r.get("Count"):
             raise ProviderError(f"no certificate {key_id} was deleted")
+
+    async def servers(self) -> list[dict]:
+        r = await self._api("/vpn/v1/logicals?SecureCoreFilter=all&WithState=true")
+        return catalog_rows(r.get("LogicalServers") or [])

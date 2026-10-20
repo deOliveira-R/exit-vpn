@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 from . import providers
 from .controller import Controller, ControllerError
-from .providers.base import IMPORT, NeedInput, Provider, ProviderError
+from .providers.base import IMPORT, SERVERS, NeedInput, Provider, ProviderError
 from .wgkeys import Peer
 
 
@@ -210,6 +210,12 @@ def build_parser() -> argparse.ArgumentParser:
         add_option_flags(r, p)
         n = cmds.add_parser("renew", parents=[common], help="extend a slot's certificate, same key")
         n.add_argument("--slot", required=True, choices=["a", "b"])
+        if SERVERS in p.capabilities:
+            sv = cmds.add_parser("servers", parents=[common],
+                                 help="the provider's live server list (--push: to the exit node)")
+            sv.add_argument("--push", action="store_true")
+            sv.add_argument("--revert", action="store_true",
+                            help="make the exit node go back to its pinned list")
     return ap
 
 
@@ -251,6 +257,17 @@ async def run(args) -> int:
         emit(args, await rotate(p, ctl, args.slot, overrides, args.keep_old, say))
     elif args.cmd == "renew":
         emit(args, await renew(p, ctl, args.slot, say))
+    elif args.cmd == "servers":
+        if args.revert:
+            emit(args, {"catalog": await ctl.delete_catalog()})
+            return 0
+        rows = await p.servers()
+        out = {"servers": len(rows), "enabled": sum(r["enabled"] for r in rows),
+               "countries": len({r["country_code"] for r in rows})}
+        if args.push:
+            say(f"pushing {len(rows)} servers to {ctl.base_url}")
+            out["catalog"] = await ctl.put_catalog(p.name, rows)
+        emit(args, out)
     return 0
 
 

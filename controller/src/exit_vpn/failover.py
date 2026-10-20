@@ -12,7 +12,7 @@ PER_TIER = 5
 
 
 def eligible(s: Server, prefs: Prefs) -> bool:
-    if s.tor:
+    if not s.enabled or s.tor:
         return False
     if s.secure_core and not prefs.secure_core:
         return False
@@ -21,9 +21,14 @@ def eligible(s: Server, prefs: Prefs) -> bool:
     return True
 
 
+def _load_bucket(s: Server) -> int:
+    return 2 if s.load is None else s.load // 20   # unknown load ranks like ~50 %
+
+
 def _tier(servers: Iterable[Server], rng: random.Random, limit: int) -> list[Server]:
     tier = list(servers)
-    rng.shuffle(tier)  # spread load within a tier
+    rng.shuffle(tier)  # spread load within a tier...
+    tier.sort(key=_load_bucket)  # ...but less loaded servers first (stable: random within a bucket)
     return tier[:limit]
 
 

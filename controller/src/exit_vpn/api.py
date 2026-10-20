@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from urllib.parse import urlsplit
 
 from .auth import Whois, decide
+from .catalog import PUSH_PREFIX, Catalog, CatalogError, parse_pushed
 from .controller import Controller, SwitchError
 from .failover import find_candidates
 from .finder import Finder
@@ -64,13 +66,36 @@ class KeyMeta(BaseModel):
     wg_public_key: str | None = Field(None, max_length=60)       # which key these facts describe
 
 
+class PushedServer(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(max_length=100)
+    country_code: str = Field(max_length=8)
+    city: str = Field("", max_length=100)
+    hostname: str = Field(max_length=200)
+    ip: str = Field(max_length=45)
+    pubkey: str = Field(max_length=60)
+    secure_core: bool = False
+    tor: bool = False
+    free: bool = False
+    stream: bool = False
+    port_forward: bool = False
+    load: int | None = Field(None, ge=0, le=100)
+    enabled: bool = True
+
+
+class CatalogBody(BaseModel):
+    provider: str = Field(max_length=40)
+    servers: list[PushedServer] = Field(max_length=20000)
+
+
 class KeyBody(BaseModel):
     conf: str = Field(max_length=MAX_CONF_BYTES)
     meta: KeyMeta = KeyMeta()
 
 
 def create_app(ctl: Controller, whois: Whois, owners: list[str],
-               finder: Finder | None = None, slots: SlotManager | None = None) -> FastAPI:
+               finder: Finder | None = None, slots: SlotManager | None = None,
+               pinned=None) -> FastAPI:
     app = FastAPI(title="exit-vpn controller", docs_url=None, redoc_url=None,
                   openapi_url=None)
 
@@ -190,6 +215,31 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
         except SwitchError as e:
             raise HTTPException(409, str(e)) from None
         return ctl.status()
+
+    @app.put("/v1/catalog")
+    async def put_catalog(body: CatalogBody, who: str = Depends(owner)):
+        if body.provider != ctl.s.provider:
+            raise HTTPException(400, f"this node's provider is {ctl.s.provider!r}")
+        try:
+            servers = parse_pushed([s.model_dump() for s in body.servers], ctl.s.hostname_suffix,
+                                   ctl.catalog.country_for_code, len(ctl.catalog))
+        except CatalogError as e:
+            raise HTTPException(400, str(e)) from None
+        await ctl.replace_catalog(Catalog(servers, f"{PUSH_PREFIX}{body.provider} api by {who}",
+                                          time.time()))
+        return ctl.status()["catalog"]
+
+    @app.delete("/v1/catalog")
+    async def delete_catalog(who: str = Depends(owner)):
+        if not pinned:
+            raise HTTPException(503, "no pinned catalog source")
+        try:
+            cat = await pinned()
+        except Exception as e:
+            raise HTTPException(502, f"pinned catalog download failed: {e}") from None
+        await ctl.replace_catalog(cat)
+        ctl._event("catalog_reverted", by=who)
+        return ctl.status()["catalog"]
 
     @app.get("/v1/keys")
     async def get_keys(_: str = Depends(owner)):

@@ -449,8 +449,26 @@ exitctl manual import --slot b file.conf     # providers without an API
 Changing a lever = `rotate` with that lever (D17: options are bound to the key); unspecified
 levers keep the slot's current values.
 
-Later (3b.2): `exitctl proton servers --push` → `PUT /v1/catalog`, a live catalog with load and
-status from Proton's `vpn/v1/logicals`, replacing the pinned gluetun list (D12) as the source.
+**3b.2 — live catalog from the provider's API**
+- `exitctl <provider> servers [--push]`: the adapter's optional `servers()` returns a
+  provider-neutral list (name, country code, city, hostname, IP, WireGuard public key, feature
+  flags, **load**, **enabled**). Proton: `GET vpn/v1/logicals?SecureCoreFilter=all&WithState=true`
+  (one row per WireGuard peer = (`X25519PublicKey`, `EntryIP`), deduplicated: 2,899 physical
+  entries are 1,077 distinct peers; `Features` bits 1 SC, 2 Tor, 4 P2P, 8 streaming; `Tier` 0 =
+  free; logical and physical `Status` = enabled). Same size as the pinned list (1,048), but
+  current, with load and maintenance state.
+- Controller `PUT /v1/catalog` (owner-only, D13): validates like the pinned path and more
+  (hostname suffix, global IPv4, 32-byte keys, at least `MIN_SERVERS` and at least 30 % of the
+  current catalog's size), resolves country codes to the catalog's names, swaps the catalog under
+  the switch lock, caches it. A pushed catalog wins over the pinned one at startup.
+  `DELETE /v1/catalog` reverts to the pinned list (undo). `/v1/status` warns when a pushed
+  catalog is older than 7 days.
+- Trust: D12 pinned the catalog because a tampered one could steer exit traffic. A pushed one is
+  as trustworthy as its path: Proton's API over proton-core's TLS-pinned session, uploaded by an
+  owner's device over the tailnet. The pinned list stays as the fallback.
+- Use of the new fields: disabled servers are never candidates; within a failover tier,
+  lower-load servers come first (buckets of 20 %, random within a bucket to spread load).
+- Refresh: manual for now; the Phase 5 app pushes periodically (e.g. hourly while running).
 
 Acceptance:
 - **T16** `rotate --slot a --netshield 2` → new key live, Mac curl still shows a Proton IP, ad
@@ -463,6 +481,9 @@ Acceptance:
   responses for the Proton session tokens and private keys → nothing.
 - **T19** `renew --slot a` → expiry moves, the WireGuard public key and the session don't change.
 - **T20** `rotate --slot b` → the prober reloads; a `/v1/find` job succeeds afterwards.
+- **T21** `servers --push` → `/v1/status` reports the pushed source and ~1,000+ servers; `/v1/servers`
+  has loads; rotate and a T9-style failover pick enabled servers from it; restart keeps it;
+  `DELETE /v1/catalog` returns to the pinned list. A truncated push (< 30 %) is refused (400).
 
 **Phase 3b results (2026-10-20)** — unit tests: 53 controller, 19 prober, 13 helper (fake Proton
 session: exact API payloads, 2FA in two steps, CAPTCHA retry, rotate/rollback/renew flows,
@@ -650,7 +671,7 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 | T7 / T8 | 2 | fin-intel unaffected; throughput baseline |
 | T9 / T10 / T11 | 3 | silent-drop failover ≤ 20 s; rotation; API ACL |
 | T12 / T12b | 4 | find-server works; probing never disturbs active exit; prober fails closed |
-| T16–T20 | 3b | key rotation via the provider API sets levers; bad keys roll back; no session/key leaks; renew; prober key reload |
+| T16–T21 | 3b | key rotation via the provider API sets levers; bad keys roll back; no session/key leaks; renew; prober key reload |
 | T13–T15 | 6 | per-domain residential routing over the exit node; safe policy edits; fail-closed |
 
 ---

@@ -43,6 +43,7 @@ class Settings:
         default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b")})
     probe_conf: Path | None = None       # slot b's bootstrap config (the prober's)
     key_expiry_warn_days: float = 14.0
+    pushed_catalog_max_age: float = 7 * 86400
     handshake_max_age: float = 180.0
     blacklist_ttl: float = 30 * 60
     probe_timeout: float = 3.0

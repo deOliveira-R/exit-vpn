@@ -27,21 +27,25 @@ from .wgconf import parse as parse_conf
 log = logging.getLogger("exit_vpn")
 
 
+async def pinned_catalog(s: Settings) -> Catalog:
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(s.catalog_url)
+        r.raise_for_status()
+    return Catalog(parse_gluetun(r.json(), s.hostname_suffix), s.catalog_url, time.time())
+
+
 async def load_catalog(s: Settings) -> Catalog:
-    """Cached catalog if it came from the configured URL, else download (via the
-    underlay; the catalog is public data) and cache it."""
+    """Cached catalog if it was pushed (live, PLAN 3b.2) or came from the configured URL,
+    else download (via the underlay; the catalog is public data) and cache it."""
     cached = None
     try:
         cached = Catalog.load(s.catalog_file)
-        if cached.source == s.catalog_url:
+        if cached.pushed or cached.source == s.catalog_url:
             return cached
     except (FileNotFoundError, CatalogError, ValueError, KeyError) as e:
         log.info("no usable cached catalog: %s", e)
     try:
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.get(s.catalog_url)
-            r.raise_for_status()
-        cat = Catalog(parse_gluetun(r.json(), s.hostname_suffix), s.catalog_url, time.time())
+        cat = await pinned_catalog(s)
         cat.save(s.catalog_file)
         log.info("catalog: %d servers from %s", len(cat), s.catalog_url)
         return cat
@@ -98,9 +102,11 @@ async def amain() -> None:
     finder, client = None, None
     if os.environ.get("PROBER_URL"):
         client = ProberClient(os.environ["PROBER_URL"])
-        finder = Finder(client, catalog.code_for_country, lambda: list(forbid))
-    slots = SlotManager(ctl, store, client, catalog.code_for_country, lambda: list(forbid))
-    app = create_app(ctl, Whois(s.ts_socket), s.owners, finder, slots)
+        finder = Finder(client, lambda c: ctl.catalog.code_for_country(c), lambda: list(forbid))
+    slots = SlotManager(ctl, store, client, lambda c: ctl.catalog.code_for_country(c),
+                        lambda: list(forbid))
+    app = create_app(ctl, Whois(s.ts_socket), s.owners, finder, slots,
+                     pinned=lambda: pinned_catalog(s))
     server = uvicorn.Server(uvicorn.Config(app, host=ip, port=s.api_port, lifespan="off",
                                            access_log=False, log_level="warning"))
     log.info("API on http://%s:%d (owners: %s)", ip, s.api_port, ", ".join(s.owners))

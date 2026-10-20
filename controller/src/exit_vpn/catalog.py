@@ -1,7 +1,10 @@
-"""VPN server catalog: gluetun-servers format (same schema for all providers, PLAN D12/D16)."""
+"""VPN server catalog: gluetun-servers format (same schema for all providers, PLAN D12/D16),
+or a list pushed from the provider's own API by exitctl (PLAN Phase 3b.2)."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import json
 import re
@@ -12,6 +15,8 @@ from pathlib import Path
 from .state import atomic_write
 
 MIN_SERVERS = 50  # a smaller list means a broken or truncated download
+MIN_PUSH_FRACTION = 0.3   # a push may not shrink the catalog below this share
+PUSH_PREFIX = "push:"
 _CODE = re.compile(r"^(?:node-)?([a-z]{2})-")
 
 
@@ -32,6 +37,8 @@ class Server:
     free: bool = False
     stream: bool = False
     port_forward: bool = False
+    load: int | None = None     # percent, from a live catalog (None: unknown)
+    enabled: bool = True        # False: in maintenance (live catalog)
 
     def endpoint(self, port: int) -> str:
         return f"{self.ip}:{port}"
@@ -74,6 +81,41 @@ def parse_gluetun(data: dict, hostname_suffix: str = "") -> list[Server]:
     return servers
 
 
+def parse_pushed(rows: list[dict], hostname_suffix: str,
+                 country_for_code, current_size: int = 0) -> list[Server]:
+    """A provider-neutral list from exitctl. It replaces the list wg0's peers come from,
+    so it is checked at least as strictly as a download."""
+    if len(rows) < max(MIN_SERVERS, int(current_size * MIN_PUSH_FRACTION)):
+        raise CatalogError(f"only {len(rows)} servers (current catalog has {current_size})")
+    servers = []
+    for r in rows:
+        host = r.get("hostname", "")
+        if hostname_suffix and not host.endswith(hostname_suffix):
+            raise CatalogError(f"unexpected hostname {host!r} (want *{hostname_suffix})")
+        try:
+            ip = ipaddress.ip_address(r.get("ip", ""))
+        except ValueError:
+            raise CatalogError(f"{host}: bad IP {r.get('ip')!r}") from None
+        if not (isinstance(ip, ipaddress.IPv4Address) and ip.is_global):
+            raise CatalogError(f"{host}: {ip} is not a public IPv4 address")
+        try:
+            if len(base64.b64decode(r.get("pubkey", ""), validate=True)) != 32:
+                raise ValueError
+        except (binascii.Error, ValueError):
+            raise CatalogError(f"{host}: bad WireGuard public key") from None
+        code = str(r.get("country_code", "")).upper()
+        load = r.get("load")
+        servers.append(Server(
+            name=str(r.get("name") or host), country=country_for_code(code) or code,
+            city=str(r.get("city") or ""), hostname=host, ip=str(ip), pubkey=r["pubkey"],
+            secure_core=bool(r.get("secure_core")), tor=bool(r.get("tor")),
+            free=bool(r.get("free")), stream=bool(r.get("stream")),
+            port_forward=bool(r.get("port_forward")),
+            load=int(load) if isinstance(load, (int, float)) else None,
+            enabled=bool(r.get("enabled", True))))
+    return servers
+
+
 def _is_ipv4(value: str) -> bool:
     try:
         return isinstance(ipaddress.ip_address(value), ipaddress.IPv4Address)
@@ -96,6 +138,10 @@ class Catalog:
 
     def __len__(self) -> int:
         return len(self.servers)
+
+    @property
+    def pushed(self) -> bool:
+        return self.source.startswith(PUSH_PREFIX)
 
     def by_peer(self, pubkey: str, ip: str) -> Server | None:
         return self._by_peer.get((pubkey, ip))

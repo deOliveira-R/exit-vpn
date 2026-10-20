@@ -53,3 +53,10 @@ class Controller:
         """Update a slot's recorded facts (e.g. a renewed expiry); the key is unchanged.
         `meta.wg_public_key` must match the slot's key."""
         return await self._req("PUT", f"/v1/keys/{slot}/meta", json=meta)
+
+    async def put_catalog(self, provider: str, servers: list[dict]) -> dict:
+        return await self._req("PUT", "/v1/catalog", timeout=60.0,
+                               json={"provider": provider, "servers": servers})
+
+    async def delete_catalog(self) -> dict:
+        return await self._req("DELETE", "/v1/catalog", timeout=60.0)

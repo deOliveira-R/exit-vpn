@@ -267,3 +267,22 @@ async def test_login_captcha_then_retry_with_token(proton):
     assert seen[-1] == {"x-pm-human-verification-token": "hvtok",
                         "x-pm-human-verification-token-type": "captcha"}
     assert "verify.proton.me" in ans.msgs[0]
+
+
+def test_catalog_rows_from_logicals():
+    from exitctl.providers.proton import catalog_rows
+    lg = [{"Name": "CH-US#1", "ExitCountry": "US", "City": "New York", "Tier": 2, "Features": 1 | 8,
+           "Status": 1, "Load": 33, "Servers": [
+               {"EntryIP": "185.159.157.9", "Domain": "node-ch-01.protonvpn.net",
+                "X25519PublicKey": "k1", "Status": 1},
+               {"EntryIP": "185.159.157.10", "Domain": "node-ch-02.protonvpn.net",
+                "X25519PublicKey": "k2", "Status": 0},
+               {"EntryIP": "185.159.157.9", "Domain": "dup", "X25519PublicKey": "k1", "Status": 1}]},
+          {"Name": "US-FREE#1", "ExitCountry": "US", "Tier": 0, "Features": 0, "Status": 0,
+           "Load": 90, "Servers": [{"EntryIP": "1.2.3.4", "Domain": "d", "X25519PublicKey": "k3",
+                                    "Status": 1}]}]
+    rows = catalog_rows(lg)
+    assert [(r["hostname"], r["enabled"]) for r in rows] == [
+        ("node-ch-01.protonvpn.net", True), ("node-ch-02.protonvpn.net", False), ("d", False)]
+    assert rows[0]["secure_core"] and rows[0]["stream"] and not rows[0]["free"]
+    assert rows[0]["load"] == 33 and rows[2]["free"]
