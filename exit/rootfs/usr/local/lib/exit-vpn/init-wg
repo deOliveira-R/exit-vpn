@@ -1,0 +1,23 @@
+#!/command/with-contenv sh
+# Bring up the tunnel (PLAN 3.4 step 3). The interface is created once and kept; server
+# changes are peer swaps (D8). Peer: last-good from state, else the config's own peer.
+. /usr/local/lib/exit-vpn/common.sh
+load_conf
+
+peer_pubkey=$CONF_PEER_PUBKEY; peer_endpoint=$CONF_PEER_ENDPOINT
+if [ -r "$STATE_DIR/peer.env" ]; then
+  # shellcheck disable=SC1091
+  . "$STATE_DIR/peer.env"   # PEER_PUBKEY, PEER_ENDPOINT, PEER_NAME
+  peer_pubkey=${PEER_PUBKEY:-$peer_pubkey}; peer_endpoint=${PEER_ENDPOINT:-$peer_endpoint}
+fi
+
+ip link del "$WG_IF" 2>/dev/null || true
+ip link add "$WG_IF" type wireguard
+# The private key goes to wg via a pipe, never via argv or a file outside /secrets.
+conf_value Interface PrivateKey | wg set "$WG_IF" private-key /dev/stdin
+wg set "$WG_IF" peer "$peer_pubkey" endpoint "$peer_endpoint" \
+  allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+ip addr add "$VPN_ADDR" dev "$WG_IF"
+ip link set "$WG_IF" mtu "${WG_MTU:-1420}" up
+ip route replace default dev "$WG_IF" table "$EXIT_TABLE"
+log "tunnel up: peer ${PEER_NAME:-from-config} $peer_endpoint, address $VPN_ADDR"

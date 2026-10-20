@@ -26,4 +26,4 @@ __pycache__/
 xcuserdata/
 
 # Site-specific notes and the secret-string denylist (never commit)
-local/
+/local/

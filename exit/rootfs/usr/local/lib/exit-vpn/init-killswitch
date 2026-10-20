@@ -1,0 +1,30 @@
+#!/command/with-contenv sh
+# Kill switch, layer 1 (routing) and layer 2 (nftables), PLAN 3.1/3.2. Runs before the
+# tunnel or tailscaled exist, so nothing can leave the wrong way during startup.
+. /usr/local/lib/exit-vpn/common.sh
+load_conf
+
+# nftables: our own tables, rendered with this config's values. Atomic load.
+mkdir -p /run/exit-vpn
+cat > /run/exit-vpn/defines.nft <<NFT
+define WG_IF = "$WG_IF"
+define VPN_DNS = $VPN_DNS
+NFT
+nft -f /etc/exit-vpn/killswitch.nft
+
+# Routing: the exit table falls back to unreachable; the wg0 default is added by init-wg.
+ip route replace unreachable default metric 1000 table "$EXIT_TABLE"
+ip -6 route replace unreachable default metric 1000 table "$EXIT_TABLE"
+rule() { # family priority selector...
+  fam=$1; prio=$2; shift 2
+  ip "$fam" rule del priority "$prio" 2>/dev/null || true
+  ip "$fam" rule add priority "$prio" "$@"
+}
+rule -4 90  to 100.64.0.0/10       lookup 52            # tailnet destinations → Tailscale's table
+rule -6 90  to fd7a:115c:a1e0::/48 lookup 52
+rule -4 100 iif tailscale0         lookup "$EXIT_TABLE"  # forwarded exit traffic → VPN
+rule -6 100 iif tailscale0         lookup "$EXIT_TABLE"  # (IPv6 only ever hits unreachable)
+rule -4 105 oif "$WG_IF"           lookup "$EXIT_TABLE"  # sockets bound to wg0
+rule -4 110 from "$VPN_SRC"        lookup "$EXIT_TABLE"  # sockets bound to the tunnel address
+rule -4 120 to "$VPN_DNS"          lookup "$EXIT_TABLE"  # VPN DNS only via the tunnel
+log "kill switch loaded (table $EXIT_TABLE, dns $VPN_DNS)"

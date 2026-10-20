@@ -1,0 +1,13 @@
+#!/command/with-contenv sh
+# Longrun: the kernel deletes table-100 routes via wg0 when the link goes down, so put
+# the default back whenever wg0 is up again. While wg0 is down, the unreachable route
+# holds and exit traffic fails closed.
+. /usr/local/lib/exit-vpn/common.sh
+while :; do
+  if ip link show "$WG_IF" up 2>/dev/null | grep -q 'state UP\|state UNKNOWN'; then
+    if ! ip route show table "$EXIT_TABLE" | grep -q "^default dev $WG_IF"; then
+      ip route replace default dev "$WG_IF" table "$EXIT_TABLE" && log "restored default dev $WG_IF in table $EXIT_TABLE"
+    fi
+  fi
+  sleep 2
+done

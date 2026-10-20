@@ -1,0 +1,7 @@
+#!/command/with-contenv sh
+# Assert the namespaced sysctls set by compose; never change host sysctls.
+. /usr/local/lib/exit-vpn/common.sh
+check() { v=$(cat "/proc/sys/$(echo "$1" | tr . /)"); [ "$v" = "$2" ] || die "sysctl $1=$v, want $2 (set it in compose.yaml)"; }
+check net.ipv4.ip_forward 1
+check net.ipv4.conf.all.rp_filter 2
+log "sysctls ok"
