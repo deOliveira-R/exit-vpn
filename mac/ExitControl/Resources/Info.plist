@@ -24,6 +24,17 @@
 	<string>public.app-category.utilities</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.exit-vpn.ExitControl</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>exitvpn</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ExitControl talks to your exit node's controller over your tailnet.</string>
 	<key>NSAppTransportSecurity</key>

@@ -77,6 +77,16 @@ public struct Event: Codable, Hashable, Sendable {
         case "key_rejected": return "Key rejected (slot \(s("slot")))"
         case "catalog": return "Server list updated (\(s("servers")) servers)"
         case "switch_reverted": return "Switch failed; back on \(s("server"))"
+        case "health":
+            let first = data["errors"].flatMap { if case .array(let a) = $0 { a.first?.string } else { nil } }
+            return "Health: \(s("state").replacingOccurrences(of: "_", with: " "))" + (first.map { " (\($0))" } ?? "")
+        case "prefs": return "Settings changed by \(s("by"))"
+        case "started": return "Controller started on \(s("server"))"
+        case "unhealthy_no_failover": return "Unhealthy; automatic failover is off"
+        case "swap_error": return "Switch to \(s("server")) failed: \(s("error"))"
+        case "catalog_reverted": return "Server list reverted to the pinned list"
+        case "find_started": return "Finding a server for \(s("url"))"
+        case "key_meta": return "Key details saved (slot \(s("slot")))"
         default: return kind.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -208,6 +218,16 @@ public func flag(_ code: String?) -> String {
 }
 
 /// ISO code from a Proton-style hostname (us-ca-01…, node-ch-03…), as the controller does.
+/// The server's country from its name: "NG#1" and "US-NY#3" give the first code, a Secure Core
+/// "CH-US#3" gives its exit (US). Hostnames can name another country (Proton hosts some virtual
+/// locations elsewhere: NG#1 is node-es-…), so they are only the fallback.
+public func countryCode(_ s: Server) -> String? {
+    let parts = s.name.split(separator: "#").first?.split(separator: "-") ?? []
+    let code = s.secureCore && parts.count > 1 ? parts[1] : parts.first
+    if let c = code, c.count == 2, c.allSatisfy({ $0.isASCII && $0.isUppercase }) { return String(c) }
+    return countryCode(hostname: s.hostname)
+}
+
 public func countryCode(hostname: String) -> String? {
     let parts = hostname.split(separator: ".").first?.split(separator: "-") ?? []
     let first = parts.first == "node" ? parts.dropFirst().first : parts.first

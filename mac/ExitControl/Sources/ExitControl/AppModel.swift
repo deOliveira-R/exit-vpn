@@ -165,9 +165,7 @@ final class AppModel {
             servers = r.servers
             countries = r.countries ?? Array(Set(r.servers.map(\.country))).sorted()
             var c: [String: String] = [:]
-            for s in r.servers where !s.secureCore && c[s.country] == nil {
-                c[s.country] = countryCode(hostname: s.hostname)
-            }
+            for s in r.servers where c[s.country] == nil { c[s.country] = countryCode(s) }
             codes = c
         } catch { lastError = "Server list: \(error.localizedDescription)" }
     }

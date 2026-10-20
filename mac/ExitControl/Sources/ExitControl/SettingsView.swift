@@ -3,17 +3,22 @@ import SwiftUI
 
 struct SettingsView: View {
     let model: AppModel
+    @State private var tab = "general"
 
     var body: some View {
-        TabView {
-            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
-            RegionsTab(model: model).tabItem { Label("Regions", systemImage: "pin") }
-            ConnectionTab(model: model).tabItem { Label("Connection", systemImage: "slider.horizontal.3") }
-            AccountTab(model: model).tabItem { Label("Account", systemImage: "person.badge.key") }
-            LogTab(model: model).tabItem { Label("Events", systemImage: "list.bullet.rectangle") }
+        TabView(selection: $tab) {
+            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            RegionsTab(model: model).tabItem { Label("Regions", systemImage: "pin") }.tag("regions")
+            ConnectionTab(model: model).tabItem { Label("Connection", systemImage: "slider.horizontal.3") }.tag("connection")
+            AccountTab(model: model).tabItem { Label("Account", systemImage: "person.badge.key") }.tag("account")
+            LogTab(model: model).tabItem { Label("Events", systemImage: "list.bullet.rectangle") }.tag("events")
         }
         .frame(width: 620, height: 460)
         .task { await model.loadProvider() }
+        .onOpenURL { url in  // exitvpn://settings/account
+            if let t = url.pathComponents.dropFirst().first { tab = t }
+            bringToFront()
+        }
     }
 }
 
@@ -34,7 +39,7 @@ struct GeneralTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("exitctl (provider actions)") {
-                TextField("Path (empty: ~/.local/bin/exitctl, Homebrew, /usr/local/bin)", text: $model.exitctlPath)
+                TextField("Path", text: $model.exitctlPath, prompt: Text("~/.local/bin, Homebrew or /usr/local/bin"))
                 LabeledContent("Found", value: model.exitctl?.executable.path ?? "not found: uv tool install ./helper")
             }
             Section("App") {

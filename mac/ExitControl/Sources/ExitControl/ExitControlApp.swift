@@ -14,12 +14,16 @@ struct ExitControlApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Window("Servers", id: "servers") { ServerBrowser(model: model) }
+        // exitvpn://servers, exitvpn://find, exitvpn://settings[/tab] open the windows
+        Window("Servers", id: "servers") { ServerBrowser(model: model).onOpenURL { _ in bringToFront() } }
             .defaultSize(width: 900, height: 560)
-        Window("Find a Server for a URL", id: "find") { FindView(model: model) }
+            .handlesExternalEvents(matching: ["servers"])
+        Window("Find a Server for a URL", id: "find") { FindView(model: model).onOpenURL { _ in bringToFront() } }
             .defaultSize(width: 640, height: 520)
+            .handlesExternalEvents(matching: ["find"])
         Window("ExitControl Settings", id: "settings") { SettingsView(model: model) }
             .windowResizability(.contentSize)
+            .handlesExternalEvents(matching: ["settings"])
     }
 }
 

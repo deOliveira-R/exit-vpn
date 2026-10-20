@@ -58,7 +58,7 @@ struct ServerBrowser: View {
             Table(shown, selection: $selection, sortOrder: $sort) {
                 TableColumn("") { r in Text(model.isCurrent(r.s) ? "●" : "") }.width(14)
                 TableColumn("Server", value: \.name) { r in
-                    Text("\(flag(countryCode(hostname: r.s.hostname))) \(r.s.name)")
+                    Text("\(flag(countryCode(r.s))) \(r.s.name)")
                 }
                 TableColumn("City", value: \.city)
                 TableColumn("Country", value: \.country)

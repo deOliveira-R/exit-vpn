@@ -22,6 +22,10 @@ let statusJSON = """
     let ev = try #require(st.events?.first)
     #expect(ev.summary == "Failed over CH#697 → CH#821")
     #expect(ev.data["seconds"]?.double == 21.5)
+    let h = try ControllerClient.decoder.decode(Event.self, from: Data("""
+        {"ts":1,"kind":"health","state":"failing_over","errors":["dns: TimeoutError","x"]}
+        """.utf8))
+    #expect(h.summary == "Health: failing over (dns: TimeoutError)")
 }
 
 @Test func regionEncodesNullCity() throws {
@@ -50,6 +54,7 @@ let statusJSON = """
     let s = try ControllerClient.decoder.decode(Server.self, from: Data(json.utf8))
     #expect(s.badges == ["SC CH", "Streaming", "IPv6"])
     #expect(countryCode(hostname: s.hostname) == "US" && countryCode(hostname: "ch-03.x") == "CH")
+    #expect(countryCode(s) == "US")
     #expect(flag("ch") == "🇨🇭" && flag(nil) == "🌐")
 }
 

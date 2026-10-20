@@ -57,6 +57,12 @@ struct FindView: View {
                 }
             }
         }
+        .overlay {
+            if (job?.results ?? []).isEmpty {
+                ContentUnavailableView(job?.running == true ? "Probing…" : "No results yet", systemImage: "magnifyingglass",
+                    description: Text("The prober tries servers through its own tunnel; the exit is not disturbed."))
+            }
+        }
         .onDisappear { poll?.cancel() }
     }
 
