@@ -1,0 +1,4 @@
+#!/command/with-contenv sh
+# The controller (PLAN Phase 3). s6 restarts it if it exits.
+cd /opt/exit-vpn/src || exit 1
+exec /opt/exit-vpn/venv/bin/python -m exit_vpn

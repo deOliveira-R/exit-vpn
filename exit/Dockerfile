@@ -1,6 +1,6 @@
-# The exit node: WireGuard to the VPN provider, the kill switch and (from Phase 2)
-# tailscaled, supervised by s6-overlay. Built on the host (classic builder: no buildx),
-# so downloads are verified with sha256sum rather than ADD --checksum.
+# The exit node: WireGuard to the VPN provider, the kill switch, tailscaled and the
+# controller, supervised by s6-overlay. Build context: the repo root (.dockerignore).
+# Built on the host without buildx, so downloads are verified with sha256sum.
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 ARG S6_VERSION=3.2.3.2
@@ -15,6 +15,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl xz-utils \
       iproute2 nftables wireguard-tools iputils-ping bind9-dnsutils procps \
+      python3 python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
 RUN set -eu; \
@@ -39,7 +40,14 @@ RUN set -eu; \
     install -m 755 "tailscale_${TS_VERSION}_$arch/tailscale" "tailscale_${TS_VERSION}_$arch/tailscaled" /usr/local/bin/; \
     rm -rf /tmp/*
 
-COPY rootfs/ /
+# Controller: dependencies pinned by hash; the package itself runs from source
+COPY controller/requirements.lock /opt/exit-vpn/requirements.lock
+RUN python3 -m venv /opt/exit-vpn/venv \
+ && /opt/exit-vpn/venv/bin/pip install --no-cache-dir --require-hashes --no-deps \
+      -r /opt/exit-vpn/requirements.lock
+COPY controller/src/ /opt/exit-vpn/src/
+
+COPY exit/rootfs/ /
 
 # Fail closed: if any init step fails, stop the container (compose restarts it) rather
 # than run half-configured. Init steps have no time limit (s6 default is 5 s).

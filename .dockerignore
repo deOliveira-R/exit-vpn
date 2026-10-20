@@ -1,0 +1,10 @@
+# Build context is the repo root: never send secrets or local state to the builder
+.env
+.env.*
+secrets/
+local/
+.git/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+mac/
