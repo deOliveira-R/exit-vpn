@@ -68,3 +68,36 @@ def choose_candidates(servers: list[Server], current: Server | None, prefs: Pref
                 seen.add(s.pubkey)
                 out.append(s)
     return out
+
+
+def find_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
+                    blacklisted: set[str], countries: list[str], limit: int,
+                    rng: random.Random) -> list[Server]:
+    """Candidates for "find a server this URL accepts" (PLAN Phase 4): countries in the
+    given order (default: the current country, then the preferences); within a
+    country, streaming-flagged servers first and cities interleaved for diversity;
+    never the active server (the prober must not share it)."""
+    order = list(countries) or ([current.country] if current and current.country else []) + [
+        c for c in prefs.countries]
+    seen_c, out = set(), []
+    for c in order:
+        if c.lower() in seen_c:
+            continue
+        seen_c.add(c.lower())
+        pool = [s for s in servers if s.country.lower() == c.lower() and eligible(s, prefs)
+                and s.pubkey not in blacklisted and (current is None or s.pubkey != current.pubkey)]
+        by_city: dict[str, list[Server]] = {}
+        for s in pool:
+            by_city.setdefault(s.city, []).append(s)
+        for lst in by_city.values():
+            rng.shuffle(lst)
+            lst.sort(key=lambda s: not s.stream)  # stable: streaming first, shuffled within
+        cities = list(by_city)
+        rng.shuffle(cities)
+        while any(by_city.values()) and len(out) < limit:
+            for city in cities:
+                if by_city[city] and len(out) < limit:
+                    out.append(by_city[city].pop(0))
+        if len(out) >= limit:
+            break
+    return out

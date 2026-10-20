@@ -116,6 +116,14 @@ class Catalog:
             self._codes = {k: v.most_common(1)[0][0] for k, v in votes.items()}
         return self._codes.get(code.lower())
 
+    def code_for_country(self, country: str) -> str:
+        """Inverse of country_for_code ("" if unknown)."""
+        self.country_for_code("")  # build the table
+        for code, name in (self._codes or {}).items():
+            if name.lower() == country.lower():
+                return code.upper()
+        return ""
+
     def countries(self) -> list[str]:
         return sorted({s.country for s in self.servers})
 

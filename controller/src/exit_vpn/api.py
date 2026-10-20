@@ -10,8 +10,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from urllib.parse import urlsplit
+
 from .auth import Whois, decide
 from .controller import Controller, SwitchError
+from .failover import find_candidates
+from .finder import Finder
 
 
 class RotateBody(BaseModel):
@@ -24,6 +28,19 @@ class SelectBody(BaseModel):
     city: str | None = None
 
 
+class FindBody(BaseModel):
+    url: str
+    countries: list[str] = []
+    max_candidates: int = 10
+    mode: Literal["auto", "http", "browser"] = "auto"
+    js: bool = False   # the site reveals VPN blocks only via JS (e.g. streaming players)
+
+
+class ApplyBody(BaseModel):
+    server: str
+    ip: str | None = None
+
+
 class PrefsBody(BaseModel):
     countries: list[str] | None = None
     auto_failover: bool | None = None
@@ -31,7 +48,8 @@ class PrefsBody(BaseModel):
     allow_free: bool | None = None
 
 
-def create_app(ctl: Controller, whois: Whois, owners: list[str]) -> FastAPI:
+def create_app(ctl: Controller, whois: Whois, owners: list[str],
+               finder: Finder | None = None) -> FastAPI:
     app = FastAPI(title="exit-vpn controller", docs_url=None, redoc_url=None,
                   openapi_url=None)
 
@@ -99,6 +117,52 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str]) -> FastAPI:
         ctl._event("prefs", by=who, prefs=vars(p))
         ctl._save()
         return vars(p)
+
+    @app.post("/v1/find", status_code=202)
+    async def find(body: FindBody, who: str = Depends(owner)):
+        if not finder:
+            raise HTTPException(503, "no prober configured")
+        u = urlsplit(body.url)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            raise HTTPException(400, "url must be http(s)://host/...")
+        if not 1 <= body.max_candidates <= 30:
+            raise HTTPException(400, "max_candidates must be 1..30")
+        known = {c.lower(): c for c in ctl.catalog.countries()}
+        bad = [c for c in body.countries if c.lower() not in known]
+        if bad:
+            raise HTTPException(400, f"unknown countries: {bad}")
+        ctl.state.prune(ctl.clock())
+        cands = find_candidates(ctl.catalog.servers, ctl.current_server(), ctl.state.prefs,
+                                set(ctl.state.blacklist), [known[c.lower()] for c in body.countries],
+                                body.max_candidates, ctl.rng)
+        if not cands:
+            raise HTTPException(409, "no eligible candidates")
+        job = finder.start(body.url, cands, body.mode, body.js)
+        ctl._event("find_started", by=who, url=body.url, job=job.id, candidates=len(cands))
+        return job.view()
+
+    @app.get("/v1/find/{job_id}")
+    async def find_status(job_id: str, _: str = Depends(owner)):
+        job = finder.jobs.get(job_id) if finder else None
+        if not job:
+            raise HTTPException(404, "no such job")
+        return job.view()
+
+    @app.post("/v1/find/{job_id}/apply")
+    async def find_apply(job_id: str, body: ApplyBody, who: str = Depends(owner)):
+        job = finder.jobs.get(job_id) if finder else None
+        if not job:
+            raise HTTPException(404, "no such job")
+        hit = next((r for r in job.results if r["server"] == body.server
+                    and (body.ip is None or r.get("ip") == body.ip)), None)
+        if not hit:
+            raise HTTPException(400, "server was not probed in this job")
+        srv = next((s for s in job.candidates if s.name == hit["server"] and s.ip == hit["ip"]), None)
+        try:
+            await ctl.switch([srv], f"find {job_id} apply by {who}")
+        except SwitchError as e:
+            raise HTTPException(409, str(e)) from None
+        return ctl.status()
 
     @app.get("/v1/events")
     async def events(request: Request, _: str = Depends(owner)):

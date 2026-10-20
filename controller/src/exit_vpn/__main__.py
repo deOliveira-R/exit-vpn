@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import time
 
@@ -15,6 +16,7 @@ from .auth import Whois
 from .catalog import Catalog, CatalogError, parse_gluetun
 from .config import Settings
 from .controller import Controller
+from .finder import Finder, ProberClient
 from .probes import Prober
 from .state import StateStore
 from .wg import WireGuard
@@ -60,6 +62,23 @@ async def tailnet_ip(s: Settings) -> str:
     raise RuntimeError("no tailnet IPv4 after 120 s")
 
 
+async def underlay_ips(found: list[str]) -> None:
+    """The node's own (non-VPN) egress IP, via the main table: any probe that exits
+    from it is aborted by the prober (defence in depth over its kill switch)."""
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get("https://www.cloudflare.com/cdn-cgi/trace")
+            ip = dict(l.split("=", 1) for l in r.text.splitlines() if "=" in l).get("ip")
+            if ip and ip not in found:
+                found[:] = [ip]
+                log.info("underlay egress IP learned")
+            await asyncio.sleep(3600)
+        except Exception as e:
+            log.warning("underlay IP lookup failed: %s", e)
+            await asyncio.sleep(60)
+
+
 async def amain() -> None:
     s = Settings.from_env()
     if not s.owners:
@@ -72,11 +91,16 @@ async def amain() -> None:
                      StateStore(s.state_file, s.peer_env_file, s.countries))
     await ctl.init()
     ip = await tailnet_ip(s)
-    app = create_app(ctl, Whois(s.ts_socket), s.owners)
+    forbid: list[str] = []
+    finder = None
+    if os.environ.get("PROBER_URL"):
+        finder = Finder(ProberClient(os.environ["PROBER_URL"]), catalog.code_for_country,
+                        lambda: list(forbid))
+    app = create_app(ctl, Whois(s.ts_socket), s.owners, finder)
     server = uvicorn.Server(uvicorn.Config(app, host=ip, port=s.api_port, lifespan="off",
                                            access_log=False, log_level="warning"))
     log.info("API on http://%s:%d (owners: %s)", ip, s.api_port, ", ".join(s.owners))
-    await asyncio.gather(ctl.run(), server.serve())
+    await asyncio.gather(ctl.run(), server.serve(), underlay_ips(forbid))
 
 
 def main() -> None:
