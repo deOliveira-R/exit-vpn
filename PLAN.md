@@ -203,10 +203,10 @@ exit-proton/
 | V2 ✅ | Keys A and B can be connected **concurrently** (to different servers) | Medium-high | Same test, both keys up at once |
 | V3 ✅ | gluetun-servers `protonvpn.json` entries include `wgpubkey`, `country`, `city`, `server_name`/`hostname`, `ips`, feature flags (secure_core, tor, port_forward, stream) | Medium (schema details) | Download from the gluetun repo, inspect schema, write parser test fixtures from a real excerpt |
 | V4 ✅ | Host kernel has WireGuard; Docker present (or installable) on the A1 instance | High | `modinfo wireguard` or `ip link add t0 type wireguard && ip link del t0` |
-| V5 | OCI ingress for UDP 41642 can be opened (security list) and host firewall allows Docker-published UDP | Medium (OCI Ubuntu images ship restrictive iptables incl. FORWARD REJECT) | Inspect rules; after Phase 2, `tailscale ping exit-proton` from the Mac shows a direct path |
-| V6 | tailscaled in kernel mode works inside an unprivileged container with `NET_ADMIN`, `NET_RAW`, `/dev/net/tun` | High | Phase 1 smoke |
-| V7 | A drop in our own nftables table overrides tailscaled's `ts-forward` ACCEPT; tailscaled uses the nf_tables backend (iptables-nft) in this image | Medium-high | Phase 1 test T2 (kill switch) must pass with tailscaled running |
-| V8 | With wg0 down and resolv.conf → 10.2.0.1, tailscaled stays connected (bootstrap DNS / cached DERP map) | Medium | Phase 2 test T2b: down wg0 for 5 min, node stays online in admin console |
+| V5 ✅ | OCI ingress for UDP 41642 can be opened (security list) and host firewall allows Docker-published UDP | Medium (OCI Ubuntu images ship restrictive iptables incl. FORWARD REJECT) | Inspect rules; after Phase 2, `tailscale ping exit-proton` from the Mac shows a direct path |
+| V6 ✅ | tailscaled in kernel mode works inside an unprivileged container with `NET_ADMIN`, `NET_RAW`, `/dev/net/tun` | High | Phase 1 smoke |
+| V7 ✅ | A drop in our own nftables table overrides tailscaled's `ts-forward` ACCEPT; tailscaled uses the nf_tables backend (iptables-nft) in this image | Medium-high | Phase 1 test T2 (kill switch) must pass with tailscaled running |
+| V8 ✅ | With wg0 down and resolv.conf → 10.2.0.1, tailscaled stays connected (bootstrap DNS / cached DERP map) | Medium | Phase 2 test T2b: down wg0 for 5 min, node stays online in admin console |
 | V9 | App connector `/32` routes take precedence over the exit node default route on macOS/iOS | Medium-high (more specific route) | Phase 6 test T13 |
 | V10 | App connector device may sit behind home NAT (docs say "must have a public IP address") | Medium (community setups run at home) | Phase 6 smoke |
 | V11 | Playwright Python image available for arm64 | High | `docker pull --platform linux/arm64 mcr.microsoft.com/playwright/python:<tag>` |
@@ -307,6 +307,16 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 - **T6** Startup race: run `while true; do curl -s --max-time 2 https://www.cloudflare.com/cdn-cgi/trace | grep ip=; sleep 0.5; done` on the Mac while `docker compose restart exit-proton` → output contains only Proton IPs or failures, **never** the Oracle IP.
 - **T7** fin-intel unaffected: host egress still Oracle IP; MCP works from the Mac; policy `tests` pass on save.
 - **T8** Throughput sanity: `speedtest`/`iperf`-style download via exit node; record baseline (expect tens to hundreds of Mbps; flag if <20).
+
+**Phase 2 results (2026-10-20)** — node side `tests/acceptance/phase2-node.sh` 12/12, client side `tests/acceptance/phase2-client.sh` 9/9 (T1–T8), T2b passed (5 min wg0 down: node online and directly reachable throughout, tunnel recovered). Notes:
+- Tailnet policy change went through GitOps (`tailnet-policy` PR #1, D14): `tag:exit`, `autoApprovers.exitNode`, members → `autogroup:internet`, members → `tag:exit` ICMP, isolation tests.
+- The node logged in with an **untagged** auth key and `--advertise-tags=tag:exit` (allowed: the key's owner is an admin and admins own the tag); control auto-approved the exit routes. Restarts reuse the state (same node, same IP, no new login).
+- **V5:** T5 shows a direct path `via <VPS public IP>:41642` with the OCI security list **still closed**: Docker's published port gives a stable mapping and NAT traversal does the rest. No OCI change needed.
+- **V7:** tailscaled (nftables mode via `TS_DEBUG_FIREWALL_MODE=nftables`, no iptables binary in the image) keeps its `ts-*` chains in `ip filter`/`ip nat` at priority 0; our `inet killswitch` forward chain at −10 drops first. T2/T6 prove it end to end.
+- tailscaled always warns it cannot write `src_valid_mark` (read-only `/proc/sys`); compose sets it to 1, so the warning is cosmetic.
+- T6 (restart under a 0.5 s curl loop): 56/59 samples via Proton, 3 failed closed, none via Oracle. T8: 93 Mbit/s.
+- `--accept-dns=false` on the node: clients' DNS (MagicDNS on, no global nameservers) goes to the node's resolver → Docker DNS → Proton DNS through wg0 (T3).
+- Host changes in this phase: Docker-published UDP 41642 (Docker-managed DNAT/FORWARD rules). Nothing else.
 
 ### Phase 3 — Controller: catalog, health, failover, rotation, API
 
