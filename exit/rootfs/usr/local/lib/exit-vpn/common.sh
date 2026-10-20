@@ -37,3 +37,9 @@ load_conf() {
   case "$VPN_ADDR" in */*) ;; *) VPN_ADDR="$VPN_ADDR/32" ;; esac
   VPN_SRC=${VPN_ADDR%/*}
 }
+
+# Tailscale (PLAN 3.4 steps 4-5)
+TS_SOCKET=${TS_SOCKET:-/run/tailscale/tailscaled.sock}
+TS_STATE_DIR=${TS_STATE_DIR:-/var/lib/tailscale}
+TS_PORT=${TS_PORT:-41642}
+ts() { tailscale --socket="$TS_SOCKET" "$@"; }

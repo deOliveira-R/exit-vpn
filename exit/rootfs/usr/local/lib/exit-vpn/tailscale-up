@@ -1,0 +1,23 @@
+#!/command/with-contenv sh
+# Oneshot: join the tailnet as the exit node. The auth key is used only when the
+# persisted state needs a login, so restarts keep the same node (and a single-use key).
+. /usr/local/lib/exit-vpn/common.sh
+: "${EXIT_NODE_NAME:?}"
+TS_TAGS=${TS_TAGS:-tag:exit}
+TS_AUTHKEY_FILE=${TS_AUTHKEY_FILE:-/secrets/ts_authkey}
+
+i=0
+until ts status --json 2>/dev/null | grep -q '"BackendState"'; do
+  i=$((i+1)); [ "$i" -le 60 ] || die "tailscaled socket not ready after 60 s"; sleep 1
+done
+
+set -- --reset --hostname="$EXIT_NODE_NAME" --advertise-exit-node --advertise-tags="$TS_TAGS" \
+  --accept-dns=false --accept-routes=false --timeout=120s
+if ts status --json 2>/dev/null | grep -q '"BackendState": *"NeedsLogin"'; then
+  [ -r "$TS_AUTHKEY_FILE" ] || die "node needs login but $TS_AUTHKEY_FILE is missing"
+  log "logging in as $EXIT_NODE_NAME ($TS_TAGS)"
+  ts up "$@" --auth-key="file:$TS_AUTHKEY_FILE"
+else
+  ts up "$@"
+fi
+log "tailnet up: $(ts ip -4) as $EXIT_NODE_NAME, advertising exit node"

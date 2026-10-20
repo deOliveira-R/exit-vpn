@@ -1,0 +1,7 @@
+#!/command/with-contenv sh
+# Longrun: the exit node's own tailscaled, kernel mode (D6), own port (host uses 41641).
+# Its underlay follows the main table → eth0 (D3); only forwarded traffic goes to wg0.
+. /usr/local/lib/exit-vpn/common.sh
+mkdir -p "$(dirname "$TS_SOCKET")"
+exec tailscaled --statedir="$TS_STATE_DIR" --socket="$TS_SOCKET" \
+  --port="$TS_PORT" --tun=tailscale0 --verbose=0

@@ -18,6 +18,11 @@ services:
     environment:
       EXIT_VPN_CONF: /secrets/${EXIT_VPN_CONF:-proton_a.conf}
       WG_MTU: ${WG_MTU:-1420}
+      EXIT_NODE_NAME: ${EXIT_NODE_NAME:-exit-proton}
+      TS_TAGS: ${TS_TAGS:-tag:exit}
+      TS_PORT: ${TS_PORT:-41642}
+      # The image has no iptables binary; tailscaled programs nftables over netlink
+      TS_DEBUG_FIREWALL_MODE: nftables
     # Only what routing, WireGuard and (Phase 2) tailscaled need; s6-overlay runs
     # without further capabilities (tested).
     cap_drop: [ALL]
@@ -29,6 +34,9 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.rp_filter: "2"
       net.ipv4.conf.default.rp_filter: "2"
+      # On so IPv6 exit traffic hits the unreachable route (fast ICMP error, clients fall
+      # back to IPv4) instead of a silent drop. No IPv6 leaves the node yet (PLAN Q6).
+      net.ipv6.conf.all.forwarding: "1"
     # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
     # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.
     dns:
@@ -42,6 +50,10 @@ services:
       - ./secrets:/secrets:ro
       - exit-state:/var/lib/exit-vpn
       - ts-state:/var/lib/tailscale
+    # tailscaled's WireGuard port for direct connections (the host's tailscaled has 41641).
+    # The OCI security list stays closed for now: NAT traversal first (PLAN V5/T5).
+    ports:
+      - "${TS_PORT:-41642}:${TS_PORT:-41642}/udp"
     networks: [exitnet]
     mem_limit: ${EXIT_MEMORY:-512m}
     logging: *logging
