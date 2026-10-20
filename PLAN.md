@@ -262,6 +262,14 @@ Acceptance (run inside container via `docker exec`):
 - **P1.4** `ip link set wg0 down` → `curl --interface wg0 …` fails fast (unreachable), never returns Oracle IP. Restore.
 - **P1.5** Host check: `curl -s https://www.cloudflare.com/cdn-cgi/trace` on the **host** → Oracle IP; fin-intel MCP reachable as before.
 
+**Phase 1 results (2026-10-20)** — `tests/acceptance/phase1.sh`: 9/9 pass, also after `docker compose restart`. Notes:
+- Implementation: config is any wg-quick file (`EXIT_VPN_CONF`); address, DNS and initial peer are parsed from it, nothing Proton-specific is hard-coded (D16). Rule 105 `oif wg0 lookup 100` added for sockets bound to wg0.
+- The kernel deletes table-100 routes via wg0 when the link goes down; the `route-keeper` longrun restores `default dev wg0` when wg0 is up again (until then `unreachable` holds).
+- Docker's embedded DNS (127.0.0.11) forwards to the VPN DNS from inside the container's netns, so it obeys rule 120 and the `output` drop: with wg0 down, DNS fails closed (P1.4).
+- Capabilities: `NET_ADMIN`, `NET_RAW` only; read-only root; `/run` tmpfs must be `exec` for s6-overlay; s6 user bundle lives in `user-bundles.d` (3.2.3+).
+- The VPS has no buildx; compose builds with its built-in BuildKit, downloads verified by `sha256sum -c`.
+- Host changes so far: `/opt/exit-node` (repo checkout, `.env` 0600, `secrets/` 0700); Docker network `exit-vpn_exitnet` (172.30.42.0/24, Docker-managed bridge + iptables rules); volumes `exit-vpn_exit-state`, `exit-vpn_ts-state`; images `exit-vpn/exit:latest`, `alpine:3.22` (Phase 0 tests). No published ports, no host sysctl or firewall edits.
+
 ### Phase 2 — Tailscale node + ACL
 
 1. Extend the tailnet policy (keep existing `tag:nas`, `tag:server` rules):
