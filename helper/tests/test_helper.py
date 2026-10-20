@@ -238,3 +238,32 @@ def test_cli_parses_generated_flags():
     args = cli.build_parser().parse_args(["proton", "rotate", "--slot", "a", "--netshield", "1",
                                           "--moderate-nat", "on", "--json"])
     assert args.opt_netshield == "1" and args.opt_moderate_nat == "on" and args.json
+
+
+async def test_login_captcha_then_retry_with_token(proton):
+    from proton.session.exceptions import ProtonAPIError
+    p, sess = proton
+    seen = []
+    real = sess.async_authenticate
+
+    async def auth(user, password, additional_headers=None):
+        seen.append(additional_headers)
+        if not additional_headers:
+            raise ProtonAPIError(422, {}, {"Code": 9001, "Error": "complete CAPTCHA",
+                                           "Details": {"HumanVerificationToken": "hvtok",
+                                                       "Methods": ["captcha"]}})
+        return await real(user, password)
+    sess.async_authenticate = auth
+    with pytest.raises(NeedInput) as e:
+        await p.login(None, {"username": "u", "password": "pw"})
+    assert e.value.what == "human_verification" and "token=hvtok" in e.value.info["url"]
+
+    class Answer:
+        def __init__(self): self.msgs = []
+        def ask(self, label, secret=False): return ""
+        def info(self, m): self.msgs.append(m)
+    ans = Answer()
+    assert (await p.login(ans, {"username": "u", "password": "pw"}))["logged_in"]
+    assert seen[-1] == {"x-pm-human-verification-token": "hvtok",
+                        "x-pm-human-verification-token-type": "captcha"}
+    assert "verify.proton.me" in ans.msgs[0]

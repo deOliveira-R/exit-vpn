@@ -130,8 +130,7 @@ class ProtonProvider(Provider):
     async def login(self, prompt: Prompt | None, creds: dict) -> dict:
         """creds: username, password, totp (optional), hv_token + hv_type (after a
         CAPTCHA). Missing input → NeedInput, unless `prompt` can ask for it."""
-        from proton.session.exceptions import (ProtonAPIAuthenticationNeeded,
-                                               ProtonAPIHumanVerificationNeeded)
+        from proton.session.exceptions import ProtonAPIAuthenticationNeeded, ProtonAPIError
 
         s = self.session()
         # Step 2 of a login that stopped at 2FA (the half-open session is in the Keychain)
@@ -149,18 +148,29 @@ class ProtonProvider(Provider):
         s = self.session(fresh=True)
         try:
             ok = await s.async_authenticate(user, password, additional_headers=headers)
-        except ProtonAPIHumanVerificationNeeded as e:
-            methods = e.HumanVerificationMethods
-            info = {"token": e.HumanVerificationToken, "methods": methods,
-                    "url": VERIFY_URL.format(methods=",".join(methods), token=e.HumanVerificationToken)}
+        except ProtonAPIError as e:
+            # During login proton-core raises CAPTCHA requests (422/9001) as a plain
+            # ProtonAPIError, not ProtonAPIHumanVerificationNeeded, so match the code.
+            if isinstance(e, ProtonAPIAuthenticationNeeded):
+                raise ProviderError("login failed (wrong username or password?)") from None
+            if e.body_code not in (9001, 12087):
+                raise ProviderError(f"Proton login: {e}") from None
+            if creds.get("hv_token"):
+                raise ProviderError("Proton still asks for verification: the CAPTCHA was not "
+                                    "completed (or expired); run login again") from None
+            details = (e.json_data or {}).get("Details") or {}
+            token, methods = details.get("HumanVerificationToken"), details.get("Methods") or ["captcha"]
+            if not token:
+                raise ProviderError(f"Proton login: {e}") from None
+            info = {"token": token, "methods": methods,
+                    "url": VERIFY_URL.format(methods=",".join(methods), token=token)}
             if not prompt:
                 raise NeedInput("human_verification", "Proton asks for human verification", **info) from None
-            prompt.info(f"Proton asks for human verification. Open this URL, solve it, then come back:\n  {info['url']}")
-            prompt.ask("Press Enter when done")
+            prompt.info("Proton asks for a CAPTCHA. Open this URL in your browser and solve it:\n"
+                        f"  {info['url']}")
+            prompt.ask("Then press Enter here")
             return await self.login(prompt, {**creds, "username": user, "password": password,
-                                             "hv_token": info["token"], "hv_type": "captcha"})
-        except ProtonAPIAuthenticationNeeded:
-            ok = False
+                                             "hv_token": token, "hv_type": "captcha"})
         del password
         if not ok:
             raise ProviderError("login failed (wrong username or password?)")
