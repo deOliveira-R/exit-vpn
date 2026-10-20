@@ -12,17 +12,22 @@ st=$(ts status --json --self 2>/dev/null)
 echo "$st" | grep -q '"BackendState": *"Running"' && ok "N1 node is logged in and running" || bad "N1 backend state"
 echo "$st" | tr -d '\n ' | grep -q '"HostName":"'"$C"'"' && ok "N2 hostname $C" || bad "N2 hostname"
 echo "$st" | tr -d '\n ' | grep -q '"Tags":\["tag:exit"\]' && ok "N3 tagged tag:exit" || bad "N3 tags"
-p=$(ts debug prefs 2>/dev/null | tr -d '\n ')
-case "$p" in *'"AdvertiseRoutes":["0.0.0.0/0","::/0"]'*) ok "N4 advertising exit node";; *) bad "N4 advertise routes";; esac
+p=$(ts debug prefs 2>/dev/null | tr -d '[:space:]')
+self=$(ts status --json 2>/dev/null | tr -d '[:space:]')
+case "$p" in *'"AdvertiseRoutes":["0.0.0.0/0","::/0"]'*)
+  case "$self" in *'"ExitNodeOption":true'*) ok "N4 advertising exit node, approved by control (autoApprovers)";;
+                  *) bad "N4 advertised but not approved (ExitNodeOption false)";; esac;;
+  *) bad "N4 advertise routes";; esac
 case "$p" in *'"CorpDNS":false'*) ok "N5 accept-dns off (container resolv.conf untouched)";; *) bad "N5 CorpDNS";; esac
 
 rules=$(x ip rule | awk -F: '{print $1+0}' | tr '\n' ' ')
 first_ts=$(x ip rule | awk -F: '/lookup 52/ && $1+0>=5000 {print $1+0; exit}')
 [ -n "$first_ts" ] && [ "$first_ts" -gt 120 ] && ok "N6 our rules (90-120) precede tailscaled's ($first_ts..): $rules" || bad "N6 rule order: $rules"
-nft=$(x nft list tables)
-echo "$nft" | grep -q 'inet killswitch' && echo "$nft" | grep -qiE 'ts-|tailscale' \
-  && ok "N7 killswitch table coexists with tailscaled's nftables: $(echo $nft | tr '\n' ' ')" \
-  || bad "N7 nft tables: $(echo $nft)"
+# tailscaled keeps its ts-* chains in tables named ip filter/nat; its forward hook runs at
+# priority 0, after our killswitch (-10), whose drop is final (PLAN 3.2, V7).
+if x nft list table inet killswitch >/dev/null 2>&1 && x nft list chain ip filter ts-forward >/dev/null 2>&1; then
+  ok "N7 killswitch (forward prio -10) coexists with tailscaled's ts-forward (prio 0)"
+else bad "N7 nft: killswitch or ts-forward missing"; fi
 x ip -4 route get 1.1.1.1 iif tailscale0 from 100.85.0.1 2>&1 | grep -q 'dev wg0' \
   && ok "N8 forwarded exit traffic routes to wg0" || bad "N8 route for forwarded traffic"
 x sh -c 'ip -4 route get 1.1.1.1 | grep -q "dev eth0"' && ok "N9 node's own traffic (underlay) uses eth0" || bad "N9 underlay route"
