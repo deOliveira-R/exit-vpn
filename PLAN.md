@@ -674,7 +674,7 @@ from a P2P server stays P2P and in the same city when one is up; T25 Secure Core
 Secure Core servers through failover and rotate, off → none; T26 pinned regions drive
 "Rotate (any)" and failover order, and old `countries` state migrates; T27 every menu action
 works against the live controller, live updates arrive over SSE; T28 controller down → offline
-state within 5 s, no hangs, recovers by itself; T29 the app's Connection pane rotates slot a
+state within 5 s (refused) or 20 s (silent), no hangs, recovers by itself; T29 the app's Connection pane rotates slot a
 with NetShield 2 and back; T30 the launchd agent pushes the catalog and the app shows its age.
 
 ### Phase 6 — Home allow-list (residential exit via app connector)

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>org.exit-vpn.ExitControl</string>
+	<key>CFBundleName</key>
+	<string>ExitControl</string>
+	<key>CFBundleDisplayName</key>
+	<string>ExitControl</string>
+	<key>CFBundleExecutable</key>
+	<string>ExitControl</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT License</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ExitControl talks to your exit node's controller over your tailnet.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- The controller speaks plain HTTP inside the tailnet (WireGuard-encrypted):
+		     MagicDNS short names (exit-proton) and *.ts.net names -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>ts.net</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

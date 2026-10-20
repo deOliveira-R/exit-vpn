@@ -63,7 +63,7 @@ class Option:
         return ("on" if value else "off") if self.kind == "bool" else str(value)
 
     def to_dict(self) -> dict:
-        return {"key": self.key, "label": self.label, "kind": self.kind,
+        return {"key": self.key, "label": self.label, "conf_label": self.conf_label, "kind": self.kind,
                 "default": self.default, "choices": {str(k): v for k, v in self.choices.items()},
                 "help": self.help}
 

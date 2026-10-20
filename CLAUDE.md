@@ -73,6 +73,8 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   `ssh -o HostName=$(tailscale ip -4 fin-intel) -o HostKeyAlias=$(ssh -G fin-intel | awk '$1=="hostname"{print $2}') fin-intel`
 - Deploy: `cd /opt/exit-node && sudo git pull --ff-only && sudo docker compose up -d --build`
   (push from the Mac first).
+- App: `mac/ExitControl` (SwiftPM; `swift test`, `./build-app.sh`; see its README). exitctl for
+  the app: `uv tool install --python <Homebrew python3.13> ./helper` (uv's standalone Python aborts on libssl).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
   `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
