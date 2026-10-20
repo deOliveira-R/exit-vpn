@@ -189,7 +189,7 @@ exit-proton/
 | Current tailnet policy file | Admin → Access controls → copy | To extend, not replace |
 | Current Tailscale DNS settings | Admin → DNS | Split DNS / global nameservers / MagicDNS |
 | Repo host | GitHub | |
-| Default exit country preference | e.g. US, then CH | Used for initial server and failover |
+| Default exit country preference | **US, then CH** (decided 2026-10-20) | Used for initial server and failover. A richer preference model (per-slot/per-key countries, cities, features) comes with the Phase 3b helper / Phase 5 app |
 
 ---
 
@@ -199,10 +199,10 @@ exit-proton/
 
 | ID | Assumption | Confidence | How to verify |
 |---|---|---|---|
-| V1 | A Proton WireGuard private key works against **any** Proton server's endpoint + pubkey | High (gluetun takes one key and selects servers) | Manual `wg` test on the VPS in a throwaway netns with key A against two different servers; `curl --interface` cdn-cgi/trace shows two different exit IPs |
-| V2 | Keys A and B can be connected **concurrently** (to different servers) | Medium-high | Same test, both keys up at once |
+| V1 ✅ | A Proton WireGuard private key works against **any** Proton server's endpoint + pubkey | High (gluetun takes one key and selects servers) | Manual `wg` test on the VPS in a throwaway netns with key A against two different servers; `curl --interface` cdn-cgi/trace shows two different exit IPs |
+| V2 ✅ | Keys A and B can be connected **concurrently** (to different servers) | Medium-high | Same test, both keys up at once |
 | V3 ✅ | gluetun-servers `protonvpn.json` entries include `wgpubkey`, `country`, `city`, `server_name`/`hostname`, `ips`, feature flags (secure_core, tor, port_forward, stream) | Medium (schema details) | Download from the gluetun repo, inspect schema, write parser test fixtures from a real excerpt |
-| V4 | Host kernel has WireGuard; Docker present (or installable) on the A1 instance | High | `modinfo wireguard` or `ip link add t0 type wireguard && ip link del t0` |
+| V4 ✅ | Host kernel has WireGuard; Docker present (or installable) on the A1 instance | High | `modinfo wireguard` or `ip link add t0 type wireguard && ip link del t0` |
 | V5 | OCI ingress for UDP 41642 can be opened (security list) and host firewall allows Docker-published UDP | Medium (OCI Ubuntu images ship restrictive iptables incl. FORWARD REJECT) | Inspect rules; after Phase 2, `tailscale ping exit-proton` from the Mac shows a direct path |
 | V6 | tailscaled in kernel mode works inside an unprivileged container with `NET_ADMIN`, `NET_RAW`, `/dev/net/tun` | High | Phase 1 smoke |
 | V7 | A drop in our own nftables table overrides tailscaled's `ts-forward` ACCEPT; tailscaled uses the nf_tables backend (iptables-nft) in this image | Medium-high | Phase 1 test T2 (kill switch) must pass with tailscaled running |
@@ -212,6 +212,14 @@ exit-proton/
 | V11 | Playwright Python image available for arm64 | High | `docker pull --platform linux/arm64 mcr.microsoft.com/playwright/python:<tag>` |
 
 **Exit criterion:** V1–V4 confirmed; V5–V11 have a verification hook in later phases.
+
+**Phase 0 results (2026-10-20)** — V1–V4 pass (`tests/acceptance/phase0-wg.sh`; key A swapped US-MI→US-DC and CH→CH with distinct Proton exit IPs, key B concurrently on a third server). Findings that change the design:
+- **Session warm-up:** a fresh Proton session (new interface *or* peer swap) drops TCP data for ~4–6 s while the server probes the path (growing ICMP echoes from 10.2.0.1). Handshake and ping to 10.2.0.1 succeed during that window. → Failover and rotation must allow a ≤ 15 s warm-up before judging a candidate, and the health loop must not count warm-up failures. Revised targets: failover ≤ 35 s (20 s detection + warm-up), rotate ≤ 10 s.
+- **Handshake ≠ authorised:** handshakes complete even for unregistered keys (see Phase 3 health note).
+- **Rule 120 is required:** without `to 10.2.0.1 lookup 100`, DNS queries to 10.2.0.1 leave via eth0 (observed: `dig @10.2.0.1` timed out via the underlay).
+- **Catalog staleness:** the server Proton assigned to config A today (US-CA#556) is absent from gluetun-servers (2026-08-06). Failover tolerates dead entries; Phase 3b's helper can also fetch the live server list with the Proton session and push it to the controller (preferred catalog when present; gluetun-servers as fallback).
+- **`Bouncing` label:** key A (created for US-CA#556) works on other servers; the label does not restrict use (open question 7 closed).
+- Configs A, B (US) and spare C are in `/opt/exit-node/secrets/proton_{a,b,c}.conf` (root, 0600), all NetShield 0 / Moderate NAT off / NAT-PMP off / VPN Accelerator on.
 
 ### Phase 1 — Data plane container (no Tailscale yet)
 
@@ -313,7 +321,7 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 
 **Failover policy (`failover.py`)**
 - Candidates: same city → same country → preference list countries; exclude servers that failed in the last 30 min; exclude secure_core/tor; shuffle within tier to spread load.
-- For each candidate (max 5 per tier): swap peer, wait ≤ 5 s for handshake + one passing probe cycle; on success persist state; on failure blacklist and continue.
+- For each candidate (max 5 per tier): swap peer, allow ≤ 15 s warm-up (Phase 0 finding) for one passing probe cycle; on success persist state; on failure blacklist and continue.
 - No automatic fail-back. Exponential backoff in `DEGRADED` (retry every 30 s → 5 min).
 - Pure-function core (`choose_candidates(catalog, state, prefs, now)`) with unit tests.
 
@@ -336,8 +344,8 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 | GET | `/v1/events` | – | SSE stream of status/health changes |
 
 Acceptance:
-- **T9** Silent-drop simulation: `docker exec exit-proton nft add rule inet killswitch out ip daddr <current_endpoint> udp dport 51820 drop` (blackholes the tunnel without taking wg0 down). Controller detects within ≤ 20 s, swaps server, Mac curl shows a **different** Proton IP. Remove the rule.
-- **T10** `POST /v1/rotate {"scope":"country"}` → new exit IP, same country, < 3 s.
+- **T9** Silent-drop simulation: `docker exec exit-proton nft add rule inet killswitch out ip daddr <current_endpoint> udp dport 51820 drop` (blackholes the tunnel without taking wg0 down). Controller detects within ≤ 20 s, swaps server, traffic recovers within ≤ 35 s total, Mac curl shows a **different** Proton IP. Remove the rule.
+- **T10** `POST /v1/rotate {"scope":"country"}` → new exit IP, same country, < 10 s (includes Proton warm-up).
 - **T11** API from fin-intel host (`curl http://exit-proton:8080/v1/status`) → blocked by ACL; from the Mac → 200.
 - Unit tests for catalog parsing (real fixture), candidate selection, health state machine (fake clock).
 
@@ -507,8 +515,8 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 
 1. VPS OS, arch, Docker present? (§5)
 2. Existing Tailscale DNS config (MagicDNS, split DNS for `<home split-DNS domain>`, global nameservers)?
-3. Default country preference order for the exit?
-4. Proton NetShield on the generated keys: off or malware-only?
+3. ~~Default country preference~~ → US, then CH.
+4. ~~NetShield on generated keys~~ → 0 on all keys; filtering lever to be done on our side (own resolver) if wanted.
 5. ~~Repo location~~ → GitHub.
-6. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
-7. Proton certificates carry `Bouncing = <label>` (the physical server picked at creation). Phase 0 V1 shows whether it matters when the key is used on other servers.
+6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
+7. ~~`Bouncing` label~~ → does not restrict which servers a key can use (Phase 0).

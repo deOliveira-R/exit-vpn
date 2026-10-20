@@ -48,7 +48,16 @@ cat > "$work/tun.sh" <<'SH'
 #!/bin/sh
 set -eu
 apk add -q --no-cache wireguard-tools-wg iproute2 curl >/dev/null
-trace() { curl -s --max-time 8 --interface wg0 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc)=' | tr '\n' ' '; echo; }
+# A fresh Proton session drops TCP data for ~4 s while the server probes the path
+# (growing ICMP echoes from 10.2.0.1), so retry for up to 15 s and report the delay.
+trace() {
+  t0=$(date +%s)
+  while [ $(( $(date +%s) - t0 )) -lt 15 ]; do
+    r=$(curl -s --max-time 3 --interface wg0 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc)=' | tr '\n' ' ')
+    [ -n "$r" ] && { echo "$r(after $(( $(date +%s) - t0 ))s)"; return; }
+  done
+  echo "FAIL (no traffic within 15s)"
+}
 peer() { wg set wg0 peer "$2" endpoint "$1:51820" allowed-ips 0.0.0.0/0 persistent-keepalive 25; }
 ip link add wg0 type wireguard
 wg set wg0 private-key /key
@@ -79,7 +88,7 @@ set -- ${S[2]} ; B_IP=$2  B_PK=$3
 echo "== V1 (key A, peer swap ${S[0]%% *} -> ${S[1]%% *}) and V2 (key B on ${S[2]%% *}, concurrently)"
 run p0-a key_a "$A1_IP" "$A1_PK" "$A2_IP" "$A2_PK"
 run p0-b key_b "$B_IP" "$B_PK"
-for _ in $(seq 60); do
+for _ in $(seq 90); do
   docker exec p0-a test -f /tmp/ready 2>/dev/null && docker exec p0-b test -f /tmp/ready 2>/dev/null && break
   sleep 1
 done
