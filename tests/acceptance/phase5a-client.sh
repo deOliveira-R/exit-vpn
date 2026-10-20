@@ -30,11 +30,11 @@ st() { api "$API/v1/status"; }
 # T23: exact select of one physical server (name + IP) with P2P, in the current country
 country=$(st | j 'd["country"]')
 pick=$(api -G "$API/v1/servers" --data-urlencode "country=$country" --data-urlencode feature=port_forward \
-  | j 'next(f"{s[\"name\"]} {s[\"ip\"]} {s[\"city\"]}" for s in sorted(d["servers"], key=lambda s: s["load"] if s["load"] is not None else 50) if s["enabled"] and not s["secure_core"])')
+  | j '" ".join(next((s["name"], s["ip"], s["city"]) for s in sorted(d["servers"], key=lambda s: 50 if s["load"] is None else s["load"]) if s["enabled"] and not s["secure_core"]))')
 read -r name ip city <<<"$pick"
 r=$(post POST /v1/select "{\"server\":\"$name\",\"ip\":\"$ip\"}")
 got=$(echo "$r" | j 'd["server"], d["endpoint"].rsplit(":",1)[0], "port_forward" in d["profile"]')
-[ "$got" = "('$name', '$ip', True)" ] && ok "T23 exact select: $name at $ip ($city), profile $(echo "$r" | j 'd["profile"]')" \
+[ "$got" = "$name $ip True" ] && ok "T23 exact select: $name at $ip ($city), profile $(echo "$r" | j 'd["profile"]')" \
   || bad "T23 exact select $name $ip: $(echo "$r" | head -c 300)"
 
 # T24: silent drop of that server → failover to another P2P server, same city if one is up
@@ -58,9 +58,10 @@ post PUT /v1/prefs '{"regions":[{"country":"Switzerland"},{"country":"United Sta
 r=$(post PUT /v1/prefs '{"secure_core":true}')
 s=$(st); sc=$(echo "$s" | j 'd["entry"]'); srv=$(echo "$s" | j 'd["server"]')
 r2=$(post POST /v1/rotate '{"scope":"country"}'); sc2=$(echo "$r2" | j 'd["entry"]')
+ep1=$(echo "$s" | j 'd["endpoint"]'); ep2=$(echo "$r2" | j 'd["endpoint"]')
 ip_sc=$(trace 5)
-if [ -n "$sc" ] && [ -n "$sc2" ] && [ "$sc2" != None ]; then
-  ok "T25a Secure Core on: $srv (entry $sc), rotate → $(echo "$r2" | j 'd["server"]') (entry $sc2), exit $ip_sc"
+if [ -n "$sc" ] && [ -n "$sc2" ] && [ "$ep1" != "$ep2" ]; then
+  ok "T25a Secure Core on: $srv (entry $sc), rotate → $(echo "$r2" | j 'd["server"]') (entry $sc2, $ep1 → $ep2), exit $ip_sc"
 else bad "T25a Secure Core: entry=$sc after-rotate=$sc2: $(echo "$r" | head -c 200) $(echo "$r2" | head -c 200)"; fi
 r=$(post PUT /v1/prefs '{"secure_core":false}'); s=$(st)
 [ "$(echo "$r" | j 'd["secure_core"]')" = False ] && [ -z "$(echo "$s" | j 'd["entry"]')" ] \
@@ -71,7 +72,7 @@ r=$(post PUT /v1/prefs '{"regions":[{"country":"Switzerland","city":"Zurich"},{"
 post POST /v1/select '{"country":"United States","city":"New York"}' >/dev/null
 r=$(post POST /v1/rotate '{"scope":"any"}')
 where=$(echo "$r" | j 'd["country"], d["city"]')
-[ "$where" = "('Switzerland', 'Zurich')" ] && ok "T26 rotate any follows the pinned order: $(echo "$r" | j 'd["server"]') $where" \
+[ "$where" = "Switzerland Zurich" ] && ok "T26 rotate any follows the pinned order: $(echo "$r" | j 'd["server"]') $where" \
   || bad "T26 rotate any landed in $where: $(echo "$r" | head -c 300)"
 [ -n "$(trace 5)" ] && ok "T26 traffic flows after the region changes" || bad "T26 no traffic"
 

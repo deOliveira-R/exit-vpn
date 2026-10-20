@@ -653,6 +653,18 @@ Acceptance:
 - **Notifications**: failover done, degraded, recovered, key expiring, catalog stale.
 - Launch at login (`SMAppService`).
 
+**Phase 5a results (2026-10-20)** — controller changes deployed; 73 controller, 14 helper,
+19 prober unit tests green; `tests/acceptance/phase5a-client.sh` 6/6, Phase 3 regression 4/4
+(T9 recovery 21 s):
+- T23 exact select CH#697 at its IP; profile `[port_forward, stream, ipv6]`.
+- T24 silent drop of that server → CH#821, same city, still P2P, in 27 s.
+- T25 Secure Core on → CH-US#3 (entry CH); rotate stays Secure Core (other entry IP);
+  off → a regular server.
+- T26 regions `[Zurich, New York]` → "Rotate (any)" from New York lands in Zurich.
+- Saved state migrated `countries` → `regions` on start. The re-pushed catalog marks 317 of
+  1,077 servers IPv6-capable.
+- Host-level changes: none.
+
 **v1.1**: hard requirements (item 5), favourite servers (tried first within their region),
 App Intents / Shortcuts ("Rotate exit", "Connect to <region>"), `exitvpn://` URLs, event log
 window. Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.

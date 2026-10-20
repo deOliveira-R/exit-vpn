@@ -7,10 +7,10 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-20)
 
-Phases 0–4, 3b and 3b.2 done and deployed; all acceptance suites green. The exit runs on a
+Phases 0–4, 3b, 3b.2 and 5a (controller side of Phase 5) done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; nothing refreshes it
-automatically yet, the Phase 5 app will). Remaining: **5** (macOS menu-bar app driving
-`exitctl --json`), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
+automatically yet, the Phase 5 app will). Remaining: **5** app (`mac/ExitControl`, SwiftUI, D21: controller over HTTP+SSE,
+`exitctl --json` for provider actions), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
 ## Layout
@@ -78,7 +78,7 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
   Mac (Proton app **off**; scripts select and clear the exit node themselves)
   `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`,
-  `phase3b-client.sh`, `phase3b2-client.sh` (need `helper/.venv/bin/exitctl proton login` first, done by the owner
+  `phase3b-client.sh`, `phase3b2-client.sh`, `phase5a-client.sh` (need `helper/.venv/bin/exitctl proton login` first, done by the owner
   in their own terminal: password/2FA/CAPTCHA prompts).
 - Catalog: `exitctl proton servers [--push|--revert]`. Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
 - Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events,keys,catalog}`.
