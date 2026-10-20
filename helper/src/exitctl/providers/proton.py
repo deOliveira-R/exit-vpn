@@ -77,7 +77,7 @@ def cert_view(c: dict) -> dict:
 
 
 # vpn/v1/logicals `Features` bits (python-proton-vpn-api-core ServerFeatureEnum)
-F_SECURE_CORE, F_TOR, F_P2P, F_STREAMING = 1, 2, 4, 8
+F_SECURE_CORE, F_TOR, F_P2P, F_STREAMING, F_IPV6 = 1, 2, 4, 8, 16
 
 
 def catalog_rows(logicals: list[dict]) -> list[dict]:
@@ -95,7 +95,8 @@ def catalog_rows(logicals: list[dict]) -> list[dict]:
                 "city": lg.get("City") or "", "hostname": ps.get("Domain", ""), "ip": ip,
                 "pubkey": key, "secure_core": bool(feat & F_SECURE_CORE),
                 "tor": bool(feat & F_TOR), "port_forward": bool(feat & F_P2P),
-                "stream": bool(feat & F_STREAMING), "free": int(lg.get("Tier", 2)) == 0,
+                "stream": bool(feat & F_STREAMING), "ipv6": bool(feat & F_IPV6),
+                "free": int(lg.get("Tier", 2)) == 0,
                 "load": lg.get("Load"),
                 "enabled": lg.get("Status") == 1 and ps.get("Status") == 1})
     return rows

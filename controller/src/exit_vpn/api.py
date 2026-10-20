@@ -21,6 +21,9 @@ from .failover import find_candidates
 from .finder import Finder
 from .keys import MAX_CONF_BYTES, KeyRejected
 from .slots import KeyFailed, SlotManager
+from .state import FEATURES
+
+SERVER_FEATURES = ("secure_core", "tor", "free", "stream", "port_forward", "ipv6")
 
 
 class RotateBody(BaseModel):
@@ -28,9 +31,15 @@ class RotateBody(BaseModel):
 
 
 class SelectBody(BaseModel):
-    server: str | None = None
+    server: str | None = None   # exact pick (with `ip`: one physical server)
+    ip: str | None = None
     country: str | None = None
     city: str | None = None
+
+
+class RegionBody(BaseModel):
+    country: str = Field(max_length=100)
+    city: str | None = Field(None, max_length=100)
 
 
 class FindBody(BaseModel):
@@ -47,10 +56,12 @@ class ApplyBody(BaseModel):
 
 
 class PrefsBody(BaseModel):
-    countries: list[str] | None = None
+    regions: list[RegionBody] | None = Field(None, max_length=50)
+    countries: list[str] | None = None   # older clients: countries only
     auto_failover: bool | None = None
-    secure_core: bool | None = None
+    secure_core: bool | None = None      # a mode: changing it switches servers now
     allow_free: bool | None = None
+    require: list[Literal[FEATURES]] | None = None
 
 
 class KeyMeta(BaseModel):
@@ -79,6 +90,7 @@ class PushedServer(BaseModel):
     free: bool = False
     stream: bool = False
     port_forward: bool = False
+    ipv6: bool = False
     load: int | None = Field(None, ge=0, le=100)
     enabled: bool = True
 
@@ -125,7 +137,7 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
     @app.get("/v1/servers")
     async def servers(country: str | None = None, city: str | None = None,
                       feature: str | None = None, _: str = Depends(owner)):
-        if feature and feature not in ("secure_core", "tor", "free", "stream", "port_forward"):
+        if feature and feature not in SERVER_FEATURES:
             raise HTTPException(400, f"unknown feature {feature!r}")
         rows = ctl.catalog.filter(country, city, feature)
         return {"count": len(rows), "countries": ctl.catalog.countries() if not country else None,
@@ -143,32 +155,69 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
     async def select(body: SelectBody, who: str = Depends(owner)):
         if not (body.server or body.country or body.city):
             raise HTTPException(400, "give server, country or city")
-        cands = ctl.select_candidates(body.server, body.country, body.city)
+        if body.server:
+            # an exact pick: failover keeps its features (PLAN Phase 5)
+            try:
+                cands = ctl.exact_server(body.server, body.ip)
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from None
+            profile = [f for f in FEATURES if all(getattr(s, f) for s in cands)]
+        else:
+            cands, profile = ctl.select_candidates(None, body.country, body.city), []
         try:
-            await ctl.switch(cands, f"select {body.model_dump(exclude_none=True)} by {who}")
+            await ctl.switch(cands, f"select {body.model_dump(exclude_none=True)} by {who}",
+                             profile)
         except SwitchError as e:
             raise HTTPException(409, str(e)) from None
         return ctl.status()
 
     @app.get("/v1/prefs")
     async def get_prefs(_: str = Depends(owner)):
-        return vars(ctl.state.prefs)
+        return ctl.state.prefs.view()
+
+    def check_regions(regions: list[RegionBody]) -> list[dict]:
+        if not regions:
+            raise HTTPException(400, "empty list")
+        countries = {c.lower(): c for c in ctl.catalog.countries()}
+        out = []
+        for r in regions:
+            country = countries.get(r.country.lower())
+            if not country:
+                raise HTTPException(400, f"unknown country: {r.country!r}")
+            city = None
+            if r.city:
+                cities = {s.city.lower(): s.city for s in ctl.catalog.filter(country)}
+                city = cities.get(r.city.lower())
+                if not city:
+                    raise HTTPException(400, f"no servers in {r.city!r}, {country}")
+            if {"country": country, "city": city} not in out:
+                out.append({"country": country, "city": city})
+        return out
 
     @app.put("/v1/prefs")
     async def put_prefs(body: PrefsBody, who: str = Depends(owner)):
         p = ctl.state.prefs
-        if body.countries is not None:
-            known = {c.lower(): c for c in ctl.catalog.countries()}
-            bad = [c for c in body.countries if c.lower() not in known]
-            if bad or not body.countries:
-                raise HTTPException(400, f"unknown countries: {bad}" if bad else "empty list")
-            p.countries = [known[c.lower()] for c in body.countries]
-        for k in ("auto_failover", "secure_core", "allow_free"):
+        if body.regions is not None and body.countries is not None:
+            raise HTTPException(400, "give regions or countries, not both")
+        if body.regions is not None:
+            regions = check_regions(body.regions)
+        elif body.countries is not None:
+            regions = check_regions([RegionBody(country=c) for c in body.countries])
+        else:
+            regions = None
+        if regions is not None:
+            p.regions = regions
+        for k in ("auto_failover", "allow_free", "require"):
             if getattr(body, k) is not None:
-                setattr(p, k, getattr(body, k))
-        ctl._event("prefs", by=who, prefs=vars(p))
+                setattr(p, k, list(dict.fromkeys(body.require)) if k == "require" else getattr(body, k))
+        ctl._event("prefs", by=who, prefs=p.view())
         ctl._save()
-        return vars(p)
+        if body.secure_core is not None:
+            try:
+                await ctl.set_secure_core(body.secure_core, who)
+            except SwitchError as e:
+                raise HTTPException(409, f"Secure Core unchanged: {e}") from None
+        return p.view()
 
     @app.post("/v1/find", status_code=202)
     async def find(body: FindBody, who: str = Depends(owner)):
@@ -211,7 +260,7 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
             raise HTTPException(400, "server was not probed in this job")
         srv = next((s for s in job.candidates if s.name == hit["server"] and s.ip == hit["ip"]), None)
         try:
-            await ctl.switch([srv], f"find {job_id} apply by {who}")
+            await ctl.switch([srv], f"find {job_id} apply by {who}", srv.features())
         except SwitchError as e:
             raise HTTPException(409, str(e)) from None
         return ctl.status()

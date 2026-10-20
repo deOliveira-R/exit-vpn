@@ -96,8 +96,10 @@ class Controller:
         same = cur is not None and (cur.pubkey, cur.endpoint) == (p.pubkey, p.endpoint)
         srv = self.catalog.by_peer(p.pubkey, p.endpoint.rsplit(":", 1)[0])
         since = cur.since if same and cur else now
+        profile = list(cur.profile) if same and cur else []
         if srv:
-            self.state.current = Current(srv.name, p.pubkey, p.endpoint, srv.country, srv.city, since)
+            self.state.current = Current(srv.name, p.pubkey, p.endpoint, srv.country, srv.city,
+                                         since, profile)
         elif (p.pubkey, p.endpoint) == (self.conf.peer_pubkey, self.conf.peer_endpoint):
             self.state.current = Current(self.conf.peer_name or "config peer", p.pubkey,
                                          p.endpoint, since=since)
@@ -181,8 +183,13 @@ class Controller:
                 return False
             await asyncio.sleep(1.0)
 
-    async def _try(self, srv: Server) -> bool:
-        """Swap to `srv` and wait up to the warm-up for one fully passing cycle."""
+    def _profile(self) -> list[str]:
+        return list(self.state.current.profile) if self.state.current else []
+
+    async def _try(self, srv: Server, profile: list[str] | None = None) -> bool:
+        """Swap to `srv` and wait up to the warm-up for one fully passing cycle.
+        `profile`: features to keep from now on (None: the current server's)."""
+        profile = self._profile() if profile is None else profile
         endpoint = srv.endpoint(self.s.wg_port)
         try:
             await self.wg.swap_peer(srv.pubkey, endpoint)
@@ -192,7 +199,7 @@ class Controller:
         if not await self._healthy_within(self.s.warmup):
             return False
         self.state.current = Current(srv.name, srv.pubkey, endpoint,
-                                     srv.country, srv.city, self.clock())
+                                     srv.country, srv.city, self.clock(), list(profile))
         self._save()
         return True
 
@@ -226,7 +233,8 @@ class Controller:
             self._blacklist(old.pubkey)
         self._event("failover_start", server=old.name if old else None, reason=reason)
         cands = choose_candidates(self.catalog.servers, old, self.state.prefs,
-                                  set(self.state.blacklist), self.rng, "failover")
+                                  set(self.state.blacklist), self.rng, "failover",
+                                  profile=self._profile())
         for srv in cands:
             if await self._try(srv):
                 self.backoff.reset()
@@ -241,22 +249,25 @@ class Controller:
         self._save()
         return False
 
-    async def switch(self, candidates: list[Server], reason: str) -> Server:
-        """Rotate/select: try candidates in order; on total failure, go back."""
+    async def switch(self, candidates: list[Server], reason: str,
+                     profile: list[str] | None = None) -> Server:
+        """Rotate/select: try candidates in order; on total failure, go back.
+        `profile`: what failover keeps afterwards (None: unchanged)."""
         if not candidates:
             raise SwitchError("no eligible server matches")
         async with self.lock:
             old = self.current_server()
+            old_profile = self._profile()
             t0 = self.clock()
             for srv in candidates[:MAX_SWITCH_TRIES]:
-                if await self._try(srv):
+                if await self._try(srv, profile):
                     self._event("switched", old=old.name if old else None, new=srv.name,
                                 reason=reason, exit_ip=self.last.exit_ip if self.last else None,
                                 seconds=round(self.clock() - t0, 1))
                     return srv
                 self._blacklist(srv.pubkey)
                 self._event("candidate_failed", server=srv.name)
-            if old and await self._try(old):
+            if old and await self._try(old, old_profile):
                 self._event("switch_reverted", server=old.name, reason=reason)
             self._save()
             raise SwitchError(f"none of {min(len(candidates), MAX_SWITCH_TRIES)} candidates worked")
@@ -268,16 +279,58 @@ class Controller:
             catalog.save(self.s.catalog_file)
         self._event("catalog", source=catalog.source, servers=len(catalog), before=old)
 
-    def candidates(self, scope: str) -> list[Server]:
+    def candidates(self, scope: str, profile: list[str] | None = None) -> list[Server]:
+        """Rotation keeps the profile of a manually picked server (P2P stays P2P)."""
         self.state.prune(self.clock())
         return choose_candidates(self.catalog.servers, self.current_server(), self.state.prefs,
-                                 set(self.state.blacklist), self.rng, scope)
+                                 set(self.state.blacklist), self.rng, scope,
+                                 profile=self._profile() if profile is None else profile)
+
+    def exact_server(self, server: str, ip: str | None = None) -> list[Server]:
+        """One physical server by name (or hostname) and, when given, entry IP. An
+        explicit choice skips the load/blacklist rules, but not the Secure Core mode
+        (failover could never keep it) and not maintenance."""
+        found = [s for s in self.catalog.by_name(server) if ip is None or s.ip == ip]
+        if not found:
+            raise ValueError(f"no server {server!r}" + (f" at {ip}" if ip else ""))
+        if any(s.secure_core != self.state.prefs.secure_core for s in found):
+            raise ValueError("Secure Core is " + ("on: pick a Secure Core server"
+                             if self.state.prefs.secure_core else "off: turn it on first"))
+        usable = [s for s in found if s.enabled]
+        if not usable:
+            raise ValueError(f"{server} is in maintenance")
+        return usable
+
+    async def set_secure_core(self, on: bool, who: str) -> Server | None:
+        """Secure Core is a mode, so turning it on or off moves to a server of the new
+        mode now: the current country first, then the pinned regions. If none works, the
+        mode stays as it was."""
+        p = self.state.prefs
+        if p.secure_core == on:
+            return None
+        p.secure_core = on
+        # a new mode starts without a profile: Secure Core servers carry no P2P flag
+        cands = self.candidates("country", []) + self.candidates("any", [])
+        uniq = list({(s.pubkey, s.ip): s for s in cands}.values())
+        if not uniq:
+            p.secure_core = not on
+            raise SwitchError("no Secure Core server in the current country or pinned regions"
+                              if on else "no regular server in the current country or pinned regions")
+        try:
+            srv = await self.switch(uniq, f"secure core {'on' if on else 'off'} by {who}", [])
+        except SwitchError:
+            p.secure_core = not on
+            self._save()
+            raise
+        self._event("prefs", by=who, prefs=p.view())
+        self._save()
+        return srv
 
     def select_candidates(self, server: str | None, country: str | None,
                           city: str | None) -> list[Server]:
         from .failover import eligible
         if server:
-            return self.catalog.by_name(server)  # explicit choice: no eligibility filter
+            return self.exact_server(server)
         cur = self.current_server()
         pool = [s for s in self.catalog.filter(country, city)
                 if eligible(s, self.state.prefs) and (not cur or s.pubkey != cur.pubkey)
@@ -295,6 +348,7 @@ class Controller:
     # Views --------------------------------------------------------------------------
     def status(self) -> dict:
         c, r, now = self.state.current, self.last, self.clock()
+        cur = self.current_server()
         return {
             "server": c.name if c else None,
             "country": c.country if c else None,
@@ -302,6 +356,10 @@ class Controller:
             "endpoint": c.endpoint if c else None,
             "pubkey": c.pubkey if c else None,
             "since": c.since if c else None,
+            "profile": c.profile if c else [],
+            "entry": cur.entry if cur else "",
+            "features": cur.features() if cur else [],
+            "load": cur.load if cur else None,
             "health": str(self.tracker.state),
             "health_since": self.tracker.since,
             "exit_ip": r.exit_ip if r else None,
@@ -310,7 +368,7 @@ class Controller:
             "last_ok_age": round(now - self.last_ok_at, 1) if self.last_ok_at else None,
             "errors": r.errors if r else [],
             "warnings": self.warnings() + self._catalog_warnings(now),
-            "prefs": vars(self.state.prefs),
+            "prefs": self.state.prefs.view(),
             "provider": self.s.provider,
             "key_options": self.conf.options,
             "catalog": {"servers": len(self.catalog), "source": self.catalog.source,

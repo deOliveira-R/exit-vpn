@@ -56,6 +56,7 @@ ProtonVPN-backed Tailscale exit node, hosted on the existing Oracle Always-Free 
 | D18 | **VPN credentials helper runs on the Mac, never on a server.** Proton configs are created, listed, rotated and deleted through Proton's internal API (the same calls the web dashboard makes: `POST/GET/DELETE vpn/v1/certificate`, `Mode: persistent`, `Features`), authenticated by a Proton session (SRP login + 2FA) kept in the macOS Keychain. Only the resulting WireGuard key reaches the VPS | A Proton session grants the whole Proton account (Mail, Drive), so it gets the same treatment as the policy-write token in D14. Undocumented API → the helper is a convenience; manual dashboard generation stays the fallback |
 | D19 | **Prober = two tiers.** Tier 1: `curl_cffi` (Chrome TLS/HTTP2 impersonation, no JS) for fast HTTP-level verdicts (403/451/429, Cloudflare/WAF challenges, geo redirects) across many candidates. Tier 2: Debian's full `chromium --headless=new`, driven over CDP (Playwright `connect_over_cdp` or a small CDP client, not Playwright's bundled browsers), for finalists and JS-revealed blocks. Verdicts compare against a same-engine baseline | Benchmark 2026-10-20 (below): the engine itself is part of what sites detect; only full Chromium new-headless loaded Amazon, Hulu and Netflix normally (headless shell was flagged as a bot by Amazon; Lightpanda 1.0.1 broke Hulu's JS). curl_cffi is ~20 MB/page vs Chromium's 300–600 MB. Lightpanda revisit tracked in an issue |
 | D20 | **Provider adapters on the Mac (`exitctl`)**: one adapter per VPN service behind a common interface (levers as a schema, key create/renew/list/delete, optional live catalog); a `manual` adapter imports `.conf` files for providers without an API. Exposed as a CLI with `--json` on every command, which is the contract the Phase 5 menu-bar app drives | Provider-agnostic like the server side (D16); the app gets every provider for free; provider sessions never leave the Mac (D18) |
+| D21 | **Menu-bar app = thin client** (`mac/ExitControl`, SwiftUI): controller over HTTP + SSE for state and server choice, `exitctl --json` for provider actions, a launchd agent for the hourly catalog push. One controller, one VPN subscription. The Tailscale exit-node choice stays in the Tailscale app (shown, not changed) | Mirrors Tailscale (daemon + LocalAPI + equal CLI/GUI clients); live updates without polling; the app stays MIT because proton-core is never bundled |
 
 ---
 
@@ -593,12 +594,76 @@ Acceptance:
 
 ### Phase 5 — macOS menu-bar app (`ExitControl`)
 
-- SwiftUI `MenuBarExtra`, macOS 14+, no Dock icon (`LSUIElement`).
-- Base URL configurable, default `http://exit-proton:8080` (MagicDNS).
-- Menu: status line (country flag, city, exit IP, health colour), **Rotate (same country)**, **Rotate (any)**, country submenu (from `/v1/servers` countries), **Find server for URL…** (sheet: URL field, country filter, live results list from polling `/v1/find/{id}` or SSE, "Switch to this server" buttons), **Open status JSON**, Preferences.
-- Detect whether the Mac's current exit node is `exit-proton` (via `tailscale status --json` if the CLI is available; otherwise skip) and show a warning badge if not. Changing the Tailscale exit node itself is out of scope for v1.
-- No secrets in this phase (auth is Tailscale identity).
-- Acceptance: all menu actions work against the live controller; app tolerates controller-down (shows offline state, no hangs).
+**Shape (D21)** — a native SwiftUI app (Xcode project in `mac/ExitControl/`, macOS 14+,
+`MenuBarExtra`, no Dock icon) that is a thin client like Tailscale's own GUI:
+- **Controller** (the "daemon"): HTTP for actions, SSE `/v1/events` for live state, so the
+  icon and windows update without polling. Base URL configurable, default
+  `http://exit-proton:8080` (MagicDNS); auth stays Tailscale identity (no secrets in the app).
+- **Provider actions** (login, keys, levers, catalog push): runs `exitctl --json` (D20),
+  installed separately with `uv tool install ./helper`. The app never bundles proton-core
+  (GPLv3), so it stays MIT; `NeedInput` (exit code 3: totp / captcha) becomes a sheet.
+- **Background agent**: a launchd agent (installed/removed from the app) runs
+  `exitctl <provider> servers --push` hourly and warns about keys expiring within 14 days.
+- **Scope**: one controller, one VPN subscription (Proton here; another user's might be a
+  different provider). Choosing *whether* this Mac uses `exit-proton` stays in the Tailscale
+  app: ExitControl only shows it (read-only, from `tailscale status --json`; a warning badge
+  when another exit node or none is selected). ExitControl chooses *which provider server*
+  `exit-proton` uses, for every device routed through it.
+
+**Controller changes first (5a, with unit tests):**
+1. **Exact server**: `/v1/select {server, ip}` picks one physical server (a logical name
+   covers several; identity is (pubkey, ip)). Records the pick as manual.
+2. **Equivalent-server failover**: the current server's features (P2P, streaming, IPv6) are
+   the profile failover keeps. Tiers stay same city → same country → pinned regions; within
+   them, servers with the full profile come first. **P2P is hard** (never fail over from a
+   P2P server to a non-P2P one: traffic may be peer-to-peer); streaming and IPv6 are
+   preferred, then relaxed. No hard match anywhere → `degraded` (kill switch), not a silent
+   downgrade.
+3. **Secure Core on/off** (no "allowed"): on → only Secure Core servers are eligible
+   (entry CH/IS/SE → exit in the chosen region), off → none. Failover never crosses the mode;
+   no Secure Core server working → `degraded`. Turning it on or off switches immediately
+   (best Secure Core server in the current country, or the first pinned region).
+4. **Pinned regions**: `prefs.regions` = ordered list of `{country, city?}` replacing
+   `prefs.countries` (migrated on load; `countries` kept read-only in the API for older
+   clients). Failover and "Rotate (any)" walk them in order.
+5. **Requirements** (v1.1): `prefs.require` = features every candidate must have (e.g. P2P),
+   independent of the current server.
+6. **Catalog**: `ipv6` flag (Proton feature bit 16) in pushed rows and `Server`; `/v1/servers`
+   filter accepts it. IPv6 *through* the exit is still out of scope (Q6).
+
+**App v1:**
+- **Menu**: status line (flag, server, city, exit IP, load; Secure Core shows "CH → US"),
+  icon coloured by health (healthy / failing over / degraded = kill switch holding) and
+  offline when the controller is unreachable (no hangs); the Tailscale exit-node indicator;
+  Rotate (same city / same country / any); pinned regions as one-click items, the rest under
+  "More countries…"; Secure Core toggle; Auto-failover toggle; Find server for URL…; Server
+  browser…; Settings…
+- **Server browser** (window): searchable table of the live catalog (name, city, load bar,
+  feature badges, enabled state), filters (country, P2P, streaming, Secure Core, IPv6, free,
+  hide disabled), Connect = exact select. Filters are view-only.
+- **Find server for URL** (sheet): URL, countries, mode; live results per candidate; Switch.
+- **Settings → Regions**: drag-to-reorder pinned regions (country or city).
+- **Settings → Connection**: provider levers from `exitctl <p> options --json` (Proton:
+  NetShield 0/1/2, VPN Accelerator, Moderate NAT, NAT-PMP). They live in the key (D17), so
+  Apply = rotate slot a (~9 s, ~1.5 s of drops), and the pane says so.
+- **Settings → Account**: provider login state and login sheet (password, then totp/captcha
+  steps), slots a/b with options and expiry (Renew, Rotate), the provider's key list with
+  orphans flagged (Delete), catalog source and age (Push now / Revert to pinned), launchd
+  agent on/off.
+- **Notifications**: failover done, degraded, recovered, key expiring, catalog stale.
+- Launch at login (`SMAppService`).
+
+**v1.1**: hard requirements (item 5), favourite servers (tried first within their region),
+App Intents / Shortcuts ("Rotate exit", "Connect to <region>"), `exitvpn://` URLs, event log
+window. Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.
+
+**Acceptance (T23–T30):** T23 exact select lands on the requested (name, ip); T24 failover
+from a P2P server stays P2P and in the same city when one is up; T25 Secure Core on → only
+Secure Core servers through failover and rotate, off → none; T26 pinned regions drive
+"Rotate (any)" and failover order, and old `countries` state migrates; T27 every menu action
+works against the live controller, live updates arrive over SSE; T28 controller down → offline
+state within 5 s, no hangs, recovers by itself; T29 the app's Connection pane rotates slot a
+with NetShield 2 and back; T30 the launchd agent pushes the catalog and the app shows its age.
 
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
@@ -687,7 +752,8 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 | T7 / T8 | 2 | fin-intel unaffected; throughput baseline |
 | T9 / T10 / T11 | 3 | silent-drop failover ≤ 20 s; rotation; API ACL |
 | T12 / T12b | 4 | find-server works; probing never disturbs active exit; prober fails closed |
-| T16–T21 | 3b | key rotation via the provider API sets levers; bad keys roll back; no session/key leaks; renew; prober key reload |
+| T16–T22 | 3b | key rotation via the provider API sets levers; bad keys roll back; no session/key leaks; renew; prober key reload; live catalog |
+| T23–T30 | 5 | exact select; equivalent-server failover; Secure Core on/off; pinned regions; app actions, SSE, offline state; levers and catalog agent from the app |
 | T13–T15 | 6 | per-domain residential routing over the exit node; safe policy edits; fail-closed |
 
 ---

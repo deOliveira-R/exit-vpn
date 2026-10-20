@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from exit_vpn.api import create_app
 from exit_vpn.catalog import Catalog, CatalogError, Server, parse_pushed
 from exit_vpn.failover import choose_candidates
-from exit_vpn.state import Prefs
+from exit_vpn.state import Prefs, regions_from_countries
 
 from test_keys import AllowAll, env  # noqa: F401  (fixture)
 
@@ -65,7 +65,7 @@ def test_failover_skips_disabled_and_prefers_low_load():
                       f"k{i}", load=load, enabled=enabled)
     cur = srv(0, 50)
     pool = [cur, srv(1, 95), srv(2, 10, enabled=False), srv(3, 15), srv(4, 55), srv(5, 5)]
-    c = choose_candidates(pool, cur, Prefs(["United States"]), set(), random.Random(1), "city")
+    c = choose_candidates(pool, cur, Prefs(regions_from_countries(["United States"])), set(), random.Random(1), "city")
     assert [s.name for s in c] == ["US-NY#5", "US-NY#3", "US-NY#4", "US-NY#1"]
 
 

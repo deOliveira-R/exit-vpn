@@ -3,9 +3,9 @@ import random
 
 from exit_vpn.failover import find_candidates
 from exit_vpn.finder import Finder
-from exit_vpn.state import Prefs
+from exit_vpn.state import Prefs, regions_from_countries
 
-PREFS = Prefs(["United States", "Switzerland"])
+PREFS = Prefs(regions_from_countries(["United States", "Switzerland"]))
 
 
 def test_find_candidates_order_and_exclusions(catalog):

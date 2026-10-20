@@ -271,7 +271,7 @@ async def test_login_captcha_then_retry_with_token(proton):
 
 def test_catalog_rows_from_logicals():
     from exitctl.providers.proton import catalog_rows
-    lg = [{"Name": "CH-US#1", "ExitCountry": "US", "City": "New York", "Tier": 2, "Features": 1 | 8,
+    lg = [{"Name": "CH-US#1", "ExitCountry": "US", "City": "New York", "Tier": 2, "Features": 1 | 8 | 16,
            "Status": 1, "Load": 33, "Servers": [
                {"EntryIP": "185.159.157.9", "Domain": "node-ch-01.protonvpn.net",
                 "X25519PublicKey": "k1", "Status": 1},
@@ -286,3 +286,4 @@ def test_catalog_rows_from_logicals():
         ("node-ch-01.protonvpn.net", True), ("node-ch-02.protonvpn.net", False), ("d", False)]
     assert rows[0]["secure_core"] and rows[0]["stream"] and not rows[0]["free"]
     assert rows[0]["load"] == 33 and rows[2]["free"]
+    assert rows[0]["ipv6"] and not rows[2]["ipv6"]

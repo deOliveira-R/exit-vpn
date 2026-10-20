@@ -12,12 +12,13 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .state import atomic_write
+from .state import FEATURES, atomic_write
 
 MIN_SERVERS = 50  # a smaller list means a broken or truncated download
 MIN_PUSH_FRACTION = 0.3   # a push may not shrink the catalog below this share
 PUSH_PREFIX = "push:"
 _CODE = re.compile(r"^(?:node-)?([a-z]{2})-")
+_SC_NAME = re.compile(r"^([A-Z]{2})-[A-Z]{2}#")
 
 
 class CatalogError(ValueError):
@@ -36,15 +37,25 @@ class Server:
     tor: bool = False
     free: bool = False
     stream: bool = False
-    port_forward: bool = False
+    port_forward: bool = False  # Proton: P2P
+    ipv6: bool = False
     load: int | None = None     # percent, from a live catalog (None: unknown)
     enabled: bool = True        # False: in maintenance (live catalog)
 
     def endpoint(self, port: int) -> str:
         return f"{self.ip}:{port}"
 
+    @property
+    def entry(self) -> str:
+        """Secure Core entry country code ("CH" for CH-US#3), else ""."""
+        m = _SC_NAME.match(self.name) if self.secure_core else None
+        return m.group(1) if m else ""
+
+    def features(self) -> list[str]:
+        return [f for f in FEATURES if getattr(self, f)]
+
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {**asdict(self), "entry": self.entry}
 
 
 def parse_gluetun(data: dict, hostname_suffix: str = "") -> list[Server]:
@@ -110,7 +121,7 @@ def parse_pushed(rows: list[dict], hostname_suffix: str,
             city=str(r.get("city") or ""), hostname=host, ip=str(ip), pubkey=r["pubkey"],
             secure_core=bool(r.get("secure_core")), tor=bool(r.get("tor")),
             free=bool(r.get("free")), stream=bool(r.get("stream")),
-            port_forward=bool(r.get("port_forward")),
+            port_forward=bool(r.get("port_forward")), ipv6=bool(r.get("ipv6")),
             load=int(load) if isinstance(load, (int, float)) else None,
             enabled=bool(r.get("enabled", True))))
     return servers
@@ -194,7 +205,8 @@ class Catalog:
     @classmethod
     def load(cls, path: Path) -> Catalog:
         d = json.loads(path.read_text())
-        servers = [Server(**s) for s in d["servers"]]
+        fields = Server.__dataclass_fields__
+        servers = [Server(**{k: v for k, v in s.items() if k in fields}) for s in d["servers"]]
         if len(servers) < MIN_SERVERS:
             raise CatalogError(f"cached catalog has only {len(servers)} servers")
         return cls(servers, d.get("source", ""), d.get("fetched_at", 0.0))

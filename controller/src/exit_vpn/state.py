@@ -28,12 +28,43 @@ def atomic_write(path: Path, text: str, mode: int = 0o600) -> None:
         raise
 
 
+FEATURES = ("port_forward", "stream", "ipv6")   # what a server profile can keep (PLAN Phase 5)
+HARD_FEATURES = ("port_forward",)              # P2P: never fail over to a server without it
+
+
 @dataclass
 class Prefs:
-    countries: list[str]
+    """`regions`: pinned regions in priority order, each {"country": .., "city": ..|None}."""
+    regions: list[dict]
     auto_failover: bool = True
-    secure_core: bool = False   # works with any key (PLAN Phase 0); off by default
+    secure_core: bool = False   # on: only Secure Core servers; off: none (works with any key)
     allow_free: bool = False    # free-tier servers are crowded
+    require: list[str] = field(default_factory=list)  # features every candidate must have
+
+    @property
+    def countries(self) -> list[str]:
+        """The regions' countries, in order, without repeats."""
+        out: list[str] = []
+        for r in self.regions:
+            if r["country"].lower() not in [c.lower() for c in out]:
+                out.append(r["country"])
+        return out
+
+    def view(self) -> dict:
+        return {**vars(self), "countries": self.countries}
+
+    @classmethod
+    def from_dict(cls, d: dict, default_countries: list[str]) -> Prefs:
+        d = dict(d)
+        countries = d.pop("countries", None) or default_countries
+        if "regions" not in d:   # state from before pinned regions: countries become regions
+            d["regions"] = regions_from_countries(countries)
+        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        return cls(**known)
+
+
+def regions_from_countries(countries: list[str]) -> list[dict]:
+    return [{"country": c, "city": None} for c in countries]
 
 
 @dataclass
@@ -44,6 +75,7 @@ class Current:
     country: str = ""
     city: str = ""
     since: float = 0.0
+    profile: list[str] = field(default_factory=list)  # features failover keeps (manual pick)
 
 
 @dataclass
@@ -75,7 +107,7 @@ class State:
     @classmethod
     def from_json(cls, text: str, default_countries: list[str]) -> State:
         d = json.loads(text)
-        prefs = Prefs(**{"countries": default_countries, **d.get("prefs", {})})
+        prefs = Prefs.from_dict(d.get("prefs", {}), default_countries)
         cur = Current(**d["current"]) if d.get("current") else None
         return cls(prefs, cur, d.get("blacklist", {}), d.get("events", []))
 
@@ -88,7 +120,7 @@ class StateStore:
         try:
             return State.from_json(self.path.read_text(), self.default_countries)
         except FileNotFoundError:
-            return State(Prefs(list(self.default_countries)))
+            return State(Prefs(regions_from_countries(self.default_countries)))
 
     def save(self, state: State) -> None:
         atomic_write(self.path, state.to_json())

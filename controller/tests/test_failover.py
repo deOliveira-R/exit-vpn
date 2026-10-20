@@ -3,9 +3,9 @@ import random
 import pytest
 
 from exit_vpn.failover import choose_candidates
-from exit_vpn.state import Prefs
+from exit_vpn.state import Prefs, regions_from_countries
 
-PREFS = Prefs(["United States", "Switzerland"])
+PREFS = Prefs(regions_from_countries(["United States", "Switzerland"]))
 
 
 def _cur(catalog, city="New York"):
@@ -38,10 +38,57 @@ def test_excludes_secure_core_tor_free_and_blacklisted(catalog):
     assert not black & {s.pubkey for s in c}
 
 
-def test_secure_core_opt_in(catalog):
-    p = Prefs(["United States"], secure_core=True)
+def test_secure_core_is_a_mode(catalog):
+    """On: only Secure Core servers, through failover too; off: none (PLAN Phase 5)."""
+    p = Prefs(regions_from_countries(["United States"]), secure_core=True)
     c = choose_candidates(catalog.servers, None, p, set(), random.Random(4), scope="any", per_tier=100)
-    assert any(s.secure_core for s in c)
+    assert c and all(s.secure_core for s in c)
+    cur = next(s for s in catalog.servers if s.secure_core and s.country == "United States")
+    c = choose_candidates(catalog.servers, cur, p, set(), random.Random(4), per_tier=100)
+    assert c and all(s.secure_core for s in c)
+    assert cur.entry in ("CH", "SE", "IS")
+
+
+def test_p2p_profile_is_hard_streaming_is_soft(catalog):
+    cur = next(s for s in catalog.filter("United States", "New York") if s.port_forward)
+    c = choose_candidates(catalog.servers, cur, PREFS, set(), random.Random(8), per_tier=100,
+                          profile=["port_forward", "stream"])
+    assert c and all(s.port_forward for s in c), "never fail over from P2P to non-P2P"
+    assert c[0].city == "New York"
+    # streaming is soft: preferred within a tier, but non-streaming servers stay allowed
+    from dataclasses import replace
+    chi = catalog.filter("United States", "Chicago")
+    pool = [replace(x, stream=i % 2 == 0, port_forward=False) for i, x in enumerate(chi)]
+    c = choose_candidates(pool, pool[0], PREFS, set(), random.Random(9), per_tier=100,
+                          profile=["stream"])
+    flags = [x.stream for x in c]
+    assert True in flags and False in flags and flags == sorted(flags, reverse=True)
+
+
+def test_p2p_profile_with_no_p2p_left_gives_nothing(catalog):
+    cur = next(s for s in catalog.filter("United States", "New York") if s.port_forward)
+    black = {s.pubkey for s in catalog.servers if s.port_forward}
+    assert not choose_candidates(catalog.servers, cur, PREFS, black, random.Random(1),
+                                 profile=["port_forward"])
+
+
+def test_require_applies_without_profile(catalog):
+    p = Prefs(regions_from_countries(["United States"]), require=["port_forward"])
+    c = choose_candidates(catalog.servers, None, p, set(), random.Random(2), "any", per_tier=100)
+    assert c and all(s.port_forward for s in c)
+
+
+def test_city_regions_in_priority_order(catalog):
+    p = Prefs([{"country": "Switzerland", "city": None},
+               {"country": "United States", "city": "Dallas"}])
+    c = choose_candidates(catalog.servers, None, p, set(), random.Random(3), "any", per_tier=100)
+    first_us = next(i for i, s in enumerate(c) if s.country == "United States")
+    assert all(s.country == "Switzerland" for s in c[:first_us])
+    assert all(s.city == "Dallas" for s in c[first_us:])
+    # failover from Germany walks the pinned regions in order
+    cur = catalog.filter("Germany", "Berlin")[0]
+    c = choose_candidates(catalog.servers, cur, p, set(), random.Random(3), per_tier=100)
+    assert [s.country for s in c if s.country != "Germany"][0] == "Switzerland"
 
 
 def test_rotate_country_includes_same_city(catalog):

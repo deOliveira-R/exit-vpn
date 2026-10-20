@@ -179,3 +179,51 @@ async def test_unknown_server_gets_catalog_country_from_exit(setup):
     await ctl.health_step()  # FakeProber reports loc=US
     assert ctl.state.current.country == "United States"
     assert ctl.candidates("country"), "rotate within the country must find candidates"
+
+
+async def test_exact_pick_keeps_p2p_through_failover(setup, catalog):
+    ctl, wg, prober, clock, start = setup
+    await ctl.init()
+    target = next(s for s in catalog.filter("United States", "Chicago") if s.port_forward)
+    cands = ctl.exact_server(target.name, target.ip)
+    await ctl.switch(cands, "test", target.features())
+    assert ctl.state.current.profile == ["port_forward", "stream"]
+    prober.dead.add(target.pubkey)
+    clock.t += 30
+    for _ in range(3):
+        await ctl.health_step()
+    new = ctl.current_server()
+    assert new.port_forward and new.city == "Chicago" and ctl.state.current.profile == target.features()
+    # rotation keeps the profile; a region select clears it
+    new2 = await ctl.switch(ctl.candidates("country"), "test")
+    assert new2.port_forward
+    await ctl.switch(ctl.select_candidates(None, "Switzerland", None), "test", [])
+    assert ctl.state.current.profile == []
+
+
+async def test_exact_server_rules(setup, catalog):
+    ctl, *_ = setup
+    sc = next(s for s in catalog.servers if s.secure_core)
+    with pytest.raises(ValueError, match="turn it on"):
+        ctl.exact_server(sc.name)
+    with pytest.raises(ValueError, match="no server"):
+        ctl.exact_server(catalog.servers[0].name, "203.0.113.1")
+
+
+async def test_secure_core_toggle_switches_mode(setup, catalog):
+    ctl, wg, prober, clock, start = setup
+    await ctl.init()
+    srv = await ctl.set_secure_core(True, "o@github")
+    assert srv.secure_core and ctl.current_server().secure_core and ctl.state.prefs.secure_core
+    assert ctl.status()["entry"] in ("CH", "SE", "IS")
+    srv = await ctl.set_secure_core(False, "o@github")
+    assert not srv.secure_core and not ctl.state.prefs.secure_core
+
+
+async def test_secure_core_toggle_reverts_when_nothing_works(setup, catalog):
+    ctl, wg, prober, clock, start = setup
+    await ctl.init()
+    prober.dead.update(s.pubkey for s in catalog.servers if s.secure_core)
+    with pytest.raises(SwitchError):
+        await ctl.set_secure_core(True, "o@github")
+    assert not ctl.state.prefs.secure_core and wg.peer.pubkey == start.pubkey

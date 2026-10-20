@@ -67,6 +67,21 @@ def test_state_roundtrip_and_peer_env(tmp_path):
     again = store.load()
     assert again.current == st.current and len(again.events) == 50 and again.events[-1]["i"] == 59
     assert again.blacklisted("bad=", 50) and not again.blacklisted("bad=", 150)
+    assert again.prefs.regions == [{"country": "United States", "city": None}]
     env = (tmp_path / "peer.env").read_text()
     assert "PEER_PUBKEY='pk='" in env and "PEER_ENDPOINT='1.2.3.4:51820'" in env
     assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_old_state_countries_migrate_to_regions(tmp_path):
+    import json
+    from exit_vpn.state import Prefs
+    f = tmp_path / "state.json"
+    f.write_text(json.dumps({"prefs": {"countries": ["Switzerland", "Germany"], "secure_core": False,
+                                       "gone_field": 1},
+                             "current": {"name": "X", "pubkey": "k=", "endpoint": "1.1.1.1:51820"}}))
+    st = StateStore(f, tmp_path / "peer.env", ["United States"]).load()
+    assert st.prefs.regions == [{"country": "Switzerland", "city": None},
+                                {"country": "Germany", "city": None}]
+    assert st.prefs.countries == ["Switzerland", "Germany"] and st.current.profile == []
+    assert Prefs([{"country": "US", "city": "A"}, {"country": "us", "city": None}]).countries == ["US"]
