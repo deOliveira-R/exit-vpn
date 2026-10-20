@@ -452,6 +452,15 @@ Acceptance:
 - **T12b** Kill `wg-probe` mid-probe → probe returns `error`, never a result fetched via the Oracle IP.
 - Unit tests for the classifier using saved HTML/header fixtures.
 
+**Phase 4 results (2026-10-20)** — 17 prober + 44 controller unit tests; acceptance `tests/acceptance/phase4-client.sh` 5/5: T12a friendly URL → `ok` on the first candidate; T12b Indeed → `challenge` on both candidates (`cf-mitigated: challenge`, "Just a moment...", captcha iframe); T12c the active exit stayed on the same IP for all 33 samples taken while probing; T12d `wg-probe` taken down during an in-flight request (`httpbin.org/delay/10`) → `error`, exit IP was Proton's; T12e `apply` switched the active exit to the found server. Phase 1–3 suites re-run green. Notes:
+- Prober netns: wg-quick-style fwmark routing (all traffic → `wg-probe`, table 200, `unreachable` fallback) plus an nftables **output policy of drop** that admits only `lo`, `wg-probe`, the tunnel's own marked UDP/51820 packets, and exitnet. Without a peer: DNS fails and direct IPs get "No route to host". Its API (exitnet:9000) admits only the exit container's fixed IP (172.30.42.2); the host gets no answer.
+- Every probe first proves its exit: Cloudflare trace through the tunnel within the warm-up, `loc` must match the server's country, and the exit IP must not be the node's underlay IP (learned by the controller via the main table). Otherwise the probe is an `error` and nothing is fetched.
+- Chromium runs as the unprivileged `browser` user (`--no-sandbox`: the container is the sandbox), with a fresh context per probe, the exit country's locale/timezone and a non-"Headless" UA. The prober has `SETUID/SETGID/CHOWN/KILL` for that, besides `NET_ADMIN`. Image 1.53 GB; ~410 MiB resident with an idle browser.
+- Auto mode: tier 1 alone when it already shows an IP-level verdict (403/451/429) or a plain `ok`; escalate to Chromium on `challenge`, `inconclusive` (near-empty pre-JS page) or `suspicious`, and always when the request sets `js: true`.
+- Observed through Proton (2026-10-20): Reddit `ok` (it 403s the datacenter IP), Hulu/Zillow/Etsy/Netflix `ok`; Indeed, G2, Crunchbase `challenge`.
+- Known limit: geo-blocks that only appear at playback (e.g. BBC iPlayer's homepage loads anywhere) need a playback/content URL to be detected; a homepage probe says `ok`.
+- Jobs run one at a time (the prober has one tunnel); `POST /v1/find` queues them.
+
 ### Phase 5 — macOS menu-bar app (`ExitControl`)
 
 - SwiftUI `MenuBarExtra`, macOS 14+, no Dock icon (`LSUIElement`).
