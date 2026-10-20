@@ -31,7 +31,8 @@ services:
       net.ipv4.conf.default.rp_filter: "2"
     # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
     # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.
-    dns: [${VPN_DNS:-10.2.0.1}]
+    dns:
+      - "${VPN_DNS:-10.2.0.1}"
     read_only: true
     tmpfs: [/run, /tmp]
     volumes:
