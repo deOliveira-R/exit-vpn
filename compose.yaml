@@ -1,0 +1,53 @@
+# exit-vpn: a Tailscale exit node whose internet egress is a VPN provider's WireGuard
+# tunnel, with a kill switch (PLAN.md). Settings come from .env (see .env.example);
+# WireGuard configs live in ./secrets (root, 0700/0600). Never in git.
+name: exit-vpn
+
+x-logging: &logging
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  exit:
+    build: ./exit
+    image: exit-vpn/exit:latest
+    container_name: ${EXIT_NODE_NAME:-exit-proton}
+    hostname: ${EXIT_NODE_NAME:-exit-proton}
+    restart: unless-stopped
+    environment:
+      EXIT_VPN_CONF: /secrets/${EXIT_VPN_CONF:-proton_a.conf}
+      WG_MTU: ${WG_MTU:-1420}
+    # Only what routing, WireGuard and (Phase 2) tailscaled need. s6-overlay as root
+    # needs CHOWN/FOWNER/SETUID/SETGID/KILL/DAC_OVERRIDE for its own setup.
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW, CHOWN, FOWNER, SETUID, SETGID, KILL, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    devices: [/dev/net/tun:/dev/net/tun]
+    # Namespaced: these change only the container's network namespace, not the host.
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.rp_filter: "2"
+      net.ipv4.conf.default.rp_filter: "2"
+    # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
+    # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.
+    dns: [${VPN_DNS:-10.2.0.1}]
+    read_only: true
+    tmpfs: [/run, /tmp]
+    volumes:
+      - ./secrets:/secrets:ro
+      - exit-state:/var/lib/exit-vpn
+      - ts-state:/var/lib/tailscale
+    networks: [exitnet]
+    mem_limit: ${EXIT_MEMORY:-512m}
+    logging: *logging
+
+networks:
+  exitnet:
+    ipam:
+      config:
+        - subnet: ${EXITNET_SUBNET:-172.30.42.0/24}
+
+volumes:
+  exit-state: {}
+  ts-state: {}

@@ -1,0 +1,37 @@
+# Kill switch layer 2 (PLAN 3.2). $WG_IF and $VPN_DNS come from defines.nft, written by
+# init-killswitch from the WireGuard config. Our tables are replaced atomically on reload.
+include "/run/exit-vpn/defines.nft"
+
+table inet killswitch
+delete table inet killswitch
+table inet killswitch {
+  chain fwd {
+    type filter hook forward priority -10; policy accept;
+    # Exit traffic may only leave through the tunnel. A drop here is final, whatever
+    # tailscaled's own ts-forward chains accept.
+    iifname "tailscale0" oifname != $WG_IF drop
+  }
+  chain out {
+    type filter hook output priority -10; policy accept;
+    # The VPN's DNS server must never be asked over the underlay.
+    ip daddr $VPN_DNS oifname != $WG_IF drop
+  }
+}
+
+table ip nat_exit
+delete table ip nat_exit
+table ip nat_exit {
+  chain post {
+    type nat hook postrouting priority 100; policy accept;
+    oifname $WG_IF masquerade
+  }
+}
+
+table inet mss
+delete table inet mss
+table inet mss {
+  chain fwd {
+    type filter hook forward priority 0; policy accept;
+    oifname $WG_IF tcp flags syn tcp option maxseg size set rt mtu
+  }
+}
