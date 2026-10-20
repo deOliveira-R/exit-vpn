@@ -1,0 +1,17 @@
+#!/bin/sh
+# Reject commits whose staged additions contain any fixed string listed in
+# local/denylist.txt (one per line, '#' comments allowed). The denylist is
+# gitignored, so site-specific values (IPs, tailnet name, ...) never enter history.
+denylist="$(git rev-parse --show-toplevel)/local/denylist.txt"
+if [ ! -f "$denylist" ]; then
+  echo "pre-commit: $denylist missing; refusing to commit without it." >&2
+  exit 1
+fi
+patterns=$(grep -v '^[[:space:]]*#' "$denylist" | grep -v '^[[:space:]]*$')
+[ -z "$patterns" ] && exit 0
+hits=$(git diff --cached -U0 --no-color | grep '^+' | grep -v '^+++' | grep -iF "$patterns")
+if [ -n "$hits" ]; then
+  echo "pre-commit: staged changes contain denylisted strings:" >&2
+  echo "$hits" | cut -c1-160 >&2
+  exit 1
+fi

@@ -1,0 +1,29 @@
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.conf
+*.pem
+*authkey*
+
+# Runtime state
+state/
+*.state
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+xcuserdata/
+
+# Site-specific notes and the secret-string denylist (never commit)
+local/
