@@ -363,10 +363,20 @@ Acceptance (from the Mac with exit node = `exit-proton`):
 | GET | `/v1/events` | – | SSE stream of status/health changes |
 
 Acceptance:
-- **T9** Silent-drop simulation: `docker exec exit-proton nft add rule inet killswitch out ip daddr <current_endpoint> udp dport 51820 drop` (blackholes the tunnel without taking wg0 down). Controller detects within ≤ 20 s, swaps server, traffic recovers within ≤ 35 s total, Mac curl shows a **different** Proton IP. Remove the rule.
+- **T9** Silent-drop simulation: `docker exec exit-proton nft insert rule inet killswitch output ip daddr <current_endpoint> udp dport 51820 drop` (blackholes the tunnel without taking wg0 down). Controller detects within ≤ 20 s, swaps server, traffic recovers within ≤ 35 s total, Mac curl shows a **different** Proton IP. Remove the rule.
 - **T10** `POST /v1/rotate {"scope":"country"}` → new exit IP, same country, < 10 s (includes Proton warm-up).
 - **T11** API from fin-intel host (`curl http://exit-proton:8080/v1/status`) → blocked by ACL; from the Mac → 200.
 - Unit tests for catalog parsing (real fixture), candidate selection, health state machine (fake clock).
+
+**Phase 3 results (2026-10-20)** — 41 unit tests (`controller/tests`); acceptance `tests/acceptance/phase3-client.sh` 4/4: T11a owner's Mac → 200, T11b `tag:server` host → no connection (ACL), T10 rotate(country) in 5 s, **T9 silent drop: failover_start at +14.7 s, traffic back via a new Proton IP at +19.6 s**, never the Oracle IP. Phase 1/2 suites re-run green (T2 now also triggers a real failover: 15 s of wg0 down is 3 strikes). Implementation notes and deviations:
+- Package `exit_vpn` (provider-agnostic, D16) on Debian's Python 3.13; deps pinned by hash (`controller/requirements.lock`, `pip --require-hashes`); runs as s6 longrun `controller` after `tailscale-up`. Build context is the repo root with a `.dockerignore` that keeps `secrets/`, `.env`, `local/` out of the builder. Container memory ~86 MiB.
+- **Catalog pinned to a gluetun-servers commit** (not `main`) and every hostname must end in `.protonvpn.net`: the catalog supplies endpoints and public keys, so a tampered one could steer exit traffic to a WireGuard server we don't control. No daily refresh (pinned = nothing to refresh); bump the commit deliberately. Last-good copy cached in `/var/lib/exit-vpn/catalog.json`.
+- **A server's identity is (public key, endpoint IP).** 246 of 782 Proton public keys appear in several entries (Secure Core entries reuse their exit server's key with the entry IP). A key-only lookup misnamed the config's server (US-CA#556, absent from the catalog) as `SE-US#1`. Blacklisting stays per key (same physical exit).
+- Servers not in the catalog get their country from the exit's ISO code (`loc`), mapped to catalog names via Proton's hostname scheme (`us-…`, `node-ch-…`).
+- Health loop runs on a fixed 5 s cadence (a failing cycle's probe timeouts are not added on top), and the warm-up grace ends at the first passing cycle (else a server dying within 20 s of a switch went unnoticed).
+- `rotate` scopes: `city`, `country` (any city in it), `any` = the preference countries. `select` by `server` name ignores eligibility filters (explicit choice).
+- Policy: `tailnet-policy` PR #2 opened `tcp:8080` from members to `tag:exit`, with tests (members reach `:8080` only; `tag:server` cannot).
+- Not reproduced: two SSH sessions over the VPS's public IP were reset during deploys; a controlled recreate kept a public-IP session and 70/70 fin-intel API samples intact. Deploys now go over the tailnet SSH path.
 
 ### Phase 3b — VPN credentials helper (Mac) + key slots on the controller
 
