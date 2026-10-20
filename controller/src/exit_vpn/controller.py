@@ -72,9 +72,9 @@ class Controller:
         c = self.state.current
         if not c:
             return None
-        return self.catalog.by_pubkey(c.pubkey) or Server(
-            name=c.name, country=c.country, city=c.city, hostname="",
-            ip=c.endpoint.rsplit(":", 1)[0], pubkey=c.pubkey)
+        ip = c.endpoint.rsplit(":", 1)[0]
+        return self.catalog.by_peer(c.pubkey, ip) or Server(
+            name=c.name, country=c.country, city=c.city, hostname="", ip=ip, pubkey=c.pubkey)
 
     def _cur_name(self) -> str | None:
         return self.state.current.name if self.state.current else None
@@ -86,10 +86,14 @@ class Controller:
             raise WgError(f"{self.s.wg_if} has no peer")
         p = peers[0]
         now = self.clock()
-        if not self.state.current or self.state.current.pubkey != p.pubkey:
-            srv = self.catalog.by_pubkey(p.pubkey)
+        cur = self.state.current
+        if not cur or (cur.pubkey, cur.endpoint) != (p.pubkey, p.endpoint):
+            srv = self.catalog.by_peer(p.pubkey, p.endpoint.rsplit(":", 1)[0])
             self.state.current = Current(
-                name=srv.name if srv else (self.conf.peer_name or "config peer"),
+                name=srv.name if srv else (
+                    self.conf.peer_name if (p.pubkey, p.endpoint) == (
+                        self.conf.peer_pubkey, self.conf.peer_endpoint) and self.conf.peer_name
+                    else "config peer"),
                 pubkey=p.pubkey, endpoint=p.endpoint,
                 country=srv.country if srv else "", city=srv.city if srv else "",
                 since=now)

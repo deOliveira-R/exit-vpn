@@ -83,7 +83,9 @@ class Catalog:
         self.servers = servers
         self.source = source
         self.fetched_at = fetched_at
-        self._by_pubkey = {s.pubkey: s for s in servers}
+        # A public key is NOT unique: Secure Core entries reuse their exit server's key
+        # with a different (entry) IP. A server's identity is (pubkey, endpoint IP).
+        self._by_peer = {(s.pubkey, s.ip): s for s in servers}
         self._by_name: dict[str, Server] = {}
         for s in servers:  # several physical servers can share a logical name
             self._by_name.setdefault(s.name.lower(), s)
@@ -91,8 +93,8 @@ class Catalog:
     def __len__(self) -> int:
         return len(self.servers)
 
-    def by_pubkey(self, pubkey: str) -> Server | None:
-        return self._by_pubkey.get(pubkey)
+    def by_peer(self, pubkey: str, ip: str) -> Server | None:
+        return self._by_peer.get((pubkey, ip))
 
     def by_name(self, name: str) -> list[Server]:
         n = name.lower()

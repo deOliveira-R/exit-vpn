@@ -42,7 +42,8 @@ def test_filter_and_lookup(catalog):
     ny = catalog.filter(country="United States", city="New York")
     assert ny and all(s.city == "New York" for s in ny)
     s = ny[0]
-    assert catalog.by_pubkey(s.pubkey) == s
+    assert catalog.by_peer(s.pubkey, s.ip) == s
+    assert catalog.by_peer(s.pubkey, "192.0.2.1") is None
     assert s in catalog.by_name(s.name.lower())
     assert "Switzerland" in catalog.countries()
 
@@ -53,3 +54,17 @@ def test_save_load_roundtrip(catalog, tmp_path):
     assert oct(p.stat().st_mode & 0o777) == "0o600"
     again = Catalog.load(p)
     assert again.servers == catalog.servers and again.source == "fixture"
+
+
+def test_shared_pubkey_identity_is_pubkey_and_ip(raw_catalog):
+    """Secure Core entries reuse the exit server's key with another (entry) IP."""
+    import copy
+    d = copy.deepcopy(raw_catalog)
+    wg = [x for x in d["servers"] if x["vpn"] == "wireguard"]
+    regular = next(x for x in wg if not x.get("secure_core"))
+    sc = copy.deepcopy(regular)
+    sc.update(server_name="SE-US#99", secure_core=True, ips=["198.51.100.7"])
+    d["servers"].append(sc)
+    cat = Catalog(parse_gluetun(d))
+    assert cat.by_peer(regular["wgpubkey"], regular["ips"][0]).name == regular["server_name"]
+    assert cat.by_peer(regular["wgpubkey"], "198.51.100.7").name == "SE-US#99"

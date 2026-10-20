@@ -150,3 +150,12 @@ async def test_select_by_name(setup, catalog):
     target = catalog.filter("Switzerland")[0]
     await ctl.switch(ctl.select_candidates(target.name, None, None), "test")
     assert ctl.state.current.name == target.name
+
+
+async def test_init_unknown_config_peer_is_not_misidentified(setup, catalog):
+    """The config's peer is not in the catalog under its own IP (Phase 3 finding):
+    adopt it by name from the config, never by a pubkey-only match."""
+    ctl, wg, _, _, start = setup
+    wg.peer = Peer(start.pubkey, "203.0.113.5:51820", 0, 0, 0)  # same key, other IP
+    await ctl.init()
+    assert ctl.state.current.name == "config peer" and ctl.state.current.country == ""
