@@ -7,8 +7,9 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-20)
 
-Phases 0–4 and 3b done and deployed; all acceptance suites green. Remaining: **3b.2**
-(optional: live catalog push from Proton's API), **5** (macOS menu-bar app driving
+Phases 0–4, 3b and 3b.2 done and deployed; all acceptance suites green. The exit runs on a
+live catalog pushed from Proton's API (`exitctl proton servers --push`; nothing refreshes it
+automatically yet, the Phase 5 app will). Remaining: **5** (macOS menu-bar app driving
 `exitctl --json`), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
@@ -56,16 +57,18 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   (`uv pip compile <pkg>/pyproject.toml --universal --python-version 3.13 --generate-hashes
   -o <pkg>/requirements.lock`), healthchecks, `restart: unless-stopped`, rotated logs,
   minimal capabilities.
-- Proton server catalog: `qdm12/gluetun-servers` → `pkg/servers/protonvpn.json`, **pinned to
-  a commit** in `controller/src/exit_vpn/config.py` (a tampered catalog could redirect
-  exit traffic); bump deliberately.
+- Proton server catalog: a live list pushed by `exitctl` (PLAN 3b.2) wins; the fallback is
+  `qdm12/gluetun-servers` → `pkg/servers/protonvpn.json`, **pinned to a commit** in
+  `controller/src/exit_vpn/config.py` (a tampered catalog could redirect exit traffic); bump
+  deliberately. Both paths validate hostnames (`.protonvpn.net`), IPs and keys.
 
 ## Deploy and test
 
 - VPS deploy dir `/opt/exit-node` (git checkout of this repo, root-owned; `.env` 0600,
   `secrets/` 0700 with `proton_{a,b,c}.conf` and `ts_authkey`). Docker needs sudo.
 - Live keys are in the named volumes `exit-vpn_keys-a` / `exit-vpn_keys-b` (uploaded via
-  `exitctl`); the `secrets/` configs are bootstrap-only and now dead keys (PLAN 3b results).
+  `exitctl`) and mirrored to `secrets/proton_{a,b}.conf` (the bootstrap fallback), which is
+  why the exit mounts `secrets/` read-write.
 - **SSH over the tailnet** (public-IP sessions were reset twice during deploys):
   `ssh -o HostName=$(tailscale ip -4 fin-intel) -o HostKeyAlias=$(ssh -G fin-intel | awk '$1=="hostname"{print $2}') fin-intel`
 - Deploy: `cd /opt/exit-node && sudo git pull --ff-only && sudo docker compose up -d --build`
@@ -75,10 +78,10 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
   Mac (Proton app **off**; scripts select and clear the exit node themselves)
   `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`,
-  `phase3b-client.sh` (needs `helper/.venv/bin/exitctl proton login` first, done by the owner
+  `phase3b-client.sh`, `phase3b2-client.sh` (need `helper/.venv/bin/exitctl proton login` first, done by the owner
   in their own terminal: password/2FA/CAPTCHA prompts).
-- Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
-- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events,keys}`.
+- Catalog: `exitctl proton servers [--push|--revert]`. Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
+- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events,keys,catalog}`.
 
 ## Gotchas learned
 

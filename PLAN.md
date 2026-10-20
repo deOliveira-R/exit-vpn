@@ -514,6 +514,22 @@ API responses or logs. Phase 3 suite re-run green (T9 recovery 19 s). Notes:
 - Host-level changes: two Docker-managed named volumes, `exit-vpn_keys-a` and `exit-vpn_keys-b`.
   Nothing else on the host changed.
 
+**Phase 3b.2 results (2026-10-20)** — unit tests: 62 controller, 14 helper. Acceptance
+`tests/acceptance/phase3b2-client.sh` 7/7: T21a push of 1,077 live servers (1,072 enabled) from
+Proton's API; T21b `/v1/servers` carries load; T21c rotate picked an enabled live server; T21d a
+truncated push (100 rows) → 400, catalog unchanged; T21e a container restart keeps the pushed
+catalog; T21f `servers --revert` → pinned list, then pushed again; T22 after a slot b rotation,
+`secrets/proton_{a,b}.conf` are byte-identical to the live keys. Phase 3 suite re-run on the live
+catalog: green (T9 recovery 24 s, within the 35 s target). Also done in this step:
+- **Bootstrap secrets fixed**: the exit container mounts `secrets/` read-write and the key store
+  mirrors every accepted key (and every rollback) to `secrets/<provider>_<slot>.conf`; synced once
+  by hand at deploy. The spare config C was deleted from the Proton account and from `secrets/`.
+- **Licence: MIT** (`LICENSE`), permissive and compatible with GPLv2 and GPLv3; `helper/`
+  depends on (does not vendor) GPLv3 proton-core, so a distributed bundle that includes it is
+  GPLv3 (see CLAUDE.md).
+- Host-level changes: none beyond the deploy (the `secrets/` bind mount is now read-write for
+  the exit container; the files stay root 0600).
+
 ### Phase 4 — Prober and "find a server for this URL"
 
 **Prober container**: own netns; `entrypoint.sh` sets up `wg-probe` with key B (`Table=off`, own table, `unreachable` fallback, nft drop of any non-wg-probe egress except to `exitnet` subnet and the current WireGuard endpoint). API on `exitnet:9000` only (not published).

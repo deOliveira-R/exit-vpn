@@ -53,8 +53,9 @@ src=$(api "$API/v1/status" | j 'd["catalog"]["source"]')
 [ "$rev" = False ] && ok "T21f revert → pinned ($(echo "$src" | cut -c1-60)…)" || bad "T21f revert: $rev"
 $EXITCTL proton servers --push --json >/dev/null && echo "INFO live catalog pushed again"
 
-# T22 the bootstrap secrets mirror the live keys
-same=$(vps 'cd /var/lib/docker/volumes && for s in a b; do sudo cmp -s exit-vpn_keys-$s/_data/wg.conf /opt/exit-node/secrets/proton_$s.conf && echo same; done' | grep -c same)
+# T22 the bootstrap secrets mirror the live keys (rotate slot b to exercise the mirror)
+$EXITCTL proton rotate --slot b --json >/dev/null || echo "WARN slot b rotate failed"
+same=$(vps 'for s in a b; do sudo cmp -s /var/lib/docker/volumes/exit-vpn_keys-$s/_data/wg.conf /opt/exit-node/secrets/proton_$s.conf && echo same; done' | grep -c same)
 [ "$same" = 2 ] && ok "T22 secrets/proton_{a,b}.conf match the live keys" || bad "T22 $same of 2 bootstrap files match"
 
 echo "== $pass passed, $fail failed"; [ "$fail" -eq 0 ]
