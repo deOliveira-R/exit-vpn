@@ -49,7 +49,7 @@ ProtonVPN-backed Tailscale exit node, hosted on the existing Oracle Always-Free 
 | D11 | Prober is a **separate container** with its own netns and its own tunnel (key B) | Probing never disturbs the active exit |
 | D12 | Proton server catalog sourced from **`qdm12/gluetun-servers` → `pkg/servers/protonvpn.json`** (split out of the gluetun repo, which now lives at `passteque/gluetun`), pinned to a commit, checked daily | Maintained list with WireGuard pubkeys; upstream updates are infrequent (last: 2026-08-06), so failover must tolerate stale entries. Proton's own API optional for load |
 | D13 | Controller auth = Tailscale identity (**LocalAPI `whois`**) + ACL grant restricted to the owner's devices | No tokens to manage |
-| D14 | Tailscale **API token (policy-file write) lives only on the Mac** (Keychain), never on any server | Policy write = full tailnet control; a compromised VPS must not be able to rewrite ACLs |
+| D14 | **Tailnet policy is GitOps-managed** in a separate private repo (`tailnet-policy`, it holds LAN details and covers the whole tailnet). PRs are validated and tested by CI with a read-only credential; merges to `main` apply it. Auth is Tailscale federated identity (GitHub OIDC): **no policy-write secret exists anywhere** (not on the VPS, the NAS or the Mac); the write credential only accepts tokens for `refs/heads/main` of that repo. Console edits are locked ("Prevent edits in the admin console"). Undo = revert the PR | Policy write = full tailnet control; this removes the long-lived token entirely and gives history and one-click rollback |
 | D15 | Residential exits/allow-list via **app connectors** (Phase 6/7), as separate tailnet nodes | Per-domain routing that coexists with the Proton exit node; app connectors are on all plans |
 | D16 | **Provider-agnostic core, Proton as the first provider.** A `provider` module supplies: catalog source (gluetun-servers has the same schema for Mullvad, AirVPN, IVPN, …), tunnel address and DNS (Proton: `10.2.0.2/32`, `10.2.0.1`; other providers assign per key), and feature metadata. Routing, kill switch, health, failover and API never hard-code Proton values. Node name = `exit-<provider>` (`exit-proton`); repo/stack = `exit-vpn` | Someone else on the tailnet may use another VPN; also lets us switch providers without a redesign |
 | D17 | Proton **connection options are bound to the key**, not the config file: the dashboard registers the WireGuard public key with a signed certificate carrying `NetShieldLevel`, `SplitTCP` (VPN Accelerator), `RandomNAT` (off = Moderate NAT) and `PortForwarding` (NAT-PMP). The `# NetShield = 1` lines in the downloaded `.conf` are comments only. So one key keeps its options on every server, and changing an option means generating a new key. We store the full downloaded `.conf` (mode 600) and parse `PrivateKey` plus the option comments, so `/v1/status` can report them | Verified against Proton's open-source client (`python-proton-vpn-api-core`, `/vpn/v1/certificate`) and support docs |
@@ -173,7 +173,7 @@ exit-proton/
 ├── mac/ExitControl/             # Xcode project (SwiftUI MenuBarExtra)
 ├── home-gw/                     # Phase 6: TrueNAS custom app compose + home probe agent
 ├── tests/acceptance/            # shell scripts, run by the owner
-└── docs/{runbook.md,security.md,acl.hujson.example}
+└── docs/{runbook.md,security.md}       # tailnet policy: separate private repo `tailnet-policy` (D14)
 ```
 
 ---
@@ -186,7 +186,7 @@ exit-proton/
 | Proton WireGuard **config B** (prober) | same | NetShield **off** (so probes see sites unfiltered, like a normal browser); Moderate NAT off; NAT-PMP off; VPN Accelerator on → `secrets/proton_b.conf` |
 | Tailscale **tagged auth key** for `tag:exit` | Admin → Settings → Keys → generate, tagged `tag:exit`, pre-approved, non-reusable | Tag must exist in policy first (Phase 2) |
 | VPS facts | `uname -m; cat /etc/os-release; docker --version; ip -br a; sudo iptables -S \| head -50; sudo nft list ruleset \| head -50` | Arch (expect aarch64), OS, whether Docker exists |
-| Current tailnet policy file | Admin → Access controls → copy | To extend, not replace |
+| Current tailnet policy file | Admin → Access controls → copy | Baseline (first commit) of the `tailnet-policy` repo; all changes by PR from then on |
 | Current Tailscale DNS settings | Admin → DNS | Split DNS / global nameservers / MagicDNS |
 | Repo host | GitHub | |
 | Default exit country preference | **US, then CH** (decided 2026-10-20) | Used for initial server and failover. A richer preference model (per-slot/per-key countries, cities, features) comes with the Phase 3b helper / Phase 5 app |
@@ -461,12 +461,12 @@ Acceptance:
 
 **Mac app additions**:
 - "Try via home" in the Find sheet: calls the home probe agent; shows result next to Proton results; this result is also the classifier's baseline.
-- "Add to home allow-list": edits `nodeAttrs[...].app["tailscale.com/app-connectors"]` → `home-us.domains` via the Tailscale API (`GET`/`POST /api/v2/tailnet/-/acl` with HuJSON and `If-Match` ETag). Adds the registrable domain plus hosts observed during the probe's navigation (redirect chain, main-document hosts). Token stored in **macOS Keychain** only (D14). Show a diff and require confirmation before posting.
+- "Add to home allow-list": opens a **pull request** on the `tailnet-policy` repo (D14) editing `nodeAttrs[...].app["tailscale.com/app-connectors"]` → `home-us.domains`: the registrable domain plus hosts observed during the probe's navigation (redirect chain, main-document hosts). Shows the diff first; CI tests it; merging applies it. Credential: a fine-grained GitHub token limited to that repo (contents + pull requests), in the macOS Keychain. Optional auto-merge when CI passes.
 - Allow-list management view (list/remove entries).
 
 Acceptance:
 - **T13** With exit node = `exit-proton`: an allow-listed domain shows the **home** IP (cdn-cgi/trace on that domain, or a test domain you control); any other domain shows the Proton IP (V9).
-- **T14** Policy edit from the Mac: invalid edits are rejected by the API (policy `tests` still enforced); ETag conflict handled.
+- **T14** Policy edit from the Mac: an invalid edit fails CI on its PR and is never applied; two concurrent edits conflict as normal git merges.
 - **T15** NAS/home down → allow-listed domains fail (expected, fail-closed); everything else still works via Proton.
 
 ### Phase 7 (optional) — Brazil residential node
@@ -483,7 +483,7 @@ Acceptance:
 |---|---|---|
 | Proton keys A/B | `secrets/` on VPS, mounted read-only into one container each | file mode 0400 root; not in images; not logged |
 | Tailscale node keys | `ts-state` volume | tagged nodes, key expiry disabled by tagging; `tag:exit` has no outbound tailnet grants |
-| Tailscale API token (policy write) | Mac Keychain only | never on VPS/NAS (D14) |
+| Tailnet policy write | Tailscale federated identity, bound to `main` of the private `tailnet-policy` repo | no stored token anywhere (D14); Mac only holds a GitHub token scoped to PRs on that repo |
 | Controller API | tailnet IP only, ACL to members, whois check | no public exposure; no published port except UDP 41642 (tailscaled) |
 | fin-intel | host | unchanged; `tag:server` ACLs unchanged; `tag:exit` cannot reach it |
 
