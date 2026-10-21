@@ -389,10 +389,12 @@ levers we set; the same tool serves any VPN provider, and the Phase 5 menu-bar a
 
 **Shape (D20)** — `helper/`, Python package `exitctl`, runs on the Mac:
 - `providers/`: one adapter per VPN service behind one interface:
-  - `options()`: the provider's levers as a schema (name, type, choices, default, help);
-    CLI flags and, later, app controls are generated from it, not hard-coded.
-  - `login()` / `logout()` / `whoami()`, `create_key(options, device_name)` → `{conf, meta}`,
-    `renew_key(meta)`, `list_keys()`, `delete_key(id)`; optional `servers()` (live catalog).
+  - `levers()`: the provider's levers as a schema (name, type, choices, default, help);
+    CLI flags and app controls are generated from it, not hard-coded.
+  - `account()` / `login(Credentials)` (one step; `NeedInput` names the next) / `logout()`,
+    `create_key(device_name, values, peer)` → `NewKey(conf, KeyMeta)`, `renew_key(KeyMeta)`,
+    `certificates()`, `delete_certificate(id)`; optional `servers()` (live catalog).
+    (As of R4; the interface is in `helper/src/exitctl/providers/base.py`.)
   - Each adapter declares its capabilities. `manual` = `import <file.conf>` for providers
     without an API. First API adapter: `proton`.
 - `controller.py`: client for the exit node's API (`/v1/status`, `/v1/keys`), authenticated
@@ -565,7 +567,10 @@ All engines saw Reddit's datacenter block (HTTP 403).
 1. Swap `wg-probe` peer to `server` (never the active server; controller enforces).
 2. Wait for handshake ≤ 5 s; verify exit via cdn-cgi/trace: `ip` ≠ Oracle IP and `loc` matches. Abort the probe if not.
 3. Tier 1 `curl_cffi` fetch; if inconclusive or the site is marked JS-dependent, tier 2: fresh browser context in a persistent `chromium --headless=new` process over CDP (new context per probe; realistic UA/locale/timezone for the server country), `goto(url, wait_until="domcontentloaded")`, then wait up to 10 s for `networkidle`. 20 s hard cap.
-4. Classify (`classify.py`), return `{server, exit_ip, exit_loc, outcome, signals[], http_status, final_url, title, elapsed_ms}`.
+4. Classify (`classify.py`), return `{server, url, exit_ip, exit_loc, outcome, signals[], tiers[], elapsed_ms}`
+   with one `tiers` entry per engine (`engine, outcome, signals, http_status, final_url, title,
+   text_len, error`); when the tunnel fails, no `exit_ip`/`exit_loc` and outcome `error`
+   (contracts/prober/).
 
 **Classifier** (ordered; first match wins for outcome, but collect all signals):
 - Navigation error / TLS failure / connection reset → `error`.
@@ -928,6 +933,12 @@ has moved on (Phase 3b interface, Phase 4 response shape).
 **Acceptance:** each component's unit tests (with the new contract tests) and the acceptance
 suites green after each step; a failover drill after R2's degraded-cycle step; the owner reads
 ARCHITECTURE.md and the code and agrees the concepts are clear.
+
+*R6 done (2026-10-21):* `ARCHITECTURE.md` (the system, the exit container's boot order and
+data plane, a concept map per component, contracts, where to look), READMEs for `controller/`,
+`prober/`, `helper/` (with adding a provider) and the app's, module docstrings stating the
+invariants (written with R2–R5), and the PLAN passages that had drifted (Phase 3b interface,
+Phase 4 response). Released as ExitControl 0.3.0.
 
 ### Phase D — Published node images (deployable without a checkout)
 

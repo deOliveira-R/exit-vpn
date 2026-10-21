@@ -41,11 +41,17 @@ If `codesign` fails with `errSecInternalComponent`, Apple's WWDR G3 intermediate
 from the keychain (apple.com/certificateauthority, `AppleWWDRCAG3.cer`), or the shell cannot
 show the keychain prompt.
 
-`exitvpn://` URLs: `servers`, `find`, `settings/<tab>` open windows; `rotate?scope=city|country|any`,
-`connect?country=…&city=…`, `connect?server=CH%23821`, `securecore?on=1|0` act (queued in
-order). Shortcuts actions: Rotate Exit Server, Connect Exit to Region, Exit Status.
+`exitvpn://` URLs:
+- **Windows:** `servers`, `find`, `settings/general|regions|connection|account|events`.
+- **Actions:** `rotate?scope=city|country|any`, `connect?country=…&city=…`, `connect?server=CH%23821`, `securecore?on=1|0` and `refresh`. They run queued, in the order sent.
 
-`EXITCONTROL_DEBUG=1` logs updates to stderr
+Shortcuts actions: Rotate Exit Server, Connect Exit to Region, Exit Status. They share that queue; menu clicks are refused while something runs.
+
+How the app is built (vocabulary, stores, ActionRunner, AppContainer): see
+[ARCHITECTURE.md](../../ARCHITECTURE.md).
+
+`EXITCONTROL_DEBUG=1` also logs actions, URLs and events to stderr (always to Console.app, subsystem
+`org.exit-vpn.ExitControl`)
 (`open --env EXITCONTROL_DEBUG=1 --stderr /tmp/ec.log build/ExitControl.app`).
 
 ## exitctl

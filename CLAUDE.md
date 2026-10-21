@@ -7,26 +7,33 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-21)
 
-Phases 0–5c (incl. 3b, 3b.2, 5a, 5b) done and deployed; all acceptance suites green. The exit runs on a
+Phases 0–5c (incl. 3b, 3b.2, 5a, 5b) and R (architecture pass) done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
-`org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
+`org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **D** (published node images), then **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
 ## Layout
 
-- `exit/` — exit container: `Dockerfile` (Debian trixie, s6-overlay, tailscale, WireGuard,
+`ARCHITECTURE.md` maps every component's concepts and connections; `contracts/` holds the wire
+formats between them (samples checked by both sides' tests).
+
+- `exit/`: exit container. `Dockerfile` (Debian trixie, s6-overlay, tailscale, WireGuard,
   nftables, Python venv), `rootfs/` (s6 services in `etc/s6-overlay/s6-rc.d`, user bundle in
   `user-bundles.d`, scripts in `usr/local/lib/exit-vpn`, `etc/exit-vpn/killswitch.nft`).
-  Order: init-sysctl → init-killswitch → init-wg → route-keeper / tailscaled →
-  tailscale-up → controller.
-- `controller/` — Python package `exit_vpn` (FastAPI): catalog, wg, probes, health,
-  failover, state, auth (whois), finder, api. Tests in `controller/tests`.
-- `prober/` — prober container (own netns, key B tunnel `wg-probe`, curl_cffi + Debian
-  `chromium --headless=new` over CDP), package `prober`, tests in `prober/tests`.
-- `helper/` — `exitctl` (Mac): provider adapters in `providers/` (`base.py` interface,
-  `proton.py`, `manual.py`), controller client, CLI with `--json` (D20). uv project
-  (`uv.lock`); proton-core from git, pinned (never the PyPI `proton-core`). Tests in
-  `helper/tests`. Proton session lives in the Keychain (`exitctl` / `proton:session`).
+  Order: init-sysctl → init-killswitch → init-wg → route-keeper / tailscaled → tailscale-up →
+  controller.
+- `controller/`: Python package `exit_vpn` (FastAPI). Domain: `servers`, `catalog`, `prefs`, `state`,
+  `selection`, `health`. Services: `service.ExitService`, `tunnel`, `events`, `slots`, `finder`,
+  `catalog_source`. Adapters: `wg`, `probes`, `prober_client`, `auth`, `persistence`, `keys`, `api`.
+  `node.build` wires it (tests too: `tests/harness.py`).
+- `prober/`: prober container (own netns, key B tunnel `wg-probe`, curl_cffi + Debian `chromium
+  --headless=new` over CDP). `probe.Prober`, `engines`, `classify`, `exitcheck`, `tunnel`, `keyfile`.
+- `helper/`: `exitctl` (Mac). `model`, `keyservice`, `exitnode`, `sessions`, `providers/` (`base`
+  interface, `proton/` package, `manual`), `cli` with `--json` (D20). uv project (`uv.lock`);
+  proton-core from git, pinned (never the PyPI `proton-core`).
+- `mac/ExitControl/`: the menu-bar app. `ExitControlCore` (vocabulary, wire models, stores,
+  ActionRunner, ProcessRunner; `swift test`) and the app target (AppContainer, views, Intents,
+  Updater), built from `project.yml` (XcodeGen).
 - `compose.yaml` (project `exit-vpn`, services `exit` and `prober`, network `exitnet`
   172.30.42.0/24: exit .2, prober .10), `.env.example`, `tests/acceptance/phase*.sh`.
 - Tailnet policy lives in the separate **private** repo `deOliveira-R/tailnet-policy`
