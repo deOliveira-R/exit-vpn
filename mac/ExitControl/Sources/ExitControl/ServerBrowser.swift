@@ -92,9 +92,7 @@ struct ServerBrowser: View {
                 TableColumn("Country", value: \.country)
                 TableColumn("City", value: \.city)
                 TableColumn("Load", value: \.loadSort) { r in
-                    if let l = r.s.load {
-                        HStack { ProgressView(value: Double(l), total: 100).tint(l < 60 ? .green : l < 85 ? .orange : .red); Text("\(l)%").monospacedDigit() }
-                    } else { Text("—") }
+                    if let l = r.s.load { LoadBar(load: l) } else { Text("—") }
                 }.width(120)
                 TableColumn("Features") { r in Text(r.s.badges.joined(separator: " · ")).foregroundStyle(.secondary) }
                 TableColumn("IP") { r in Text(r.s.ip).monospaced().foregroundStyle(r.s.isEnabled ? .primary : .secondary) }
@@ -124,4 +122,23 @@ struct ServerBrowser: View {
     }
 
     func server(_ id: Server.ID?) -> Server? { id.flatMap { id in model.servers.first { $0.id == id } } }
+}
+
+/// A static load bar. Not a ProgressView: the table reuses row views while scrolling, and a
+/// ProgressView animates from the previous row's value, so loads seemed to change on screen.
+struct LoadBar: View {
+    let load: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule().fill(load < 60 ? Color.green : load < 85 ? .orange : .red)
+                    .frame(width: max(4, 60 * CGFloat(min(load, 100)) / 100))
+            }
+            .frame(width: 60, height: 6)
+            Text("\(load)%").monospacedDigit()
+        }
+        .transaction { $0.animation = nil }
+    }
 }
