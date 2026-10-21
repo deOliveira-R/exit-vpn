@@ -4,6 +4,12 @@ import Foundation
 import Observation
 import ServiceManagement
 
+struct AppError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
 /// App state. The controller is the source of truth: status arrives over SSE (with a
 /// slow poll as a fallback), actions go over HTTP, provider actions through exitctl.
 @MainActor @Observable
@@ -193,17 +199,57 @@ final class AppModel {
         windowRequest = WindowRequest(id: id)
     }
 
-    /// `exitvpn://` URLs (see ExitURL).
+    /// `exitvpn://` URLs (see ExitURL). Unlike menu clicks, they queue behind a running
+    /// action: a script may send several in a row.
     func open(_ url: URL) {
         guard let action = ExitURL(url) else { Self.debug("unknown URL \(url)"); return }
         Self.debug("url \(url)")
         switch action {
         case .window(let id, let tab): openWindow(id, tab: tab)
-        case .rotate(let scope): rotate(scope)
-        case .connect(let region): select(region)
-        case .connectServer(let name): selectServer(named: name)
-        case .secureCore(let on): setSecureCore(on)
+        case .rotate(let scope): queue("Rotate (\(scope))") { try await $0.rotate(scope) }
+        case .connect(let r): queue("Connect to \(r.label)") { try await $0.select(region: r) }
+        case .connectServer(let n): queue("Connect to \(n)") { try await $0.select(server: n, ip: nil) }
+        case .secureCore(let on): queue("Secure Core \(on ? "on" : "off")") { try await $0.setPrefs(.init(secureCore: on)) }
         case .refresh: Task { await refresh(); await loadServers() }
+        }
+    }
+
+    private func queue(_ label: String, _ action: @escaping @MainActor (ControllerClient) async throws -> Void) {
+        Task { try? await run(label, action) }
+    }
+
+    private var queueTail: Task<Void, Never>?
+
+    /// For URLs and Shortcuts: runs after the actions queued before it (in order) and after
+    /// any running menu action (waiting up to 3 min); returns or throws its outcome.
+    func run(_ label: String, _ action: @escaping @MainActor (ControllerClient) async throws -> Void) async throws {
+        let previous = queueTail
+        let mine = Task { @MainActor in
+            await previous?.value
+            try await runNow(label, action)
+        }
+        queueTail = Task { _ = try? await mine.value }
+        try await mine.value
+    }
+
+    private func runNow(_ label: String, _ action: @MainActor (ControllerClient) async throws -> Void) async throws {
+        guard let client else { throw AppError("No valid controller URL (Settings → General)") }
+        let deadline = Date.now.addingTimeInterval(180)
+        while busy != nil {
+            if Date.now > deadline { throw AppError("Still busy with \(busy ?? "another action")") }
+            try await Task.sleep(for: .milliseconds(300))
+        }
+        busy = label; lastError = nil
+        defer { busy = nil }
+        Self.debug("action \(label)")
+        do {
+            try await action(client)
+            Self.debug("done \(label)")
+            await refresh()
+        } catch {
+            Self.debug("failed \(label): \(error.localizedDescription)")
+            lastError = "\(label): \(error.localizedDescription)"
+            throw error
         }
     }
 
