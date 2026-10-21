@@ -25,6 +25,7 @@ struct MenuContent: View {
         Divider()
         Button("Server Browser…") { open("servers") }.keyboardShortcut("b")
         Button("Find Server for URL…") { open("find") }.keyboardShortcut("f")
+        Button("Event Log…") { model.settingsTab = "events"; open("settings") }.keyboardShortcut("l")
         Button("Open Status JSON") { model.openStatusJSON() }.disabled(!model.online)
         Divider()
         Button("Settings…") { open("settings") }.keyboardShortcut(",")
@@ -88,6 +89,16 @@ struct MenuContent: View {
             Toggle("\(flag(code(r.country))) \(r.label)", isOn: Binding(
                 get: { isCurrent(r) }, set: { _ in model.select(r) }))
                 .disabled(!ready)
+        }
+        if !model.favorites.isEmpty {
+            Menu("Favourites") {
+                ForEach(model.favorites, id: \.self) { name in
+                    let s = model.servers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+                    Button("\(flag(s.flatMap(countryCode))) \(name)" + (s.map { "  ·  \($0.city)" } ?? "")) {
+                        model.selectServer(named: name)
+                    }.disabled(!ready)
+                }
+            }
         }
         Menu("More Countries") {
             if model.countries.isEmpty {

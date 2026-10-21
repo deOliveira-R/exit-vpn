@@ -665,11 +665,6 @@ Acceptance:
   1,077 servers IPv6-capable.
 - Host-level changes: none.
 
-**v1.1**: hard requirements (item 5), favourite servers (tried first within their region),
-App Intents / Shortcuts ("Rotate exit", "Connect to <region>"), `exitvpn://` URLs for actions
-(v1 has them for windows: `exitvpn://servers`, `find`, `settings[/tab]`), a separate event log
-window (v1 has the Events tab). Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.
-
 **Acceptance (T23–T30):** T23 exact select lands on the requested (name, ip); T24 failover
 from a P2P server stays P2P and in the same city when one is up; T25 Secure Core on → only
 Secure Core servers through failover and rotate, off → none; T26 pinned regions drive
@@ -698,6 +693,49 @@ and click by click (`EXITCONTROL_DEBUG=1` log + controller events):
   the one in use before.
 - Host-level changes: none (controller redeployed with the prefs-event fix). Mac: the
   LaunchAgent above and `exitctl` as a uv tool (Homebrew Python 3.13).
+
+### Phase 5b — App v1.1
+
+- **Requirements** (controller item 5, already in `prefs.require`): Settings → Connection
+  "Every server must have: P2P / Streaming / IPv6". Failover and rotation only consider
+  servers with all of them; nothing matching → `degraded`, as with the P2P profile.
+- **Favourite servers**: `prefs.favorites` = logical server names (`CH#821`; the physical IPs
+  behind a name change, the name does not). Within each failover/rotate tier, favourites come
+  first, then the profile and load order. App: a star in the server browser, a "Favourites"
+  submenu (one-click exact select of the least-loaded physical server of that name).
+- **Action URLs**: `exitvpn://rotate?scope=city|country|any`,
+  `exitvpn://connect?country=…&city=…`, `exitvpn://connect?server=CH%23821`,
+  `exitvpn://securecore?on=1|0`. They act only from the app (no web page can trigger them
+  silently: macOS asks before a browser opens a custom scheme).
+- **Shortcuts (App Intents)**: "Rotate Exit Server", "Connect Exit to Region", "Exit Status"
+  (returns server, country, exit IP, health). App Intents need Xcode's metadata extraction,
+  so this item also decides the build (SwiftPM vs an Xcode project generated from a spec).
+- **Event log**: done in v1 as Settings → Events; add "Event Log…" to the menu.
+- Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.
+
+**Acceptance (T31–T34):** T31 `require: [port_forward]` → rotate any and failover land only
+on P2P servers; T32 a favourite in the current city is chosen first by "Rotate (city)"; T33
+each `exitvpn://` action works and shows in the controller events; T34 the Shortcuts app lists
+the three intents and "Exit Status" returns the live values.
+
+### Phase 5c — Release: CI, signed builds, in-app updates
+
+- **CI** (GitHub Actions, public repo → free macOS runners): on every push/PR run the
+  controller, prober and helper unit tests (Linux) and `swift test` + app build (macOS).
+- **Release** on a `v*` tag: build the universal app, sign, (notarize), zip/dmg, GitHub
+  Release with notes; version from the tag (`CFBundleShortVersionString`).
+- **Updates**: Sparkle 2 (the standard for non-App-Store Mac apps): an appcast feed served
+  from GitHub (Releases or Pages), each update signed with an EdDSA key held as a CI secret;
+  "Check for Updates…" in the menu and automatic checks.
+- **exitctl**: stays a separate install (GPLv3 proton-core is not bundled, D21); releases
+  pin a helper version, and the app tells when the installed `exitctl` is older.
+- **Open (Q8)**: Apple Developer Program (US$99/yr) → Developer ID signing + notarization,
+  so downloads open without Gatekeeper warnings and updates install silently. Without it:
+  ad-hoc signed builds, the first launch needs right-click → Open (or `xattr -d
+  com.apple.quarantine`), and Sparkle still verifies updates with its EdDSA signature.
+
+**Acceptance (T35–T37):** T35 CI green on a PR; T36 a `v*` tag produces a GitHub Release with
+the app; T37 an installed older build offers the newer release, updates and relaunches.
 
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
@@ -788,6 +826,8 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 | T12 / T12b | 4 | find-server works; probing never disturbs active exit; prober fails closed |
 | T16–T22 | 3b | key rotation via the provider API sets levers; bad keys roll back; no session/key leaks; renew; prober key reload; live catalog |
 | T23–T30 | 5 | exact select; equivalent-server failover; Secure Core on/off; pinned regions; app actions, SSE, offline state; levers and catalog agent from the app |
+| T31–T34 | 5b | requirements; favourites; action URLs; Shortcuts |
+| T35–T37 | 5c | CI; tagged release; in-app update |
 | T13–T15 | 6 | per-domain residential routing over the exit node; safe policy edits; fail-closed |
 
 ---
@@ -801,3 +841,4 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 5. ~~Repo location~~ → GitHub.
 6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
 7. ~~`Bouncing` label~~ → does not restrict which servers a key can use (Phase 0).
+8. Apple Developer Program for Developer ID signing and notarization (Phase 5c)?

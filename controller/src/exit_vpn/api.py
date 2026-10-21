@@ -62,6 +62,7 @@ class PrefsBody(BaseModel):
     secure_core: bool | None = None      # a mode: changing it switches servers now
     allow_free: bool | None = None
     require: list[Literal[FEATURES]] | None = None
+    favorites: list[str] | None = Field(None, max_length=100)
 
 
 class KeyMeta(BaseModel):
@@ -205,8 +206,19 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
             regions = check_regions([RegionBody(country=c) for c in body.countries])
         else:
             regions = None
+        favs = None   # validated before anything changes
+        if body.favorites is not None:
+            favs = []
+            for name in body.favorites:
+                found = ctl.catalog.by_name(name)
+                if not found:
+                    raise HTTPException(400, f"unknown server: {name!r}")
+                if found[0].name not in favs:
+                    favs.append(found[0].name)
         if regions is not None:
             p.regions = regions
+        if favs is not None:
+            p.favorites = favs
         for k in ("auto_failover", "allow_free", "require"):
             if getattr(body, k) is not None:
                 setattr(p, k, list(dict.fromkeys(body.require)) if k == "require" else getattr(body, k))

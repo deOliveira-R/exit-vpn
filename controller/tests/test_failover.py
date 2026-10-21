@@ -112,3 +112,23 @@ def test_unknown_current_uses_preferences(catalog):
 def test_bad_scope(catalog):
     with pytest.raises(ValueError):
         choose_candidates(catalog.servers, None, PREFS, set(), random.Random(), "nope")
+
+
+def test_favorites_come_first_within_a_tier(catalog):
+    from dataclasses import replace
+    cur = _cur(catalog, "Chicago")
+    pool = [replace(s, load=10) for s in catalog.servers]
+    others = [s for s in pool if s.city == "Chicago" and s.pubkey != cur.pubkey and eligible_regular(s)]
+    fav = replace(others[-1], load=90)   # busiest in the city, still first: it is a favourite
+    pool = [fav if s is others[-1] else s for s in pool]
+    prefs = Prefs(regions_from_countries(["United States"]), favorites=[fav.name.lower()])
+    for seed in range(5):
+        c = choose_candidates(pool, cur, prefs, set(), random.Random(seed), "city")
+        assert c[0].name == fav.name
+    # not a favourite: load decides
+    c = choose_candidates(pool, cur, PREFS, set(), random.Random(0), "city", per_tier=100)
+    assert c[-1] == fav
+
+
+def eligible_regular(s):
+    return s.enabled and not (s.secure_core or s.tor or s.free)

@@ -23,6 +23,7 @@ public struct Prefs: Codable, Hashable, Sendable {
     public var secureCore: Bool
     public var allowFree: Bool
     public var require: [String]
+    public var favorites: [String]?   // nil from controllers older than Phase 5b
 }
 
 public struct CatalogInfo: Codable, Hashable, Sendable {

@@ -54,6 +54,15 @@ async def test_api_exact_select_regions_and_secure_core(env):  # noqa: F811
         assert c.put("/v1/prefs", json={"secure_core": False}).json()["secure_core"] is False
         assert not ctl.current_server().secure_core
 
+        # favourites: names checked against the catalog and normalised; a bad one changes nothing
+        r = c.put("/v1/prefs", json={"favorites": [p2p.name.lower(), p2p.name]})
+        assert r.status_code == 200 and r.json()["favorites"] == [p2p.name], r.text
+        before = ctl.state.prefs.view()
+        r = c.put("/v1/prefs", json={"regions": [{"country": "Germany"}], "favorites": ["XX#999"]})
+        assert r.status_code == 400 and ctl.state.prefs.view() == before
+        # a name alone selects its least loaded physical server
+        assert c.post("/v1/select", json={"server": p2p.name}).status_code == 200
+
         assert c.get("/v1/servers", params={"feature": "ipv6"}).status_code == 200
         assert c.get("/v1/servers", params={"feature": "nope"}).status_code == 400
 

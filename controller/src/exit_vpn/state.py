@@ -40,6 +40,7 @@ class Prefs:
     secure_core: bool = False   # on: only Secure Core servers; off: none (works with any key)
     allow_free: bool = False    # free-tier servers are crowded
     require: list[str] = field(default_factory=list)  # features every candidate must have
+    favorites: list[str] = field(default_factory=list)  # logical server names, tried first
 
     @property
     def countries(self) -> list[str]:

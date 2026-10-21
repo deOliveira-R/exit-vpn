@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 from .catalog import Catalog, Server
 from .config import Settings
-from .failover import choose_candidates
+from .failover import by_load, choose_candidates
 from .health import Backoff, Health, HealthTracker
 from .probes import CycleResult, Prober
 from .state import Current, State, StateStore
@@ -299,7 +299,7 @@ class Controller:
         usable = [s for s in found if s.enabled]
         if not usable:
             raise ValueError(f"{server} is in maintenance")
-        return usable
+        return by_load(usable)   # a name alone: its least loaded physical server first
 
     async def set_secure_core(self, on: bool, who: str) -> Server | None:
         """Secure Core is a mode, so turning it on or off moves to a server of the new

@@ -2,11 +2,10 @@ import ExitControlCore
 import SwiftUI
 
 struct SettingsView: View {
-    let model: AppModel
-    @State private var tab = "general"
+    @Bindable var model: AppModel
 
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: $model.settingsTab) {
             GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }.tag("general")
             RegionsTab(model: model).tabItem { Label("Regions", systemImage: "pin") }.tag("regions")
             ConnectionTab(model: model).tabItem { Label("Connection", systemImage: "slider.horizontal.3") }.tag("connection")
@@ -15,10 +14,7 @@ struct SettingsView: View {
         }
         .frame(width: 620, height: 460)
         .task { await model.loadProvider() }
-        .onOpenURL { url in  // exitvpn://settings/account
-            if let t = url.pathComponents.dropFirst().first { tab = t }
-            bringToFront()
-        }
+
     }
 }
 
@@ -116,6 +112,23 @@ struct ConnectionTab: View {
 
     var body: some View {
         Form {
+            Section {
+                ForEach(["port_forward", "stream", "ipv6"], id: \.self) { f in
+                    Toggle(featureName(f), isOn: Binding(
+                        get: { model.status?.prefs.require.contains(f) ?? false },
+                        set: { on in
+                            var r = (model.status?.prefs.require ?? []).filter { $0 != f }
+                            if on { r.append(f) }
+                            model.setRequire(r)
+                        }))
+                    .disabled(!model.online || model.busy != nil)
+                }
+            } header: {
+                Text("Every server must have")
+            } footer: {
+                Text("Failover and New Server only pick servers with all of these; if none is up, the exit holds traffic (degraded) instead of using one without. The current server is kept until the next change.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 ForEach(model.options) { o in
                     if o.kind == "bool" {

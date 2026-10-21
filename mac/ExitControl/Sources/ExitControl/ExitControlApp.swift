@@ -4,7 +4,8 @@ import SwiftUI
 
 @main
 struct ExitControlApp: App {
-    @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var model = AppModel.shared
 
     var body: some Scene {
         MenuBarExtra {
@@ -14,16 +15,28 @@ struct ExitControlApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        // exitvpn://servers, exitvpn://find, exitvpn://settings[/tab] open the windows
-        Window("Servers", id: "servers") { ServerBrowser(model: model).onOpenURL { _ in bringToFront() } }
+        Window("Servers", id: "servers") { ServerBrowser(model: model) }
             .defaultSize(width: 900, height: 560)
-            .handlesExternalEvents(matching: ["servers"])
-        Window("Find a Server for a URL", id: "find") { FindView(model: model).onOpenURL { _ in bringToFront() } }
+        Window("Find a Server for a URL", id: "find") { FindView(model: model) }
             .defaultSize(width: 640, height: 520)
-            .handlesExternalEvents(matching: ["find"])
         Window("ExitControl Settings", id: "settings") { SettingsView(model: model) }
             .windowResizability(.contentSize)
-            .handlesExternalEvents(matching: ["settings"])
+    }
+}
+
+/// `exitvpn://` URLs arrive as Apple Events. Handling them here (instead of SwiftUI's
+/// per-scene matching) lets action URLs run without opening a window.
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleURL(_:reply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: s) else { return }
+        AppModel.shared.open(url)
     }
 }
 
@@ -32,6 +45,7 @@ struct ExitControlApp: App {
 
 struct MenuBarLabel: View {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let st = model.status
@@ -40,6 +54,9 @@ struct MenuBarLabel: View {
             if model.showFlag, model.online, let st {
                 Text(flag(st.exitLoc ?? st.country.flatMap { model.codes[$0] }))
             }
+        }
+        .onChange(of: model.windowRequest) { _, r in
+            if let r { openWindow(id: r.id); bringToFront() }
         }
     }
 

@@ -80,10 +80,11 @@ public struct ControllerClient: Sendable {
         public var secureCore: Bool?
         public var allowFree: Bool?
         public var require: [String]?
+        public var favorites: [String]?
         public init(regions: [Region]? = nil, autoFailover: Bool? = nil, secureCore: Bool? = nil,
-                    allowFree: Bool? = nil, require: [String]? = nil) {
+                    allowFree: Bool? = nil, require: [String]? = nil, favorites: [String]? = nil) {
             self.regions = regions; self.autoFailover = autoFailover; self.secureCore = secureCore
-            self.allowFree = allowFree; self.require = require
+            self.allowFree = allowFree; self.require = require; self.favorites = favorites
         }
     }
     struct Find: Encodable { var url: String; var countries: [String]; var maxCandidates: Int; var mode: String; var js: Bool }

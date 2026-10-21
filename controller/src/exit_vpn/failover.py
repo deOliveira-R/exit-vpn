@@ -33,17 +33,24 @@ def in_region(s: Server, region: dict, secure_core: bool = False) -> bool:
     return not city or secure_core or s.city.lower() == city.lower()
 
 
+def by_load(servers: Iterable[Server]) -> list[Server]:
+    return sorted(servers, key=lambda s: 50 if s.load is None else s.load)
+
+
 def _load_bucket(s: Server) -> int:
     return 2 if s.load is None else s.load // 20   # unknown load ranks like ~50 %
 
 
 def _tier(servers: Iterable[Server], rng: random.Random, limit: int,
-          profile: Iterable[str] = ()) -> list[Server]:
+          profile: Iterable[str] = (), favorites: Iterable[str] = ()) -> list[Server]:
     soft = [f for f in profile if f not in HARD_FEATURES]
+    fav = {f.lower() for f in favorites}
     tier = list(servers)
     rng.shuffle(tier)  # spread load within a tier...
-    # ...but the full profile first, then less loaded servers (stable: random within a bucket)
-    tier.sort(key=lambda s: (sum(not getattr(s, f, False) for f in soft), _load_bucket(s)))
+    # ...but favourites first, then the full profile, then less loaded servers (stable:
+    # random within a bucket)
+    tier.sort(key=lambda s: (s.name.lower() not in fav,
+                             sum(not getattr(s, f, False) for f in soft), _load_bucket(s)))
     return tier[:limit]
 
 
@@ -86,7 +93,7 @@ def choose_candidates(servers: list[Server], current: Server | None, prefs: Pref
     out: list[Server] = []
     seen: set[tuple[str, str]] = set()
     for t in tiers:
-        for s in _tier(t, rng, per_tier, profile):
+        for s in _tier(t, rng, per_tier, profile, prefs.favorites):
             if (s.pubkey, s.ip) not in seen:
                 seen.add((s.pubkey, s.ip))
                 out.append(s)

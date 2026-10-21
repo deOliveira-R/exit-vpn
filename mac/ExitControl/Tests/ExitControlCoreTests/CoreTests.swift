@@ -91,3 +91,21 @@ let statusJSON = """
     #expect(opts.first?.sortedChoices.map(\.value) == ["0", "1", "2"])
     await #expect(throws: ExitctlError.self) { try await x.renew("proton", slot: "a") }
 }
+
+@Test func exitURLs() {
+    func p(_ s: String) -> ExitURL? { ExitURL(URL(string: s)!) }
+    #expect(p("exitvpn://servers") == .window("servers", tab: nil))
+    #expect(p("exitvpn://settings/account") == .window("settings", tab: "account"))
+    #expect(p("exitvpn://rotate?scope=city") == .rotate("city"))
+    #expect(p("exitvpn://rotate") == .rotate("any"))
+    #expect(p("exitvpn://rotate?scope=moon") == nil)
+    #expect(p("exitvpn://connect?country=United%20States&city=New%20York")
+            == .connect(Region(country: "United States", city: "New York")))
+    #expect(p("exitvpn://connect?country=Switzerland") == .connect(Region(country: "Switzerland", city: nil)))
+    #expect(p("exitvpn://connect?server=CH%23821") == .connectServer("CH#821"))
+    #expect(p("exitvpn://connect") == nil)
+    #expect(p("exitvpn://securecore?on=1") == .secureCore(true))
+    #expect(p("exitvpn://securecore?on=off") == .secureCore(false))
+    #expect(p("exitvpn://securecore") == nil)
+    #expect(p("https://rotate") == nil && p("exitvpn://launch-missiles") == nil)
+}

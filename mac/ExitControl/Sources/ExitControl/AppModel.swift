@@ -8,6 +8,8 @@ import ServiceManagement
 /// slow poll as a fallback), actions go over HTTP, provider actions through exitctl.
 @MainActor @Observable
 final class AppModel {
+    static let shared = AppModel()
+
     // Settings (UserDefaults)
     var controllerURL: String { didSet { save("controllerURL", controllerURL); reconnect() } }
     var exitctlPath: String { didSet { save("exitctlPath", exitctlPath) } }
@@ -33,6 +35,11 @@ final class AppModel {
     var certificates: [Certificate] = []
     var agentInstalled = LaunchAgent().installed
     var providerError: String?
+
+    // Windows opened from URLs (the menu-bar label opens them: it is always on screen)
+    struct WindowRequest: Equatable { let id: String; let nonce = UUID() }
+    var windowRequest: WindowRequest?
+    var settingsTab = "general"
 
     let notifier = Notifier()
     private var streamTask: Task<Void, Never>?
@@ -165,6 +172,40 @@ final class AppModel {
     }
     func setAutoFailover(_ on: Bool) { perform("Auto failover") { try await $0.setPrefs(.init(autoFailover: on)) } }
     func setRegions(_ r: [Region]) { perform("Pinned regions") { try await $0.setPrefs(.init(regions: r)) } }
+    func setRequire(_ r: [String]) { perform("Requirements") { try await $0.setPrefs(.init(require: r)) } }
+    func selectServer(named name: String) {
+        perform("Connect to \(name)") { try await $0.select(server: name, ip: nil) }
+    }
+
+    // Favourites: logical server names, tried first within each failover/rotate tier
+    var favorites: [String] { status?.prefs.favorites ?? [] }
+    func isFavorite(_ name: String) -> Bool { favorites.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+    func toggleFavorite(_ name: String) {
+        var f = favorites
+        if isFavorite(name) { f.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame } } else { f.append(name) }
+        perform(isFavorite(name) ? "Remove \(name) from favourites" : "Add \(name) to favourites") {
+            try await $0.setPrefs(.init(favorites: f))
+        }
+    }
+
+    func openWindow(_ id: String, tab: String? = nil) {
+        if let tab { settingsTab = tab }
+        windowRequest = WindowRequest(id: id)
+    }
+
+    /// `exitvpn://` URLs (see ExitURL).
+    func open(_ url: URL) {
+        guard let action = ExitURL(url) else { Self.debug("unknown URL \(url)"); return }
+        Self.debug("url \(url)")
+        switch action {
+        case .window(let id, let tab): openWindow(id, tab: tab)
+        case .rotate(let scope): rotate(scope)
+        case .connect(let region): select(region)
+        case .connectServer(let name): selectServer(named: name)
+        case .secureCore(let on): setSecureCore(on)
+        case .refresh: Task { await refresh(); await loadServers() }
+        }
+    }
 
     func loadServers() async {
         guard let client else { return }

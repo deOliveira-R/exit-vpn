@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Build ExitControl.app (release, ad-hoc signed) into mac/ExitControl/build/.
-# Install: cp -R build/ExitControl.app ~/Applications/  (or /Applications)
+# Build ExitControl.app (release, universal, ad-hoc signed) into mac/ExitControl/build/.
+# Needs Xcode and XcodeGen (brew install xcodegen). Install: cp -R build/ExitControl.app ~/Applications/
 set -euo pipefail
 cd "$(dirname "$0")"
-swift build -c release --arch arm64 --arch x86_64
-bin=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/ExitControl
-app=build/ExitControl.app
-rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$bin" "$app/Contents/MacOS/ExitControl"
-cp Resources/Info.plist "$app/Contents/Info.plist"
-codesign --force --sign - --options runtime --timestamp=none "$app"
-echo "built $app"
+xcodegen generate --quiet
+xcodebuild -project ExitControl.xcodeproj -scheme ExitControlApp -configuration Release \
+  -derivedDataPath .build/xcode -destination 'generic/platform=macOS' build -quiet "$@"
+rm -rf build/ExitControl.app && mkdir -p build
+cp -R .build/xcode/Build/Products/Release/ExitControl.app build/
+echo "built build/ExitControl.app"

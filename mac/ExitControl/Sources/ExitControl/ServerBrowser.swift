@@ -57,6 +57,13 @@ struct ServerBrowser: View {
             let shown = rows
             Table(shown, selection: $selection, sortOrder: $sort) {
                 TableColumn("") { r in Text(model.isCurrent(r.s) ? "●" : "") }.width(14)
+                TableColumn("★") { r in
+                    Button { model.toggleFavorite(r.s.name) } label: {
+                        Image(systemName: model.isFavorite(r.s.name) ? "star.fill" : "star")
+                            .foregroundStyle(model.isFavorite(r.s.name) ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain).help("Favourites are tried first in their city, country or region")
+                }.width(18)
                 TableColumn("Server", value: \.name) { r in
                     Text("\(flag(countryCode(r.s))) \(r.s.name)")
                 }
@@ -71,7 +78,10 @@ struct ServerBrowser: View {
                 TableColumn("IP") { r in Text(r.s.ip).monospaced().foregroundStyle(r.s.isEnabled ? .primary : .secondary) }
             }
             .contextMenu(forSelectionType: Server.ID.self) { ids in
-                if let s = server(ids.first) { Button("Connect to \(s.name)") { model.select(s) } }
+                if let s = server(ids.first) {
+                    Button("Connect to \(s.name)") { model.select(s) }
+                    Button(model.isFavorite(s.name) ? "Remove from Favourites" : "Add to Favourites") { model.toggleFavorite(s.name) }
+                }
             } primaryAction: { ids in
                 if let s = server(ids.first) { model.select(s) }
             }

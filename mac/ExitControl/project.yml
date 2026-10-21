@@ -1,0 +1,33 @@
+# The app bundle (XcodeGen spec; ExitControl.xcodeproj is generated, not committed).
+# The code lives in the Swift package next to it: ExitControlCore (library, tested with
+# `swift test`) and Sources/ExitControl (the app target below).
+name: ExitControl
+options:
+  deploymentTarget: { macOS: "14.0" }
+  createIntermediateGroups: true
+packages:
+  ExitControlPackage: { path: . }
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  ExitControlApp:   # not "ExitControl": the package's executable product has that name
+    type: application
+    platform: macOS
+    scheme: {}
+    sources: [Sources/ExitControl]
+    dependencies:
+      - package: ExitControlPackage
+        product: ExitControlCore
+    settings:
+      base:
+        PRODUCT_NAME: ExitControl
+        PRODUCT_BUNDLE_IDENTIFIER: org.exit-vpn.ExitControl
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        ONLY_ACTIVE_ARCH: NO
