@@ -1,4 +1,4 @@
-"""One probe, start to finish (PLAN Phase 4): attach wg-probe to the target server, prove
+"""One probe, start to finish: attach wg-probe to the target server, prove
 where traffic exits, load the URL with the engines the policy asks for, classify each load,
 detach. One probe at a time (wg-probe has a single peer); a key reload waits for it too."""
 

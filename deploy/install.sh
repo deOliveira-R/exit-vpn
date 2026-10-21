@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up and start an exit node from the deploy kit (PLAN Phase D), on a Docker host:
+# Set up and start an exit node from the deploy kit, on a Docker host:
 #   1. unpack the kit (exit-vpn-node-<version>.tar.gz) where it should live, e.g. /opt/exit-node
 #   2. put the secrets in ./secrets (see README.md) and run: sudo ./install.sh
 # Safe to run again: it never overwrites .env or the secrets, only checks them and (re)starts.

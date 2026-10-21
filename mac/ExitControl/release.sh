@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release build (PLAN Phase 5c): ./release.sh <version> <build number>
+# Release build: ./release.sh <version> <build number>
 # Builds the signed app, zips it, and writes an appcast whose single item points at the
 # GitHub Release download and carries the EdDSA signature Sparkle checks.
 # Needs: Local.xcconfig (signing), SPARKLE_ED_KEY_FILE (the private key file), GITHUB_REPOSITORY.

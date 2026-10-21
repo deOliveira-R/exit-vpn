@@ -1,4 +1,4 @@
-"""Key slots (PLAN Phase 3b): uploading a key into slot a (the exit) or b (the prober),
+"""Key slots: uploading a key into slot a (the exit) or b (the prober),
 keeping it only if it carries traffic.
 
 The two slots are tested in opposite orders, because of where the key runs:

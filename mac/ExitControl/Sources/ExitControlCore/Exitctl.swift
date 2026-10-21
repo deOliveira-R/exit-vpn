@@ -1,6 +1,6 @@
 import Foundation
 
-/// Provider actions run through `exitctl --json` (D20): login, keys, levers, catalog. exitctl
+/// Provider actions run through `exitctl --json`: login, keys, levers, catalog. exitctl
 /// is installed separately (`uv tool install ./helper`), so the app never bundles GPLv3 code.
 /// Exit codes (contracts/README.md): 0 done, 1 error, 2 the exit node refused, 3 input needed.
 public enum ExitctlError: Error, LocalizedError, Sendable, Equatable {

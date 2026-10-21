@@ -1,7 +1,7 @@
 import Foundation
 
 /// The background agent: `exitctl <provider> servers --push` every hour, so the exit node
-/// runs on a fresh live catalog without the app being open (PLAN Phase 5).
+/// runs on a fresh live catalog without the app being open.
 public struct LaunchAgent: Sendable {
     public static let label = "org.exit-vpn.catalog-push"
     public var plistURL: URL {

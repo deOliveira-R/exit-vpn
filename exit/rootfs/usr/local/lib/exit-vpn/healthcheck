@@ -1,5 +1,5 @@
 #!/bin/sh
-# Docker healthcheck: the tunnel passes traffic. (The controller's health loop, Phase 3,
+# Docker healthcheck: the tunnel passes traffic. (The controller's health loop
 # is the real failure detector; this only feeds `docker ps`.)
 . /usr/local/lib/exit-vpn/common.sh
 ip link show "$WG_IF" >/dev/null 2>&1 || exit 1

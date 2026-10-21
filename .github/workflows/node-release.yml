@@ -1,4 +1,4 @@
-# PLAN Phase D: a node-v* tag builds the exit and prober images for amd64 and arm64 (native
+# Node release: a node-v* tag builds the exit and prober images for amd64 and arm64 (native
 # runners, no emulation), pushes them to GHCR with build provenance and an SBOM, attests the
 # provenance (`gh attestation verify`), and publishes a GitHub Release with the deploy kit.
 # The release is never "latest": the app's update feed is releases/latest (an app release).

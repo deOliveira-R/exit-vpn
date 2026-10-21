@@ -1,4 +1,4 @@
-"""The exit service: which server the exit uses, and every change to it (PLAN Phase 3, 5).
+"""The exit service: which server the exit uses, and every change to it.
 
 `ExitService` owns the active server, the preferences, the blacklist and the catalog in
 use, and runs every change under one lock, so the health loop, failover and API requests

@@ -1,4 +1,4 @@
-"""Thin wrapper over `wg` for the active tunnel. Server changes are peer swaps (D8)."""
+"""Thin wrapper over `wg` for the active tunnel. Server changes are peer swaps."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// "Find a server for this URL" (PLAN Phase 4): starts a job on the controller and follows it
+/// "Find a server for this URL": starts a job on the controller and follows it
 /// until it is done. Closing the window stops following; the job itself carries on.
 @MainActor @Observable
 public final class FindSession {

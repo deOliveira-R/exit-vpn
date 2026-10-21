@@ -1,4 +1,4 @@
-# PLAN Phase 5c: unit tests of every package and the app build, on every push and PR.
+# CI: unit tests of every package and the app build, on every push and PR.
 name: ci
 on:
   push: { branches: [main] }

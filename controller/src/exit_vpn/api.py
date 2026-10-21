@@ -1,4 +1,4 @@
-"""HTTP API, bound to the node's tailnet IPv4 only (PLAN Phase 3 'API'); only the owner's
+"""HTTP API, bound to the node's tailnet IPv4 only; only the owner's
 untagged devices may call it (`auth`). This layer checks the shape of requests and turns
 domain errors into HTTP: PolicyError → 400, SwitchError → 409. Rules live in the services.
 Response shapes: contracts/controller/."""

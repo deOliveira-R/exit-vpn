@@ -1,6 +1,6 @@
 """The server catalog (pure): every server the exit may use, with lookups by identity, name
-and place. It comes from gluetun-servers (same schema for all providers, PLAN D12/D16) or
-from a list exitctl pushes from the provider's own API (PLAN 3b.2); both are validated as
+and place. It comes from gluetun-servers (same schema for all providers) or
+from a list exitctl pushes from the provider's own API; both are validated as
 strictly, because the catalog decides where exit traffic goes. Caching on disk is
 `persistence.CatalogCache`; where a catalog comes from is `catalog_source`."""
 

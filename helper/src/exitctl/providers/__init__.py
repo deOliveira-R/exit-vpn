@@ -1,4 +1,4 @@
-"""Provider adapters (D20). Add a provider by adding a module and registering it here."""
+"""Provider adapters. Add a provider by adding a module and registering it here."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Update an existing exit node to a published release, from the Mac (PLAN Phase D):
+# Update an existing exit node to a published release, from the Mac:
 #   deploy/rollout.sh 1.0.0
 # 1. reads the release's pinned image digests (images.env in its deploy kit),
 # 2. verifies both images' build provenance with `gh attestation verify` (built by this

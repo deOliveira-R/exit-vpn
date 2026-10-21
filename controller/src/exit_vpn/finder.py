@@ -1,4 +1,4 @@
-"""'Find a server this URL accepts' (PLAN Phase 4): a job walks candidates through the
+"""'Find a server this URL accepts': a job walks candidates through the
 prober, which tests each through its own tunnel; the active exit is never touched. Applying
 a result is an ordinary switch. Job view: contracts/controller/find_job.json."""
 

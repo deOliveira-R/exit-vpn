@@ -2,18 +2,8 @@ import Foundation
 import Testing
 @testable import ExitControlCore
 
-// The app's side of the contracts (PLAN R1): every sample in contracts/ that the app reads must
-// decode into the types it uses. The producers' own tests (pytest) check that what the
-// controller and exitctl emit matches the same samples.
-
-private let contracts = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    .deletingLastPathComponent().deletingLastPathComponent().appending(path: "contracts")
-
-private func sample<T: Decodable>(_ name: String, as type: T.Type = T.self) throws -> T {
-    let data = try Data(contentsOf: contracts.appending(path: "\(name).json"))
-    return try ControllerClient.decoder.decode(T.self, from: data)
-}
+// Contract: every sample in contracts/ that the app reads decodes into the types it uses. The
+// producers' own tests (pytest) check that what the controller and exitctl emit matches them.
 
 @Test func controllerSamplesDecode() throws {
     let st = try sample("controller/status", as: Status.self)
@@ -26,6 +16,14 @@ private func sample<T: Decodable>(_ name: String, as type: T.Type = T.self) thro
     _ = try sample("controller/key_slot", as: KeySlot.self)
     let job = try sample("controller/find_job", as: FindJob.self)
     #expect(job.results.first?.outcome == "ok")
+}
+
+@Test func theStatusSampleFillsWhatTheMenuShows() throws {
+    let st = try sample("controller/status", as: Status.self)
+    #expect(st.prefs.regions.first == Region(country: "Switzerland"))
+    #expect(st.catalog.servers > 0 && !st.catalog.pushed)
+    #expect(st.keyOptions?.isEmpty == false)
+    #expect(st.events?.first?.kind == "started")
 }
 
 @Test func everyEventKindDecodesAndHasASummary() throws {

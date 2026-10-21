@@ -1,4 +1,4 @@
-"""The prober's key (slot b, PLAN Phase 3b): the uploaded config if there is one, else the
+"""The prober's key (slot b): the uploaded config if there is one, else the
 bootstrap config. entrypoint.sh makes the same choice at start; `POST /key/reload` re-reads
 it here."""
 

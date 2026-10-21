@@ -1,4 +1,4 @@
-"""Client of the prober container (PLAN Phase 4): it probes a URL through its own tunnel to a
+"""Client of the prober container: it probes a URL through its own tunnel to a
 candidate server, never the exit's. Request and response: contracts/prober/."""
 
 from __future__ import annotations

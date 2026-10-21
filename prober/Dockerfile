@@ -1,4 +1,4 @@
-# The prober (PLAN Phase 4, D11/D19): its own netns and tunnel (key B), curl_cffi and
+# The prober: its own netns and tunnel (key B), curl_cffi and
 # Debian's Chromium (--headless=new, unprivileged user). Build context: the repo root.
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 

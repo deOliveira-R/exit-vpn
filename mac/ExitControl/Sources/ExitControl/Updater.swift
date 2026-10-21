@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import Sparkle
 
-/// In-app updates (PLAN Phase 5c): Sparkle reads the appcast of the latest GitHub Release and
+/// In-app updates: Sparkle reads the appcast of the latest GitHub Release and
 /// installs an update only if its EdDSA signature matches SUPublicEDKey in Info.plist.
 @MainActor @Observable
 final class Updater {

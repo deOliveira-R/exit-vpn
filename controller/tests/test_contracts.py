@@ -1,4 +1,4 @@
-"""The controller's side of the contracts (PLAN R1): its API responses must match the samples
+"""The controller's side of the contracts (contract): its API responses must match the samples
 in contracts/controller/, the requests it sends the prober must match the prober's request
 sample, and it must handle the prober's response samples. Events are checked by the
 `event_contract` fixture in conftest.py, for every test."""
@@ -12,8 +12,7 @@ from fastapi.testclient import TestClient
 from exit_vpn.api import create_app
 from exit_vpn.prober_client import ProberClient
 
-from conftest import KINDS, shape
-from harness import AllowAll, conf, make, new_key
+from harness import KINDS, AllowAll, conf, make, new_key, shape
 
 
 def test_every_event_kind_has_a_sample():

@@ -1,5 +1,5 @@
 // swift-tools-version: 6.0
-// ExitControl: menu-bar app for the exit node (PLAN Phase 5, D21).
+// ExitControl: menu-bar app for the exit node.
 // This package holds the testable core (`swift test`). The app itself (Sources/ExitControl,
 // with Sparkle and App Intents) is built by Xcode from project.yml: `./build-app.sh`.
 import PackageDescription

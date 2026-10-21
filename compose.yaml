@@ -1,5 +1,5 @@
 # exit-vpn: a Tailscale exit node whose internet egress is a VPN provider's WireGuard
-# tunnel, with a kill switch (PLAN.md). Settings come from .env (see .env.example);
+# tunnel, with a kill switch (ARCHITECTURE.md). Settings come from .env (see .env.example);
 # WireGuard configs live in ./secrets (root, 0700/0600). Never in git.
 name: exit-vpn
 
@@ -24,7 +24,7 @@ services:
       TS_PORT: ${TS_PORT:-41642}
       # The image has no iptables binary; tailscaled programs nftables over netlink
       TS_DEBUG_FIREWALL_MODE: nftables
-      # Controller (Phase 3): tailnet logins allowed to use the API, country preference
+      # Controller: tailnet logins allowed to use the API, country preference
       EXIT_OWNERS: ${EXIT_OWNERS:?set EXIT_OWNERS in .env}
       EXIT_COUNTRIES: ${EXIT_COUNTRIES:-United States,Switzerland}
       VPN_PROVIDER: ${VPN_PROVIDER:-proton}
@@ -33,7 +33,7 @@ services:
       PROBER_URL: http://${PROBER_IP:-172.30.42.10}:9000
       # Slot b's bootstrap config, for GET /v1/keys and rollback (the prober mounts it)
       PROBE_VPN_CONF: /secrets/${PROBE_VPN_CONF:-proton_b.conf}
-    # Only what routing, WireGuard and (Phase 2) tailscaled need; s6-overlay runs
+    # Only what routing, WireGuard and tailscaled need; s6-overlay runs
     # without further capabilities (tested).
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, NET_RAW]
@@ -47,7 +47,7 @@ services:
       # tailscaled's connmark-based rp_filter workaround
       net.ipv4.conf.all.src_valid_mark: "1"
       # On so IPv6 exit traffic hits the unreachable route (fast ICMP error, clients fall
-      # back to IPv4) instead of a silent drop. No IPv6 leaves the node yet (PLAN Q6).
+      # back to IPv4) instead of a silent drop. No IPv6 leaves the node yet.
       net.ipv6.conf.all.forwarding: "1"
     # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
     # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.
@@ -59,15 +59,15 @@ services:
       - /run:exec,mode=755
       - /tmp
     volumes:
-      # rw: accepted keys are mirrored to secrets/<provider>_<slot>.conf (PLAN Phase 3b)
+      # rw: accepted keys are mirrored to secrets/<provider>_<slot>.conf
       - ./secrets:/secrets
-      # Key slots uploaded via PUT /v1/keys (PLAN Phase 3b); empty = use secrets/
+      # Key slots uploaded via PUT /v1/keys; empty = use secrets/
       - keys-a:/keys/a
       - keys-b:/keys/b
       - exit-state:/var/lib/exit-vpn
       - ts-state:/var/lib/tailscale
     # tailscaled's WireGuard port for direct connections (the host's tailscaled has 41641).
-    # The OCI security list stays closed for now: NAT traversal first (PLAN V5/T5).
+    # The OCI security list stays closed for now: NAT traversal first.
     ports:
       - "${TS_PORT:-41642}:${TS_PORT:-41642}/udp"
     networks:
@@ -77,7 +77,7 @@ services:
     logging: *logging
 
   # Probes URLs through other VPN servers on its own tunnel (key B), never the active
-  # exit's (PLAN Phase 4, D11/D19). Reachable only from the exit container.
+  # exit's. Reachable only from the exit container.
   prober:
     image: ${PROBER_IMAGE:-exit-vpn/prober:dev}
     container_name: ${EXIT_NODE_NAME:-exit-proton}-prober

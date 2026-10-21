@@ -30,14 +30,14 @@ formats between them (samples checked by both sides' tests).
 - `prober/`: prober container (own netns, key B tunnel `wg-probe`, curl_cffi + Debian `chromium
   --headless=new` over CDP). `probe.Prober`, `engines`, `classify`, `exitcheck`, `tunnel`, `keyfile`.
 - `helper/`: `exitctl` (Mac). `model`, `keyservice`, `exitnode`, `sessions`, `providers/` (`base`
-  interface, `proton/` package, `manual`), `cli` with `--json` (D20). uv project (`uv.lock`);
+  interface, `proton/` package, `manual`), `cli` with `--json`. uv project (`uv.lock`);
   proton-core from git, pinned (never the PyPI `proton-core`).
 - `mac/ExitControl/`: the menu-bar app. `ExitControlCore` (vocabulary, wire models, stores,
   ActionRunner, ProcessRunner; `swift test`) and the app target (AppContainer, views, Intents,
   Updater), built from `project.yml` (XcodeGen).
 - `compose.yaml` (project `exit-vpn`, services `exit` and `prober` from `EXIT_IMAGE`/`PROBER_IMAGE`,
   network `exitnet` 172.30.42.0/24: exit .2, prober .10), `compose.build.yaml` (build from source),
-  `.env.example`, `deploy/` (kit: `install.sh`, `rollout.sh`, README), `tests/acceptance/phase*.sh`.
+  `.env.example`, `deploy/` (kit: `install.sh`, `rollout.sh`, README), `tests/acceptance/` (`client/`, `node/`, `lib.sh`).
 - Tailnet policy lives in the separate **private** repo `deOliveira-R/tailnet-policy`
   (local clone `~/git/tailnet-policy`), GitOps: PR → CI `test`, merge → CI `apply`
   (federated identity, no stored secrets). Policy `tests` need concrete users as `src`
@@ -48,11 +48,13 @@ formats between them (samples checked by both sides' tests).
 - Licence: MIT (`LICENSE`), chosen to stay compatible with GPLv2/GPLv3 and permissive code.
   Third-party: `helper/` imports Proton's `python-proton-core` (GPLv3) as a dependency, not
   vendored. Our source stays MIT; a *distributed bundle* that includes proton-core (e.g. a
-  packaged Phase 5 app) must be distributed under GPLv3 terms. Don't vendor GPL code into
+  packaged app) must be distributed under GPLv3 terms. Don't vendor GPL code into
   the MIT tree.
 
 - One phase at a time; a phase is done when its acceptance tests pass on the VPS; then
   record a "Phase N results" block in PLAN.
+- Name things (files, tests, scripts, comments) after concepts in the present code, never after
+  phases or steps; PLAN.md alone keeps the phase history.
 - Never commit secrets (`.env`, `secrets/`, keys) or site-specific values (IPs, tailnet
   name, personal details); use placeholders. The repo is **public**. Hooks:
   `git config core.hooksPath .githooks`; the pre-commit hook rejects strings listed in
@@ -65,7 +67,7 @@ formats between them (samples checked by both sides' tests).
   (`uv pip compile <pkg>/pyproject.toml --universal --python-version 3.13 --generate-hashes
   -o <pkg>/requirements.lock`), healthchecks, `restart: unless-stopped`, rotated logs,
   minimal capabilities.
-- Proton server catalog: a live list pushed by `exitctl` (PLAN 3b.2) wins; the fallback is
+- Proton server catalog: a live list pushed by `exitctl` wins; the fallback is
   `qdm12/gluetun-servers` → `pkg/servers/protonvpn.json`, **pinned to a commit** in
   `controller/src/exit_vpn/config.py` (a tampered catalog could redirect exit traffic); bump
   deliberately. Both paths validate hostnames (`.protonvpn.net`), IPs and keys.
@@ -90,14 +92,14 @@ formats between them (samples checked by both sides' tests).
   opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/app.noindex/ExitControl.app` logs actions and updates. exitctl for
   the app: `uv tool install --force --reinstall --python <Homebrew python3.13> ./helper` (uv's standalone
   Python aborts on libssl; `--reinstall`, else uv reuses a cached build of the same version).
-- Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
-  `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
-- Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
-  Mac (Proton app **off**; scripts select the exit node and restore the previous one; they refuse a Mac with none,
-  `tests/acceptance/exitnode.sh`)
-  `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`,
-  `phase3b-client.sh`, `phase3b2-client.sh`, `phase5a-client.sh` (need `helper/.venv/bin/exitctl proton login` first, done by the owner
-  in their own terminal: password/2FA/CAPTCHA prompts).
+- Tests: `TESTING.md` (kinds, rules, one table per component: file → concept). Unit tests (Mac):
+  `controller/.venv/bin/pytest -q controller`, `prober/.venv/bin/pytest -q prober`,
+  `(cd helper && .venv/bin/pytest -q)`, `(cd mac/ExitControl && swift test)` (venvs via `uv venv -p 3.13` +
+  `uv pip install -e '.[test]'`).
+- Acceptance (`tests/acceptance/README.md`): from the Mac `tests/acceptance/run-client.sh [suite ...]`
+  (Proton app **off**; the Mac must use an exit node, the scripts restore it; `catalog`, `keys`,
+  `secrets` need `helper/.venv/bin/exitctl proton login`, done by the owner in their own terminal:
+  password/2FA/CAPTCHA prompts). On the VPS: `sudo bash tests/acceptance/node/{tunnel,tailnet}.sh`.
 - Catalog: `exitctl proton servers [--push|--revert]`. Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
 - Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,events,keys,catalog}`.
 

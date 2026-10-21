@@ -4,7 +4,7 @@ import Foundation
 import os
 import ServiceManagement
 
-/// The app's composition root (PLAN D21): it builds the state objects, connects them, and is
+/// The app's composition root: it builds the state objects, connects them, and is
 /// the one place views, `exitvpn://` URLs and Shortcuts go through.
 ///
 ///     AppSettings ──► ControllerClient ──► ConnectionStore (status, events) ──► notifications

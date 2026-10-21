@@ -1,4 +1,4 @@
-"""Proton's levers: the dashboard's key features (D17). They are bound to the key, so
+"""Proton's levers: the dashboard's key features. They are bound to the key, so
 changing one means a new key. `RandomNAT` is the inverse of "Moderate NAT" (as in the
 dashboard)."""
 

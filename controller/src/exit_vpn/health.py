@@ -1,4 +1,4 @@
-"""Health state machine (pure; the clock is passed in). PLAN Phase 3 'Health'."""
+"""Health state machine (pure; the clock is passed in)."""
 
 from __future__ import annotations
 

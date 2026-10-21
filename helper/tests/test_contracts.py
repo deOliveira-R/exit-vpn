@@ -1,68 +1,16 @@
-"""exitctl's side of its contract with the app (PLAN R1): `exitctl --json` output and exit
-codes must match contracts/exitctl/. Commands run through `cli.main` with a fake Proton
-session and a fake controller, as the app runs them."""
+"""`exitctl --json` output and exit codes against contracts/exitctl/, as the app runs them (contract)."""
 
 import io
 import json
 import sys
-from pathlib import Path
 
 import pytest
+from harness import captcha_error, shape
 
-from exitctl import cli, providers
-from exitctl.providers.proton import ProtonProvider, catalog_rows
-from exitctl.sessions import MemoryStore
-
-from test_helper import FakeController, FakeSession
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "contracts"))
-import shape  # noqa: E402
+from exitctl import cli
 
 
-class Node(FakeController):
-    """The fake controller, answering catalog calls with the controller's own sample."""
-
-    async def put_catalog(self, provider, rows):
-        return shape.load("controller/status")["catalog"]
-
-    async def delete_catalog(self):
-        return shape.load("controller/status")["catalog"]
-
-
-LOGICALS = [{"Name": "US-NY#1", "ExitCountry": "US", "City": "New York", "Tier": 2, "Features": 4 | 8,
-             "Status": 1, "Load": 33, "Servers": [{"EntryIP": "185.159.157.9", "X25519PublicKey": "k1",
-                                                   "Domain": "node-us-01.protonvpn.net", "Status": 1}]}]
-
-
-class Runner:
-    """`runner(argv, stdin=None) -> (exit code, parsed stdout)` against one fake account."""
-
-    def __init__(self, monkeypatch):
-        self.mp, self.sess, self.node = monkeypatch, FakeSession(), Node()
-        self.proton = ProtonProvider(store=MemoryStore(), session_factory=lambda: self.sess)
-        real_get = providers.get
-        monkeypatch.setattr(providers, "get", lambda n: self.proton if n == "proton" else real_get(n))
-        monkeypatch.setattr(cli, "ExitNode", lambda url=None: self.node)
-
-        async def servers():
-            return catalog_rows(LOGICALS)
-        self.proton.servers = servers
-
-    def __call__(self, argv, stdin=None):
-        self.mp.setattr(sys, "stdin", io.StringIO(json.dumps(stdin) if stdin is not None else ""))
-        out = io.StringIO()
-        self.mp.setattr(sys, "stdout", out)
-        with pytest.raises(SystemExit) as e:
-            cli.main([*argv, "--json"])
-        return e.value.code, json.loads(out.getvalue())
-
-
-@pytest.fixture
-def run(monkeypatch):
-    return Runner(monkeypatch)
-
-
-def test_account_commands(run):
+def test_whoami_and_login_match_their_samples(run):
     code, out = run(["proton", "whoami"])
     assert code == 0
     shape.check("exitctl/logged_out", out)
@@ -74,25 +22,21 @@ def test_account_commands(run):
     shape.check("exitctl/whoami", out)
 
 
-def test_login_steps_need_input(run):
+def test_login_steps_that_need_input_exit_3_with_their_samples(run):
     run.sess.twofa = "123456"
     code, out = run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
     assert code == 3 and out["need"] == "totp"
     shape.check("exitctl/need_totp", out)
 
-    from proton.session.exceptions import ProtonAPIError
-
     async def captcha(user, password, additional_headers=None):
-        raise ProtonAPIError(422, {}, {"Code": 9001, "Error": "complete CAPTCHA",
-                                       "Details": {"HumanVerificationToken": "hvtok",
-                                                   "Methods": ["captcha"]}})
+        raise captcha_error()
     run.sess.async_authenticate = captcha
     code, out = run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
     assert code == 3 and out["need"] == "human_verification"
     shape.check("exitctl/need_human_verification", out)
 
 
-def test_listing_commands(run):
+def test_providers_options_and_keys_match_their_samples(run):
     code, out = run(["providers"])
     assert code == 0
     shape.check("exitctl/providers", out)
@@ -104,8 +48,8 @@ def test_listing_commands(run):
     shape.check("exitctl/keys", out, maps={"$.slots[].options"}, optional={"$.slots[].meta"})
 
 
-def test_key_commands(run):
-    run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
+def test_rotate_list_and_renew_match_their_samples(run):
+    run.login()
     code, out = run(["proton", "rotate", "--slot", "a", "--netshield", "1"])
     assert code == 0
     shape.check("exitctl/rotate", out, maps={"$.key.options", "$.key.meta.options"})
@@ -117,26 +61,28 @@ def test_key_commands(run):
     shape.check("exitctl/renew", out, maps={"$.key.options", "$.key.meta.options"})
 
 
-def test_server_list_push(run):
-    run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
+def test_a_server_list_push_matches_its_sample(run):
+    run.login()
     code, out = run(["proton", "servers", "--push"])
     assert code == 0
     shape.check("exitctl/servers_push", out)
 
 
-def test_errors(run):
+def test_a_provider_error_exits_1_with_the_error_sample(run):
     code, out = run(["proton", "list"])                    # not logged in
     assert code == 1
     shape.check("exitctl/error", out)
-    run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
-    run.node.fail = True                                    # the node refuses the new key
+
+
+def test_a_key_the_node_refuses_exits_2_with_the_error_sample(run):
+    run.login()
+    run.node.fail = True
     code, out = run(["proton", "rotate", "--slot", "a"])
     assert code == 2
     shape.check("exitctl/error", out)
 
 
-def test_unexpected_failures_are_json_errors(run, monkeypatch):
-    """They used to escape as tracebacks with nothing on stdout (the app showed a stderr line)."""
+def test_unreadable_input_is_a_json_error_not_a_traceback(run, monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO("{not json"))
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdout", out)
@@ -145,12 +91,14 @@ def test_unexpected_failures_are_json_errors(run, monkeypatch):
     assert e.value.code == 1
     shape.check("exitctl/error", json.loads(out.getvalue()))
 
+
+def test_a_slot_the_node_does_not_have_is_a_json_error(run):
     from exitctl.exitnode import ExitNode
 
     async def no_slots():
         return []
-    run.node.keys = no_slots                  # the node has no such slot (ExitNode.key used to
-    run.node.key = lambda slot: ExitNode.key(run.node, slot)   # raise StopIteration here)
-    run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
+    run.node.keys = no_slots
+    run.node.key = lambda slot: ExitNode.key(run.node, slot)
+    run.login()
     code, out = run(["proton", "renew", "--slot", "a"])
     assert code == 1 and "no slot" in out["error"]

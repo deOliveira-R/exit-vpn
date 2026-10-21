@@ -1,4 +1,4 @@
-# PLAN Phase 5c: a v* tag builds the signed app, its Sparkle appcast, and a GitHub Release.
+# App release: a v* tag builds the signed app, its Sparkle appcast, and a GitHub Release.
 # The app's feed is releases/latest/download/appcast.xml, so publishing is the update.
 # Secrets: MACOS_SIGNING_P12 (base64 .p12 of the Apple Development identity),
 # MACOS_SIGNING_P12_PASSWORD, MACOS_DEVELOPMENT_TEAM, SPARKLE_ED_KEY (generate_keys -x).

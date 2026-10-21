@@ -1,4 +1,4 @@
-"""The provider adapter interface (PLAN D20).
+"""The provider adapter interface.
 
 An adapter knows one VPN service: its levers (options bound to a key), how to log in, and how
 to create, renew, list and delete keys, and optionally its live server list. Everything else
@@ -8,7 +8,7 @@ CLI offers only those commands.
 
 Adding a provider: a module (or package) here with a `Provider` subclass, registered in
 `providers/__init__.py`. Its keys must be standard wg-quick configs whose Address/DNS match
-the exit node's (`tunnel_address`, `tunnel_dns`, D16); `create_key` returns the `KeyMeta` the
+the exit node's (`tunnel_address`, `tunnel_dns`); `create_key` returns the `KeyMeta` the
 controller records; `servers()` returns rows in the controller's push schema (`ServerRow`).
 """
 
@@ -21,7 +21,7 @@ from ..wgkeys import Peer
 
 # Capabilities an adapter may declare
 LOGIN, CREATE, RENEW, LIST, DELETE, IMPORT = "login", "create", "renew", "list", "delete", "import"
-SERVERS = "servers"   # a live server catalog (PLAN 3b.2)
+SERVERS = "servers"   # a live server catalog
 
 # A pushed server row (the controller's PUT /v1/catalog): name, country_code, city, hostname,
 # ip, pubkey, secure_core, tor, free, stream, port_forward, ipv6, load (0-100 or None), enabled

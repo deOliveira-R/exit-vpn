@@ -1,7 +1,7 @@
 """VPN servers and their vocabulary (pure): what a server is, what it offers, where it is.
 
 A server is identified by (public key, entry IP), never by its key alone: Secure Core
-entries reuse their exit server's key with a different entry IP (PLAN Phase 3b.2). Its
+entries reuse their exit server's key with a different entry IP. Its
 name (`CH#821`) is logical: several physical servers can share one.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass
 
-# What a server can offer that a pick keeps through failover (PLAN Phase 5). P2P is hard:
+# What a server can offer that a pick keeps through failover. P2P is hard:
 # traffic may be peer-to-peer, so a P2P server never fails over to one without it.
 # Streaming and IPv6 are soft: preferred, then relaxed.
 FEATURES = ("port_forward", "stream", "ipv6")

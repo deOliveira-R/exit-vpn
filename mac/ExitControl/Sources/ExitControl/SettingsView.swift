@@ -111,7 +111,7 @@ struct RegionsTab: View {
 }
 
 /// What every server must have, and the provider's levers (Proton: NetShield, VPN
-/// Accelerator, Moderate NAT, NAT-PMP). Levers are bound to the key (D17), so applying them
+/// Accelerator, Moderate NAT, NAT-PMP). Levers are bound to the key, so applying them
 /// makes a new key for the exit slot.
 struct ConnectionTab: View {
     let app: AppContainer

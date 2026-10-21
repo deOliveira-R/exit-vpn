@@ -1,4 +1,4 @@
-"""The two ways to load a page (PLAN D19), behind one interface: `await engine.fetch(url,
+"""The two ways to load a page, behind one interface: `await engine.fetch(url,
 persona) -> Observation`. Both run inside the prober's netns, so their traffic can only
 leave through wg-probe; neither raises: a failure is an Observation with `error` set.
 

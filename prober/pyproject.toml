@@ -1,7 +1,7 @@
 [project]
 name = "exit-vpn-prober"
 version = "0.4.0"
-description = "exit-vpn prober: probe a URL through a given VPN server (two tiers, PLAN D19)"
+description = "exit-vpn prober: probe a URL through a given VPN server (two tiers: HTTP, then a browser)"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = ["fastapi>=0.115", "uvicorn>=0.32", "curl_cffi>=0.16", "playwright>=1.64"]

@@ -1,6 +1,6 @@
 import Foundation
 
-/// `exitvpn://` URLs (PLAN Phase 5b): windows, and actions for scripts, Shortcuts and other
+/// `exitvpn://` URLs: windows, and actions for scripts, Shortcuts and other
 /// apps. macOS asks before a web page opens a custom scheme, so a page cannot act silently.
 ///
 ///     exitvpn://servers | find | settings[/general|regions|connection|account|events]

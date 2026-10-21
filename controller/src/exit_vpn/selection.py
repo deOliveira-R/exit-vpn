@@ -1,5 +1,5 @@
 """Which servers to try, in which order (pure functions of the catalog, the current server,
-the preferences and the blacklist). PLAN Phase 3 'Failover policy', Phase 5.
+the preferences and the blacklist).
 
 Rules every list follows:
 - **Eligible** (`eligible`): enabled, not Tor, in the Secure Core mode (on: only Secure Core
@@ -140,7 +140,7 @@ def mode_switch_candidates(servers: list[Server], current: Server | None, prefs:
 def find_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
                     blacklisted: set[str], countries: list[str], limit: int,
                     rng: random.Random) -> list[Server]:
-    """Candidates for "find a server this URL accepts" (PLAN Phase 4): countries in the
+    """Candidates for "find a server this URL accepts": countries in the
     given order (default: the current country, then the pinned regions' countries); within a
     country, streaming-flagged servers first and cities interleaved for diversity; never the
     active server (the prober must not share it)."""

@@ -23,7 +23,7 @@ public struct Prefs: Codable, Hashable, Sendable {
     public var secureCore: Bool
     public var allowFree: Bool
     public var require: [String]
-    public var favorites: [String]?   // nil from controllers older than Phase 5b
+    public var favorites: [String]?   // nil from controllers without favourites
 }
 
 public struct CatalogInfo: Codable, Hashable, Sendable {
@@ -35,7 +35,7 @@ public struct CatalogInfo: Codable, Hashable, Sendable {
 }
 
 public struct Status: Codable, Hashable, Sendable {
-    public var version: String?       // the node's release (node-vX.Y.Z); nil before Phase D
+    public var version: String?       // the node's release (node-vX.Y.Z); nil from older nodes
     public var api: Int?              // the controller API version
     public var server: String?
     public var country: String?

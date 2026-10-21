@@ -8,7 +8,7 @@ from pathlib import Path
 
 # gluetun-servers, pinned: the catalog supplies WireGuard endpoints and public keys, so a
 # tampered catalog could steer exit traffic to a server we don't trust. Update by
-# bumping the commit deliberately (PLAN D12).
+# bumping the commit deliberately.
 DEFAULT_CATALOG_URL = (
     "https://raw.githubusercontent.com/qdm12/gluetun-servers/"
     "0c7381faba8b0ef5d59caec11eae7ef629f6b4c9/pkg/servers/protonvpn.json"
@@ -35,7 +35,7 @@ class Settings:
     api_port: int = 8080
     health_interval: float = 5.0
     strikes: int = 3
-    # A fresh session drops TCP for 4-14 s (PLAN Phase 0 results)
+    # A fresh session drops TCP for 4-14 s
     warmup: float = 20.0
     # A new key may also need its registration to reach the server
     key_warmup: float = 45.0

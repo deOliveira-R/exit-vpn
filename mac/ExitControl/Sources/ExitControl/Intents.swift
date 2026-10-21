@@ -2,7 +2,7 @@ import AppIntents
 import ExitControlCore
 import Foundation
 
-// Shortcuts actions (PLAN Phase 5b). They run inside the app (launched in the background
+// Shortcuts actions. They run inside the app (launched in the background
 // if needed) and go through the same queue as exitvpn:// URLs (ActionRunner `.enqueue`).
 // The type names and parameters are what saved shortcuts refer to: keep them.
 

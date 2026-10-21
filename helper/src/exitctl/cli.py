@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--url", default=argparse.SUPPRESS,
                         help="controller URL (default $EXITCTL_URL or http://exit-proton:8080)")
     ap = argparse.ArgumentParser(prog="exitctl", parents=[common],
-                                 description="VPN provider keys for the exit node (PLAN Phase 3b)")
+                                 description="VPN provider keys for the exit node")
     sub = ap.add_subparsers(dest="target", required=True)
     sub.add_parser("keys", parents=[common], help="the exit node's key slots")
     sub.add_parser("providers", parents=[common], help="available provider adapters")

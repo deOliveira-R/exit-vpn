@@ -1044,6 +1044,34 @@ after concepts in the present code; phases and steps are ephemeral.
 - RT7 the same principle in code comments: references to phases replaced by the concept or
   document they meant.
 
+**Phase RT results (2026-10-21)**:
+- Unit tests 164 → 300, all green; every old test's behaviour kept (old → new mapping checked
+  per component), none dropped; line coverage not lower anywhere, higher in places
+  (controller `api` 82→84%, `prefs`/`selection` →100%; prober `api` 91→96%, `tunnel` 77→87%,
+  `exitcheck` →100%; exitctl `exitnode` 43→93%, `sessions` 59→97%).
+  - controller 86 → 118: 14 files per concept; the eight-behaviour API test split down to the
+    lowest kind (new `test_prefs`, pure); new checks for 403/503, select without a target,
+    maintenance picks.
+  - prober 29 → 69: `test_probe` through `Prober.run`, `test_exitcheck` and `test_keyfile` split
+    out; new: malformed requests, failed key reload (409, no echo), personas, key via stdin.
+  - exitctl 21 → 51: the `test_helper` grab bag split into seven concepts; new boundary tests for
+    the controller client (`httpx.MockTransport`) and the Keychain store (a stand-in `keyring`).
+  - app 28 → 62: one file per concept; the inline status JSON replaced by the contract sample.
+  - Each Python package has `harness.py` (fakes, builders) and a `conftest.py` with fixtures
+    only; the app has `Harness.swift`. No test file imports another.
+- Acceptance: `tests/acceptance/{lib.sh, run-client.sh, README.md, client/, node/}`; checks print
+  `PASS <suite>: <what it proves>`; regrouped by concept (failover now holds both failover
+  checks, keys the bootstrap mirror, secrets on its own). Live: access 2/2, egress 8/9,
+  selection 6/6, preferences 3/3, failover 2/2, find 5/5 (after fixing a sampler check that
+  counted timed-out samples as exit changes), catalog 6/6, keys 8/8, secrets 3/3; on the VPS
+  tunnel 9/9, tailnet 12/12. The one failure is the tailnet service check (fin-intel's API over
+  the tailnet, HTTP 000), while fin-intel's service answers locally on the host: its tailnet
+  HTTPS side, not this stack.
+- RT7: no references to phases or decision IDs left outside PLAN.md (code, tests, scripts,
+  workflows, compose, READMEs); CLAUDE.md records the naming rule.
+- Host-level changes: the acceptance scripts ran from a temporary copy in `/tmp` on the VPS,
+  removed afterwards.
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).

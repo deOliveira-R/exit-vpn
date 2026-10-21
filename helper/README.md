@@ -1,6 +1,6 @@
 # exitctl
 
-The Mac-side provider client (PLAN D20).
+The Mac-side provider client.
 - **Login:** logs in to the VPN provider. The session lives in the macOS Keychain and never goes to the exit node.
 - **Keys:** makes and renews WireGuard keys and uploads them into the exit node's slots.
 - **Server list:** pushes the provider's live server list.
@@ -39,7 +39,7 @@ every `--json` output against `contracts/exitctl/`.
 
 ## Adding a provider
 
-1. **The adapter:** a module (or package) in `src/exitctl/providers/` with a `Provider` subclass (`providers/base.py`). Set `name`, `title`, `capabilities` (which commands the CLI offers), and `tunnel_address` / `tunnel_dns` (the Address and DNS its configs carry; they must match the exit node's, D16).
+1. **The adapter:** a module (or package) in `src/exitctl/providers/` with a `Provider` subclass (`providers/base.py`). Set `name`, `title`, `capabilities` (which commands the CLI offers), and `tunnel_address` / `tunnel_dns` (the Address and DNS its configs carry; they must match the exit node's).
 2. **Implement what the capabilities promise:**
 
    | Capability | Methods |
@@ -53,7 +53,7 @@ every `--json` output against `contracts/exitctl/`.
 
 3. **Register it** in `providers/__init__.py`.
 4. **Configure the node:** set `VPN_PROVIDER` on the exit node (it refuses pushes from another provider) and `CATALOG_HOSTNAME_SUFFIX`.
-5. **Test it** with a fake session, like `tests/test_helper.py` does for Proton.
+5. **Test it** with a fake session, like `tests/harness.py`'s `FakeSession` for Proton (see TESTING.md).
 
 The exit node names its keys `<node>-<slot>-<yyyymmdd>` (`keyservice.DeviceNaming`), which is
 how `list` tells its certificates (and orphans) from the account's other devices.

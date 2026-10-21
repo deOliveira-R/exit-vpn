@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import ExitControlCore
 
-/// Against the real controller and exitctl, read-only:
-/// `EXITCONTROL_LIVE=http://exit-proton:8080 swift test --filter Live`
+// Live: the core library against the real controller and exitctl, read-only:
+// `EXITCONTROL_LIVE=http://exit-proton:8080 swift test --filter Live`
 let liveURL = ProcessInfo.processInfo.environment["EXITCONTROL_LIVE"]
 
 @Suite(.enabled(if: liveURL != nil)) struct Live {

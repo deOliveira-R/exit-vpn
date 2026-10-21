@@ -7,7 +7,7 @@ options:
   createIntermediateGroups: true
 packages:
   ExitControlPackage: { path: . }
-  Sparkle:   # in-app updates (PLAN Phase 5c); bump deliberately
+  Sparkle:   # in-app updates; bump deliberately
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.10.0
 settings:

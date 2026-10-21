@@ -1,4 +1,4 @@
-"""What exitctl does with keys, provider-neutral (PLAN Phase 3b): rotate a slot's key, renew
+"""What exitctl does with keys, provider-neutral: rotate a slot's key, renew
 its certificate, list the account's certificates against the slots, import a .conf, push the
 live server list. Each works through a `Provider` and the `ExitNode`.
 

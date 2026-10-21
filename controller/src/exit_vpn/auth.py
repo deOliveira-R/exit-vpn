@@ -1,4 +1,4 @@
-"""Controller auth: Tailscale identity via LocalAPI whois (D13). No tokens."""
+"""Controller auth: Tailscale identity via LocalAPI whois. No tokens."""
 
 from __future__ import annotations
 

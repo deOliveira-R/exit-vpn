@@ -47,7 +47,7 @@ class ProbeTunnel:
         args += ["peer", target.pubkey, "endpoint", f"{target.ip}:{self.port}",
                  "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "25"]
         await self._run(*args)
-        # The link may have been taken down (T12d); bring it and its route back
+        # The link may have been taken down (a probe whose tunnel dies); bring it and its route back
         await self._run("ip", "link", "set", self.ifname, "up")
         await self._run("ip", "route", "replace", "default", "dev", self.ifname,
                         "table", str(self.table))

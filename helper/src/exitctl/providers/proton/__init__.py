@@ -1,4 +1,4 @@
-"""Proton VPN adapter (PLAN Phase 3b, D17/D18).
+"""Proton VPN adapter.
 
 Keys are created the way Proton's web dashboard does it (WebClients,
 `containers/vpn/WireGuardConfigurationSection`): an Ed25519 key pair is generated here, its

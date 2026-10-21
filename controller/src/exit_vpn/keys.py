@@ -1,4 +1,4 @@
-"""Key files (PLAN Phase 3b): `a` = the exit tunnel, `b` = the prober's tunnel.
+"""Key files: `a` = the exit tunnel, `b` = the prober's tunnel.
 
 An uploaded key lives in its slot directory (a named volume) as `wg.conf` (0600) plus
 `meta.json` (public facts from the provider: certificate id, expiry, options). While a

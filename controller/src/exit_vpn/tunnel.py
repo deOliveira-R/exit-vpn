@@ -4,7 +4,7 @@ nothing about which server or key (that is `service.ExitService`).
 
 A WireGuard handshake proves nothing (Proton completes it even for unregistered keys), so
 "works" always means one fully passing health cycle, waited for through a warm-up: fresh
-sessions drop TCP for 4-14 s (PLAN Phase 0).
+sessions drop TCP for 4-14 s.
 """
 
 from __future__ import annotations

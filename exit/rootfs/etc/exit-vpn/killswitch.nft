@@ -1,4 +1,4 @@
-# Kill switch layer 2 (PLAN 3.2). $WG_IF and $VPN_DNS come from defines.nft, written by
+# Kill switch layer 2. $WG_IF and $VPN_DNS come from defines.nft, written by
 # init-killswitch from the WireGuard config. Our tables are replaced atomically on reload.
 include "/run/exit-vpn/defines.nft"
 

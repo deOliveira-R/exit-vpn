@@ -1,4 +1,4 @@
-"""Where provider sessions are kept: the macOS Keychain (via `keyring`), never a file (D18).
+"""Where provider sessions are kept: the macOS Keychain (via `keyring`), never a file.
 A session grants the whole provider account, so it never leaves this Mac. `MemoryStore` is
 for tests."""
 

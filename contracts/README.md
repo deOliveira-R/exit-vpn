@@ -5,7 +5,7 @@ has a **producer** and a **consumer**, and both test against the same sample:
 
 | Format | Producer (checks it emits the sample's shape) | Consumer (checks it reads the sample) |
 |---|---|---|
-| `controller/*.json` | controller (`controller/tests/test_contracts.py`, events via `conftest.py`) | ExitControl (`ContractTests.swift`) |
+| `controller/*.json` | controller (`controller/tests/test_contracts.py`, events via `conftest.py`'s hook) | ExitControl (`ContractTests.swift`) |
 | `prober/probe_request.json` | controller (`ProberClient`) | prober (`ProbeRequest`) |
 | `prober/probe_response*.json`, `prober/healthz.json` | prober (`prober/tests/test_contracts.py`) | controller (`Finder`, via `find_job.json`) |
 | `exitctl/*.json` | exitctl (`helper/tests/test_contracts.py`) | ExitControl (`ContractTests.swift`) |

@@ -190,3 +190,4 @@ A change to a format is a change to its sample (`UPDATE_CONTRACTS=1`), reviewed 
 | what the menu shows | `mac/…/ExitControl/MenuContent.swift`, `ExitControlCore/StatusText.swift` |
 | what notifies | `ExitControlCore/ConnectionStore.swift` (`notableKinds`), `AppContainer.notify` |
 | a wire format | `contracts/` (both sides' tests) |
+| which test covers what, where a new one goes | `TESTING.md` |

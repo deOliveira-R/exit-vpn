@@ -1,4 +1,4 @@
-"""Where the catalog comes from (PLAN D12, 3b.2):
+"""Where the catalog comes from:
 - at startup, the cached catalog if it was pushed or came from the configured URL, else a
   download of the pinned gluetun-servers file (through the underlay: public data);
 - `exitctl … servers --push`: the provider's live list, validated (`accept_push`);

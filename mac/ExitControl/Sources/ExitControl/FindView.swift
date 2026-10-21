@@ -1,7 +1,7 @@
 import ExitControlCore
 import SwiftUI
 
-/// "Find a server this URL accepts" (PLAN Phase 4): the prober tries candidates through its
+/// "Find a server this URL accepts": the prober tries candidates through its
 /// own tunnel, never disturbing the exit; any server that passed can be applied.
 struct FindView: View {
     let app: AppContainer

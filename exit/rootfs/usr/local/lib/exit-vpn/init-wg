@@ -1,6 +1,6 @@
 #!/command/with-contenv sh
-# Bring up the tunnel (PLAN 3.4 step 3). The interface is created once and kept; server
-# changes are peer swaps (D8). Peer: last-good from state, else the config's own peer.
+# Bring up the tunnel. The interface is created once and kept; server
+# changes are peer swaps. Peer: last-good from state, else the config's own peer.
 . /usr/local/lib/exit-vpn/common.sh
 load_conf
 

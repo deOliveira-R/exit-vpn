@@ -1,9 +1,9 @@
 # Shared helpers for the exit-vpn init scripts (sourced, POSIX sh).
-# Reads a standard wg-quick config (provider-agnostic, PLAN D16) given by EXIT_VPN_CONF.
+# Reads a standard wg-quick config (provider-agnostic) given by EXIT_VPN_CONF.
 set -eu
 
 : "${EXIT_VPN_CONF:?EXIT_VPN_CONF must point to the WireGuard config}"
-# An uploaded key (slot a, PLAN Phase 3b) takes precedence over the bootstrap config.
+# An uploaded key (slot a) takes precedence over the bootstrap config.
 # Must match the controller's KeyStore.path("a") (controller/src/exit_vpn/keys.py).
 KEY_DIR_A=${KEY_DIR_A:-/keys/a}
 if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
@@ -26,7 +26,7 @@ conf_value() {
     }' "$EXIT_VPN_CONF"
 }
 
-# first_ipv4 "<comma list>": the first IPv4 entry (IPv6 comes later; PLAN open question 6).
+# first_ipv4 "<comma list>": the first IPv4 entry (no IPv6 leaves the node yet).
 first_ipv4() { echo "$1" | tr ',' '\n' | tr -d ' ' | grep -E '^[0-9]+(\.[0-9]+){3}(/[0-9]+)?$' | head -n1; }
 
 load_conf() {
@@ -42,7 +42,7 @@ load_conf() {
   VPN_SRC=${VPN_ADDR%/*}
 }
 
-# Tailscale (PLAN 3.4 steps 4-5)
+# Tailscale
 TS_SOCKET=${TS_SOCKET:-/run/tailscale/tailscaled.sock}
 TS_STATE_DIR=${TS_STATE_DIR:-/var/lib/tailscale}
 TS_PORT=${TS_PORT:-41642}

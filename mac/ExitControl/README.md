@@ -1,6 +1,6 @@
 # ExitControl
 
-Menu-bar app for the exit node (PLAN Phase 5, D21). A thin client: the controller
+Menu-bar app for the exit node. A thin client: the controller
 (`http://exit-proton:8080`) over HTTP + server-sent events, and `exitctl --json` for
 provider actions (login, keys, levers, server list). MIT; it never bundles exitctl or
 python-proton-core (GPLv3).

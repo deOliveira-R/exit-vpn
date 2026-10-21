@@ -1,4 +1,4 @@
-"""The verdict on one page load (pure; PLAN Phase 4 'Classifier'). `RULES` run in order;
+"""The verdict on one page load (pure). `RULES` run in order;
 the first that matches sets the outcome, and every match is reported as a signal, so the
 controller and the app can show why."""
 

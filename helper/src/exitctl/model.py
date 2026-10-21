@@ -1,4 +1,4 @@
-"""What exitctl works with, provider-neutral (PLAN D20): levers, certificates, key facts, the
+"""What exitctl works with, provider-neutral: levers, certificates, key facts, the
 account, and the errors. The JSON each object produces is the contract with the app
 (contracts/exitctl/); change it only together with the app."""
 
@@ -50,7 +50,7 @@ _TRUE, _FALSE = {"on", "true", "yes", "1"}, {"off", "false", "no", "0"}
 
 @dataclass(frozen=True)
 class Lever:
-    """An option bound to a key (D17), e.g. Proton's NetShield: changing it means a new key."""
+    """An option bound to a key, e.g. Proton's NetShield: changing it means a new key."""
     key: str                  # CLI flag / JSON key, e.g. "netshield"
     label: str                # human name
     conf_label: str           # how the .conf comments name it (what the exit node reports)

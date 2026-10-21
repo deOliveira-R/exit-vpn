@@ -1,5 +1,5 @@
 #!/command/with-contenv sh
-# Kill switch, layer 1 (routing) and layer 2 (nftables), PLAN 3.1/3.2. Runs before the
+# Kill switch, layer 1 (routing) and layer 2 (nftables). Runs before the
 # tunnel or tailscaled exist, so nothing can leave the wrong way during startup.
 . /usr/local/lib/exit-vpn/common.sh
 load_conf

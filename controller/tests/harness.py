@@ -1,6 +1,7 @@
 """Test harness: a controller node built by `node.build`, as in production, with a fake
 tunnel, fake health probes and a fake clock. Traffic works unless the peer's public key or
-the interface's private key is marked dead."""
+the interface's private key is marked dead. Also the builders and fakes the tests share:
+WireGuard configs and keys, pushed catalog rows, a scripted prober, an owner-only whois."""
 
 from __future__ import annotations
 
@@ -8,9 +9,13 @@ import asyncio
 import base64
 import os
 import random
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from exit_vpn.api import create_app
 from exit_vpn.config import Settings
 from exit_vpn.keys import KeyStore
 from exit_vpn.node import Node, build
@@ -160,3 +165,77 @@ def prefs_for(countries, **kw):
     from exit_vpn.servers import Region
     kw = {k: tuple(v) if isinstance(v, list) else v for k, v in kw.items()}
     return Prefs(regions=kw.pop("regions", tuple(Region(c) for c in countries)), **kw)
+
+
+class Stranger:
+    """A whois that knows the caller, who is not an owner."""
+
+    async def lookup(self, ip, port):
+        return {"UserProfile": {"LoginName": "eve@github"}, "Node": {"Tags": []}}
+
+
+def client(rig: Rig, whois=None) -> TestClient:
+    """The controller's HTTP API for this rig; every caller is the owner unless `whois` says."""
+    return TestClient(create_app(rig.node, whois or AllowAll(), ["o@github"]))
+
+
+async def strikes(rig: Rig, n: int = 3) -> None:
+    """`n` failed health cycles, past the warm-up."""
+    rig.clock.t += 30
+    for _ in range(n):
+        await rig.svc.step()
+
+
+# Find jobs ------------------------------------------------------------------------------
+REAL_SLEEP = asyncio.sleep   # `make` patches asyncio.sleep to return at once
+
+
+class ScriptedProber:
+    """A prober client answering each probe with the next outcome in `outcomes`."""
+
+    def __init__(self, outcomes):
+        self.outcomes, self.calls = list(outcomes), []
+
+    async def probe(self, srv, *, country_code, url, mode="auto", js=False, forbid_ips=()):
+        self.calls.append((srv.name, country_code, tuple(forbid_ips)))
+        return {"server": srv.name, "outcome": self.outcomes.pop(0), "signals": []}
+
+
+async def job_done(job) -> None:
+    for _ in range(200):
+        if job.state != "running":
+            return
+        await REAL_SLEEP(0.01)
+
+
+# Pushed catalogs ------------------------------------------------------------------------
+def pushed_rows(n: int = 60, **over) -> list[dict]:
+    """A pushed server list (exitctl's rows): New York servers, every tenth in maintenance."""
+    out = []
+    for i in range(n):
+        r = {"name": f"US-NY#{i}", "country_code": "US", "city": "New York",
+             "hostname": f"node-us-{i:02d}.protonvpn.net", "ip": f"185.159.157.{i + 1}",
+             "pubkey": new_key(), "load": (i * 7) % 100, "enabled": i % 10 != 0}
+        r.update(over)
+        out.append(r)
+    return out
+
+
+def country_names(code: str) -> str | None:
+    return {"US": "United States"}.get(code)
+
+
+# Contracts ------------------------------------------------------------------------------
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "contracts"))
+import shape  # noqa: E402,F401  (the samples in contracts/)
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "exit_vpn"
+
+
+def emitted_kinds() -> set[str]:
+    """Event kinds the controller's code can emit (every `publish("kind"` call)."""
+    import re
+    return {m for f in SRC.glob("*.py") for m in re.findall(r'\bpublish\(\s*"([a-z_]+)"', f.read_text())}
+
+
+KINDS = emitted_kinds()
