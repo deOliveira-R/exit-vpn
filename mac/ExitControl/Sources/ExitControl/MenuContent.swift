@@ -30,6 +30,7 @@ struct MenuContent: View {
         Divider()
         Button("Settings…") { open("settings") }.keyboardShortcut(",")
         Button("Check for Updates…") { Updater.shared.check() }.disabled(!Updater.shared.canCheck)
+        Text("ExitControl \(Updater.shared.version)")
         Button("Quit ExitControl") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 
