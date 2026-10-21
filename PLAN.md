@@ -729,10 +729,10 @@ the three intents and "Exit Status" returns the live values.
   "Check for Updates…" in the menu and automatic checks.
 - **exitctl**: stays a separate install (GPLv3 proton-core is not bundled, D21); releases
   pin a helper version, and the app tells when the installed `exitctl` is older.
-- **Open (Q8)**: Apple Developer Program (US$99/yr) → Developer ID signing + notarization,
-  so downloads open without Gatekeeper warnings and updates install silently. Without it:
-  ad-hoc signed builds, the first launch needs right-click → Open (or `xattr -d
-  com.apple.quarantine`), and Sparkle still verifies updates with its EdDSA signature.
+- **Signing (Q8, decided 2026-10-21): no Apple Developer account.** Ad-hoc signed builds;
+  the first launch of a download needs an explicit Open (right-click → Open, or System
+  Settings → Privacy & Security → Open Anyway). Sparkle verifies every update with its
+  EdDSA signature, which is what protects the update channel.
 
 **Acceptance (T35–T37):** T35 CI green on a PR; T36 a `v*` tag produces a GitHub Release with
 the app; T37 an installed older build offers the newer release, updates and relaunches.
@@ -841,4 +841,4 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 5. ~~Repo location~~ → GitHub.
 6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
 7. ~~`Bouncing` label~~ → does not restrict which servers a key can use (Phase 0).
-8. Apple Developer Program for Developer ID signing and notarization (Phase 5c)?
+8. ~~Apple Developer Program~~ → no: ad-hoc signed builds, an explicit Open on first launch (Phase 5c).
