@@ -7,8 +7,9 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-21)
 
-Phases 0–5d (incl. 3b, 3b.2, 5a, 5b), R (architecture pass) and D (published node images; the VPS runs
-node-v1.0.0 from GHCR) done and deployed; all acceptance suites green. The exit runs on a
+Phases 0–5d (incl. 3b, 3b.2, 5a, 5b), R (architecture pass), D (published node images; the VPS runs
+node-v1.1.3 from GHCR), RT (tests by concept) and V6 (IPv6 through the exit, behind the IPv6 gate)
+done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
 `org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
@@ -109,6 +110,10 @@ formats between them (samples checked by both sides' tests).
   health. Fresh sessions drop TCP for 4–14 s (warm-up).
 - A Proton public key is not unique (Secure Core entries reuse the exit's key): identify
   servers by (pubkey, endpoint IP).
+- IPv6 in the exit: never put an IPv6 address on wg0 (it becomes the source of every unbound
+  socket, and rule 110 pulls them into the tunnel); IPv6 routes need `metric 1` to beat the
+  unreachable routes (default metric 1024 > 1000); Tailscale clients drop ICMPv6 errors from
+  the exit, so refuse with a TCP reset. Proton servers without the IPv6 flag drop IPv6 silently.
 - s6-overlay needs `/run` tmpfs with `exec`; `fwd` is an nft keyword; the kernel deletes
   table-100 routes when wg0 goes down (route-keeper restores them); tailscaled warns about
   `src_valid_mark` (read-only /proc/sys; compose sets it — cosmetic).

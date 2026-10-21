@@ -1087,7 +1087,7 @@ after concepts in the present code; phases and steps are ephemeral.
 - Host-level changes: the acceptance scripts ran from a temporary copy in `/tmp` on the VPS,
   removed afterwards.
 
-### Phase V6 — IPv6 through the exit (draft, to agree with the owner)
+### Phase V6 — IPv6 through the exit
 
 Why: open question 6 chose "IPv4 first". Today every IPv6 packet a client sends through the
 exit hits table 100's `unreachable` route: a fast ICMPv6 error, so clients fall back to IPv4
@@ -1149,6 +1149,44 @@ Acceptance:
 Decided (owner, 2026-10-21): the gate is opened by the probe (the catalog flag is only a hint
 for selection); IPv6 never triggers failover, even when `ipv6` is a required feature;
 `EXIT_IPV6=off` in `.env` is the off switch (no app preference).
+
+**Phase V6 results (2026-10-21)**: node-v1.1.3 and ExitControl v0.5.0.
+- V6-0 (`node/provider-ipv6.sh`, key b): flagged servers carry IPv6 (US-GA#208, US-WA#451:
+  Proton exit addresses `2a02:6ea0:…`, 71 and 94 Mbit/s, the v6 DNS answers); unflagged ones
+  (US-NJ#41, US-AZ#106) **drop it silently** (8 s timeouts), so the gate must be proven by probe.
+  exitctl's configs had no IPv6 address: exitctl now writes Proton's (`2a07:b944::2:2/128`,
+  DNS `2a07:b944::2:1`), and slot a was rotated before the rollout to get one.
+- Changed from the draft by what the VPS showed (node-v1.1.0 → v1.1.3):
+  - The tunnel's IPv6 address is **not an address of wg0** but a local route on `lo`
+    (`net.ipv6.ip_nonlocal_bind=1` for the probe, `snat ip6 to` it for forwarded traffic).
+    As an interface address, Linux picked it as the source of every unbound IPv6 socket
+    (it retries a failed lookup after choosing a source), rule 110 sent those through the
+    tunnel, and tailscaled's own netcheck went via the VPN; wg0 going down also flushed it.
+  - The gate is an **nftables set** (`inet killswitch` `ipv6_gate`), not the route: forwarded
+    IPv6 is always routed to wg0 and, while closed, rejected with a TCP reset (ICMP for the
+    rest). The unreachable route's ICMPv6 error is dropped by the Tailscale client, so
+    connections stalled for their full timeout (8 s); with the reset they fail in 0.2 s.
+  - The gate is **damped**: after a close on the same server it reopens only after 3, 6, 12,
+    then 24 good probes in a row. US-FL#371's IPv6 came and went (32 gate changes in 25
+    minutes); each close resets clients' IPv6 connections. The close event carries the error.
+- Observed upstream, not ours: the first IPv6 connection to a destination sometimes stalls
+  4–8 s at Proton (also from the exit itself, bound to the tunnel address); later ones and
+  throughput match IPv4 (exit 133 vs 121 Mbit/s, Mac 64 vs 57). Happy Eyeballs hides it from
+  apps; `client/ipv6.sh` allows three tries for its first request and reports a stall.
+- Unit tests 300 → 330: controller 118 → 147 (`test_ipv6`, the gate and its damping, the v6
+  probe, the gate file, shell contract for both addresses and `EXIT_IPV6`), exitctl 51 → 52,
+  app 62 → 64. Contracts: status `ipv6`, `exit_ip6`; event `ipv6` (a digit in a kind had kept
+  the harness from checking it: its regex now allows digits).
+- Acceptance: T43–T45 as `client/ipv6.sh` 6/6 (IPv6 via the VPN in the exit's country, never
+  this Mac's own networks; none while the tunnel is down, back after; 0.21 s failure on a server
+  without IPv6 while IPv4 works); `egress` 9/9 (IPv6 via the VPN); T46 in `node/tunnel.sh` 14/14
+  (unbound IPv6 does not leave, the tunnel's IPv6 via the VPN, the gate file and the kill
+  switch's set agree, the prober has no IPv6 route, IPv6 fails closed with wg0 down);
+  `tailnet` 12/12, `failover` 2/2, `access` 2/2. On node-v1.1.1: selection 6/6, preferences 3/3,
+  find 5/5, catalog 6/6, keys 8/8, secrets 3/3.
+- Host-level changes: the deploy checkout fast-forwarded to the release commits (it was at
+  Phase D; compose now passes `EXIT_IPV6` and sets `net.ipv6.ip_nonlocal_bind`, both namespaced);
+  throwaway containers (`provider-ipv6`, script tests) removed after use; slot a rotated.
 
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
