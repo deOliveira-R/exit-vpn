@@ -71,7 +71,11 @@ final class AppModel {
         streamTask = Task { [weak self] in
             for await u in client.updates() {
                 guard let self else { return }
-                Self.debug("update \(u)")
+                switch u {
+                case .status(let st): Self.debug("status \(st.server ?? "-") \(st.health)")
+                case .event(let ev): Self.debug("event \(ev.summary)")
+                default: Self.debug("update \(u)")
+                }
                 switch u {
                 case .connected:
                     online = true; offlineReason = nil
@@ -135,14 +139,18 @@ final class AppModel {
     // Controller actions ---------------------------------------------------------------
     /// Runs one action at a time; errors land in `lastError` (shown in the menu).
     func perform(_ label: String, _ action: @escaping @MainActor (ControllerClient) async throws -> Void) {
-        guard let client, busy == nil else { return }
+        guard let client else { return }
+        guard busy == nil else { Self.debug("ignored \(label): busy with \(busy ?? "")"); return }
         busy = label; lastError = nil
+        Self.debug("action \(label)")
         Task {
             defer { busy = nil }
             do {
                 try await action(client)
+                Self.debug("done \(label)")
                 await refresh()
             } catch {
+                Self.debug("failed \(label): \(error.localizedDescription)")
                 lastError = "\(label): \(error.localizedDescription)"
                 if notify { notifier.post(title: "Exit node: \(label) failed", body: error.localizedDescription) }
             }
@@ -178,9 +186,13 @@ final class AppModel {
         guard let x = exitctl else { providerError = ExitctlError.notInstalled.localizedDescription; return }
         busy = label; providerError = nil
         let p = provider
+        Self.debug("provider \(label)")
         Task {
             defer { busy = nil }
-            do { try await action(x, p) } catch { providerError = "\(label): \(error.localizedDescription)" }
+            do { try await action(x, p); Self.debug("done \(label)") } catch {
+                Self.debug("failed \(label): \(error.localizedDescription)")
+                providerError = "\(label): \(error.localizedDescription)"
+            }
             await loadProvider()
             await refresh()
         }
@@ -215,6 +227,7 @@ final class AppModel {
     }
 
     func setAgent(_ on: Bool) {
+        Self.debug("agent \(on ? "install" : "remove")")
         do {
             if on {
                 guard let x = exitctl else { throw ExitctlError.notInstalled }
@@ -222,7 +235,10 @@ final class AppModel {
             } else {
                 try LaunchAgent().uninstall()
             }
-        } catch { providerError = "Background agent: \(error.localizedDescription)" }
+        } catch {
+            Self.debug("failed agent: \(error.localizedDescription)")
+            providerError = "Background agent: \(error.localizedDescription)"
+        }
         agentInstalled = LaunchAgent().installed
     }
 

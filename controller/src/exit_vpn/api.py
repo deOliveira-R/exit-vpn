@@ -210,8 +210,9 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
         for k in ("auto_failover", "allow_free", "require"):
             if getattr(body, k) is not None:
                 setattr(p, k, list(dict.fromkeys(body.require)) if k == "require" else getattr(body, k))
-        ctl._event("prefs", by=who, prefs=p.view())
-        ctl._save()
+        if body.model_fields_set - {"secure_core"}:  # set_secure_core reports its own change
+            ctl._event("prefs", by=who, prefs=p.view())
+            ctl._save()
         if body.secure_core is not None:
             try:
                 await ctl.set_secure_core(body.secure_core, who)

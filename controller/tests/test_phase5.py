@@ -42,8 +42,12 @@ async def test_api_exact_select_regions_and_secure_core(env):  # noqa: F811
         assert r.status_code == 409 and "pinned regions" in r.text and not ctl.state.prefs.secure_core
         c.put("/v1/prefs", json={"countries": ["Switzerland", "United States"]})
 
+        n = len(ctl.state.events)
         r = c.put("/v1/prefs", json={"secure_core": True})
         assert r.status_code == 200 and r.json()["secure_core"], r.text
+        # one prefs event, after the switch, with the new value
+        prefs_events = [e for e in list(ctl.state.events)[n:] if e["kind"] == "prefs"]
+        assert [e["prefs"]["secure_core"] for e in prefs_events] == [True]
         st = c.get("/v1/status").json()
         assert st["entry"] in ("CH", "SE", "IS") and ctl.current_server().secure_core
         assert c.post("/v1/select", json={"server": p2p.name}).status_code == 400  # mode mismatch
