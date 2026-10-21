@@ -666,8 +666,9 @@ Acceptance:
 - Host-level changes: none.
 
 **v1.1**: hard requirements (item 5), favourite servers (tried first within their region),
-App Intents / Shortcuts ("Rotate exit", "Connect to <region>"), `exitvpn://` URLs, event log
-window. Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.
+App Intents / Shortcuts ("Rotate exit", "Connect to <region>"), `exitvpn://` URLs for actions
+(v1 has them for windows: `exitvpn://servers`, `find`, `settings[/tab]`), a separate event log
+window (v1 has the Events tab). Later: per-candidate latency from the prober; forwarded port display with NAT-PMP.
 
 **Acceptance (T23–T30):** T23 exact select lands on the requested (name, ip); T24 failover
 from a P2P server stays P2P and in the same city when one is up; T25 Secure Core on → only
@@ -676,6 +677,27 @@ Secure Core servers through failover and rotate, off → none; T26 pinned region
 works against the live controller, live updates arrive over SSE; T28 controller down → offline
 state within 5 s (refused) or 20 s (silent), no hangs, recovers by itself; T29 the app's Connection pane rotates slot a
 with NetShield 2 and back; T30 the launchd agent pushes the catalog and the app shows its age.
+
+**Phase 5 results (2026-10-21)** — `mac/ExitControl` built (`./build-app.sh`, universal,
+ad-hoc signed) and run from the Mac against the live controller; 12 app unit tests green (+5
+live tests with `EXITCONTROL_LIVE=1`); checked visually window by window (`screencapture -l`)
+and click by click (`EXITCONTROL_DEBUG=1` log + controller events):
+- T27 menu: ⌘2 US-CA#556 → US-TX#153; pinned region Switzerland → CH#921, Los Angeles →
+  US-CA#1072; Secure Core on → CH-US#3 (entry CH), off → US-CA#756. Each action's events
+  and the new status arrived over SSE.
+- T28 refused (closed port) → offline in < 1 s; silent (port the tailnet policy drops) →
+  offline in ~20 s ("request timed out"); back on the right URL it reconnects by itself.
+- T29 Connection pane NetShield 2 → Apply (new slot a key), then 0 → Apply; slot a ends on
+  NetShield 0.
+- T30 Account → "Push hourly": the launchd agent (`org.exit-vpn.catalog-push`) installed,
+  ran at load (exit 0) and pushed 1,077 servers; Push Now works too; the pane shows the age.
+- Found and fixed while testing: flags came from hostnames (Proton hosts some virtual
+  locations elsewhere: NG#1 is `node-es-…`), now from server names; "health"/"prefs" events
+  had no detail; turning Secure Core on logged a stale prefs event before the switch (now one,
+  after it); the acceptance scripts cleared the Mac's exit node at the end, now they restore
+  the one in use before.
+- Host-level changes: none (controller redeployed with the prefs-event fix). Mac: the
+  LaunchAgent above and `exitctl` as a uv tool (Homebrew Python 3.13).
 
 ### Phase 6 — Home allow-list (residential exit via app connector)
 

@@ -5,6 +5,8 @@
 # on 2026-10-20; override if that changes).
 set -uo pipefail
 NODE=${EXIT_NODE_NAME:-exit-proton}; A="http://$NODE:${API_PORT:-8080}"
+# the exit node this Mac used before the test, restored on exit ("" = none)
+EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
 VPS=${VPS_SSH:-fin-intel}; VPS_TS_NAME=${VPS_TS_NAME:-fin-intel}
 FRIENDLY_URL=${FRIENDLY_URL:-https://example.com/}
 CHALLENGE_URL=${CHALLENGE_URL:-https://www.indeed.com/}
@@ -14,7 +16,7 @@ bad() { echo "FAIL $1"; fail=$((fail+1)); }
 j()   { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 vps_ip=$(tailscale ip -4 "$VPS_TS_NAME"); vps_alias_host=$(ssh -G "$VPS" | awk '$1=="hostname"{print $2}')
 vps() { ssh -n -o HostName="$vps_ip" -o HostKeyAlias="$vps_alias_host" -o ConnectTimeout=10 "$VPS" "$@" 2>/dev/null; }
-trap 'tailscale set --exit-node= >/dev/null 2>&1; vps "sudo docker exec $NODE-prober ip link set wg-probe up"; echo "(exit node cleared, wg-probe up)"' EXIT
+trap 'tailscale set --exit-node="$EXIT0" >/dev/null 2>&1; vps "sudo docker exec $NODE-prober ip link set wg-probe up"; echo "(exit node restored, wg-probe up)"' EXIT
 
 find_job() { # json -> waits, prints the job JSON
   local id; id=$(curl -s -X POST -H 'content-type: application/json' -d "$1" "$A/v1/find" | j 'd["job_id"]')

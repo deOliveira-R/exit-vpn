@@ -5,6 +5,8 @@
 # kill-switch step restores itself on the server, so nothing here can strand the node.
 set -uo pipefail
 NODE=${EXIT_NODE_NAME:-exit-proton}
+# the exit node this Mac used before the test, restored on exit ("" = none)
+EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
 VPS=${VPS_SSH:-fin-intel}            # ssh alias for the VPS
 VPS_TS_NAME=${VPS_TS_NAME:-fin-intel} # its tailnet name
 pass=0; fail=0
@@ -21,7 +23,7 @@ oracle=$(vps 'curl -s --max-time 5 https://www.cloudflare.com/cdn-cgi/trace | se
 before=$(trace)
 case "$before" in *"ip=$oracle"*) echo "Mac already egresses via the VPS?"; exit 1;; esac
 
-trap 'tailscale set --exit-node= >/dev/null 2>&1; echo "(exit node cleared)"' EXIT
+trap 'tailscale set --exit-node="$EXIT0" >/dev/null 2>&1; echo "(exit node restored)"' EXIT
 tailscale set --exit-node="$NODE" --exit-node-allow-lan-access=true || { echo "cannot select $NODE"; exit 1; }
 for _ in $(seq 20); do t=$(trace 3); [ -n "$t" ] && [ "$t" != "$before" ] && break; sleep 1; done
 

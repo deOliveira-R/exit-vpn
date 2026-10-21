@@ -5,6 +5,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 NODE=${EXIT_NODE_NAME:-exit-proton}
+# the exit node this Mac used before the test, restored on exit ("" = none)
+EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
 VPS=${VPS_SSH:-fin-intel}; VPS_TS_NAME=${VPS_TS_NAME:-fin-intel}
 API="http://$NODE:${API_PORT:-8080}"
 EXITCTL=${EXITCTL:-helper/.venv/bin/exitctl}
@@ -24,7 +26,7 @@ vps() { ssh -o HostName="$vps_ip" -o HostKeyAlias="$vps_alias_host" -o ConnectTi
 loop_pid=""
 cleanup() {
   [ -n "$loop_pid" ] && kill "$loop_pid" 2>/dev/null
-  tailscale set --exit-node= >/dev/null 2>&1; echo "(exit node cleared)"
+  tailscale set --exit-node="$EXIT0" >/dev/null 2>&1; echo "(exit node restored)"
 }
 trap cleanup EXIT
 

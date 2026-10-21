@@ -5,12 +5,11 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 "Phase N results" block after each finished phase. Host facts, access and constraints:
 `local/exit-node-handoff.md` (gitignored; site-specific).
 
-## Status (2026-10-20)
+## Status (2026-10-21)
 
-Phases 0–4, 3b, 3b.2 and 5a (controller side of Phase 5) done and deployed; all acceptance suites green. The exit runs on a
-live catalog pushed from Proton's API (`exitctl proton servers --push`; nothing refreshes it
-automatically yet, the Phase 5 app will). Remaining: **5** app (`mac/ExitControl`, SwiftUI, D21: controller over HTTP+SSE,
-`exitctl --json` for provider actions), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
+Phases 0–5 (incl. 3b, 3b.2, 5a) done and deployed; all acceptance suites green. The exit runs on a
+live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
+`org.exit-vpn.catalog-push` refreshes it hourly). Remaining: Phase 5 v1.1 (see PLAN), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
 ## Layout
@@ -73,7 +72,8 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   `ssh -o HostName=$(tailscale ip -4 fin-intel) -o HostKeyAlias=$(ssh -G fin-intel | awk '$1=="hostname"{print $2}') fin-intel`
 - Deploy: `cd /opt/exit-node && sudo git pull --ff-only && sudo docker compose up -d --build`
   (push from the Mac first).
-- App: `mac/ExitControl` (SwiftPM; `swift test`, `./build-app.sh`; see its README). exitctl for
+- App: `mac/ExitControl` (SwiftPM; `swift test`, `./build-app.sh`; see its README). `open exitvpn://servers|find|settings/<tab>`
+  opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/ExitControl.app` logs actions and updates. exitctl for
   the app: `uv tool install --python <Homebrew python3.13> ./helper` (uv's standalone Python aborts on libssl).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
   `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
