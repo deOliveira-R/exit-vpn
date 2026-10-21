@@ -38,8 +38,9 @@ class ProtonProvider(Provider):
     name = "proton"
     title = "Proton VPN"
     capabilities = frozenset({LOGIN, CREATE, RENEW, LIST, DELETE, SERVERS})
-    tunnel_address = "10.2.0.2/32"
-    tunnel_dns = "10.2.0.1"
+    # As in Proton's own configs: the in-tunnel addresses are the same for every key
+    tunnel_address = "10.2.0.2/32, 2a07:b944::2:2/128"
+    tunnel_dns = "10.2.0.1, 2a07:b944::2:1"
 
     def __init__(self, store: SessionStore | None = None, session_factory=default_session):
         self.session = ProtonSession(store or KeychainStore(), session_factory)

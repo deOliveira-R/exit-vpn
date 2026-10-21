@@ -9,6 +9,14 @@ public enum StatusText {
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    /// "IPv6 2a02:6ea0::30" while IPv6 goes through the exit, "IPv6 off on this server"
+    /// otherwise (the exit answers IPv6 with an error, so apps use IPv4); nil from nodes
+    /// without IPv6.
+    public static func ipv6(_ st: Status) -> String? {
+        guard let on = st.ipv6 else { return nil }
+        return on ? "IPv6 \(st.exitIp6 ?? "—")" : "IPv6 off on this server"
+    }
+
     /// The menu-bar symbol (SF Symbols) for the state.
     public static func symbol(online: Bool, status: Status?, busy: Bool) -> String {
         guard online, let st = status else { return "shield.slash" }

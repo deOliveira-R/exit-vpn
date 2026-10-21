@@ -1,6 +1,6 @@
 """The health state machine: strikes, warm-up, grace after a switch, backoff (logic)."""
 
-from exit_vpn.health import Backoff, Health, HealthTracker
+from exit_vpn.health import Backoff, Health, HealthTracker, IPv6Gate
 
 
 def test_three_failed_cycles_in_a_row_mean_failover():
@@ -50,3 +50,36 @@ def test_the_grace_after_a_switch_ends_at_the_first_success():
     t.feed(True, 104)
     t.feed(False, 105); t.feed(False, 110)
     assert t.feed(False, 115) is True
+
+
+# The IPv6 gate ------------------------------------------------------------------------
+def test_the_ipv6_gate_starts_closed_and_opens_on_one_good_probe():
+    g = IPv6Gate()
+    assert not g.open
+    assert g.feed(True) and g.open
+    assert not g.feed(True), "no change, nothing to report"
+
+
+def test_the_ipv6_gate_closes_after_two_failed_probes_in_a_row_not_one():
+    g = IPv6Gate()
+    g.feed(True)
+    assert not g.feed(False) and g.open
+    g.feed(True)
+    assert not g.feed(False) and g.open, "a success in between resets the count"
+    assert g.feed(False) and not g.open
+
+
+def test_an_unprobed_cycle_leaves_the_ipv6_gate_as_it_is():
+    g = IPv6Gate()
+    g.feed(True)
+    assert not g.feed(None) and g.open
+    g.feed(False)
+    assert not g.feed(None) and g.failures == 1
+
+
+def test_closing_the_ipv6_gate_forgets_its_failures():
+    g = IPv6Gate()
+    g.feed(True)
+    g.feed(False)
+    assert g.close() and not g.open and g.failures == 0
+    assert not g.close(), "already closed"

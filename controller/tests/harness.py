@@ -1,6 +1,7 @@
 """Test harness: a controller node built by `node.build`, as in production, with a fake
 tunnel, fake health probes and a fake clock. Traffic works unless the peer's public key or
-the interface's private key is marked dead. Also the builders and fakes the tests share:
+the interface's private key is marked dead; IPv6 works too unless the peer is marked as
+without IPv6. Also the builders and fakes the tests share:
 WireGuard configs and keys, pushed catalog rows, a scripted prober, an owner-only whois."""
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ class FakeWg:
         self.peer = Peer(pubkey, endpoint, int(clock()))
         self.swaps, self.keys = [], [key]
         self.dead_peers, self.dead_keys = set(), set()
+        self.no_ipv6 = set()   # peers whose IPv6 drops (servers without IPv6)
 
     async def peers(self):
         return [self.peer]
@@ -55,16 +57,19 @@ class FakeWg:
 
 
 class FakeHealth:
-    """Each cycle takes a second (so warm-up deadlines are reached)."""
+    """Each cycle takes a second (so warm-up deadlines are reached). `source6` empty: no
+    IPv6 probe, as for a config without an IPv6 address."""
 
-    def __init__(self, wg, clock):
-        self.wg, self.clock = wg, clock
+    def __init__(self, wg, clock, source6="2a07:b944::2:2"):
+        self.wg, self.clock, self.source6 = wg, clock, source6
 
     async def cycle(self, latest_handshake, now=None):
         self.clock.t += 1.0
         ok = self.wg.peer.pubkey not in self.wg.dead_peers and self.wg.key not in self.wg.dead_keys
+        v6 = (ok and self.wg.peer.pubkey not in self.wg.no_ipv6) if self.source6 else None
         return CycleResult(ok, ok, ok, 1.0, "9.9.9.9" if ok else None, "US" if ok else None,
-                           [] if ok else ["https: timeout"])
+                           [] if ok else ["https: timeout"], v6, "2001:db8::9" if v6 else None,
+                           "" if v6 or v6 is None else "ipv6: ConnectTimeout")
 
 
 class FakeProberClient:
@@ -119,8 +124,9 @@ class Rig:
     def svc(self):
         return self.node.service
 
-    def kinds(self) -> list[str]:
-        return [e["kind"] for e in self.node.events.recent()]
+    def kinds(self, ipv6: bool = False) -> list[str]:
+        """The event kinds so far; `ipv6` events, which ride along most changes, only if asked."""
+        return [e["kind"] for e in self.node.events.recent() if ipv6 or e["kind"] != "ipv6"]
 
     def rebuild(self, catalog) -> Rig:
         """The same state directory and tunnel, as after a controller restart."""
@@ -142,7 +148,8 @@ def make(catalog, tmp_path: Path, monkeypatch, prober_answer: dict | None = None
     (tmp_path / "secrets/b.conf").write_text(conf(boot_b))
     s = Settings(vpn_conf=tmp_path / "secrets/a.conf", state_dir=tmp_path / "state",
                  owners=["o@github"], probe_conf=tmp_path / "secrets/b.conf",
-                 key_dirs={"a": tmp_path / "keys-a", "b": tmp_path / "keys-b"})
+                 key_dirs={"a": tmp_path / "keys-a", "b": tmp_path / "keys-b"},
+                 ipv6_gate_file=tmp_path / "run/ipv6")
     keys = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf})
     wg = FakeWg(clock, boot_a, start.pubkey, start.endpoint(51820))
     prober = FakeProberClient(keys, prober_answer)
@@ -235,7 +242,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "exit_vpn"
 def emitted_kinds() -> set[str]:
     """Event kinds the controller's code can emit (every `publish("kind"` call)."""
     import re
-    return {m for f in SRC.glob("*.py") for m in re.findall(r'\bpublish\(\s*"([a-z_]+)"', f.read_text())}
+    return {m for f in SRC.glob("*.py") for m in re.findall(r'\bpublish\(\s*"([a-z0-9_]+)"', f.read_text())}
 
 
 KINDS = emitted_kinds()

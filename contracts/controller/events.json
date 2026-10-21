@@ -51,6 +51,13 @@
       "https: timeout"
     ]
   },
+  "ipv6": {
+    "ts": 1000000.0,
+    "kind": "ipv6",
+    "open": true,
+    "server": "US-NY#1",
+    "exit_ip6": null
+  },
   "key_meta": {
     "ts": 1000000.0,
     "kind": "key_meta",

@@ -23,7 +23,8 @@ Prerequisites:
 | Suite | Proves | Changes (and puts back) | Was |
 |---|---|---|---|
 | `access` | the owner's Mac reaches the API; a tagged host gets no connection | nothing | T11 |
-| `egress` | traffic and DNS leave via the VPN; IPv6 fails cleanly; the path is direct; the kill switch holds while the tunnel is down and during a restart, never the VPS's IP; tailnet services stay reachable; throughput ≥ 20 Mbit/s | the Mac's exit node; restarts the containers | T1–T8 |
+| `egress` | traffic and DNS leave via the VPN; IPv6 via the VPN or an immediate failure, never this Mac's own; the path is direct; the kill switch holds while the tunnel is down and during a restart, never the VPS's IP; tailnet services stay reachable; throughput ≥ 20 Mbit/s | the Mac's exit node; restarts the containers | T1–T8 |
+| `ipv6` | on an IPv6 server the gate opens and this Mac's IPv6 leaves via the VPN in the exit's country, never from this Mac's own networks; no IPv6 egress while the tunnel is down, back after; on a server without IPv6 it fails in under 2 s while IPv4 works | the Mac's exit node, the active server (put back), wg0 down for 15 s | |
 | `selection` | rotate within the country; one exact server with its P2P kept; Secure Core on and off; "rotate any" follows the pinned regions | the active server, preferences | T10, T23, T25, T26 |
 | `preferences` | a required feature holds for every rotation; a favourite is tried first; an unknown favourite is refused | the active server, preferences | T31, T32 |
 | `failover` | a silently dropped server fails over with no leak, traffic back via a new VPN IP (target 35 s); an exact P2P server fails over to another P2P server | the Mac's exit node, the active server, nft drops on the VPS | T9, T24 |
@@ -38,8 +39,9 @@ From the deploy dir, as a sudoer: `sudo bash tests/acceptance/node/<suite>.sh`.
 
 | Suite | Proves | Changes | Was |
 |---|---|---|---|
-| `tunnel` | the exit container's traffic and DNS leave via wg0, its underlay via the host; it fails closed while wg0 is down and recovers; the host's egress and services are untouched | wg0 down for a moment | P1 |
+| `tunnel` | the exit container's traffic and DNS leave via wg0, its underlay via the host; no IPv6 via the underlay; the tunnel's IPv6 via wg0; forwarded IPv6 routed via wg0 exactly while the IPv6 gate is open; the prober has no IPv6 route; it fails closed (IPv6 too) while wg0 is down and recovers; the host's egress and services are untouched | wg0 down for a moment | P1 |
 | `tailnet` | the node is logged in, named, tagged, an approved exit node, not taking over DNS; our rules and kill switch coexist with tailscaled's; forwarded traffic goes to wg0; the host's own Tailscale node and services are untouched | nothing | N1–N12 |
+| `provider-ipv6` | (without the stack) per server given on stdin: does IPv6 pass through the tunnel, with which address and speed; a server without IPv6 drops it silently or fails fast. Prints what it saw; no verdict | a throwaway container on key b | |
 | `provider-keys` | (before or without the stack) one provider key works against different servers by swapping the peer; two keys work concurrently. Prints what it saw; no verdict | throwaway containers | V1, V2 |
 
 "Was": the IDs these checks had in PLAN.md's results, for reading its history.

@@ -23,6 +23,11 @@ class CycleResult:
     exit_ip: str | None = None
     loc: str | None = None
     errors: list[str] = field(default_factory=list)
+    # IPv6 through the tunnel: None when not probed (no IPv6 address, or IPv6 off). Never
+    # part of `ok`: IPv6 opens or closes the IPv6 gate, it never causes a failover.
+    ipv6_ok: bool | None = None
+    exit_ip6: str | None = None
+    ipv6_error: str = ""
 
 
 def parse_trace(text: str) -> dict[str, str]:
@@ -78,17 +83,27 @@ class HealthProbe:
     (a) is authoritative and (c) only catches a stalled tunnel."""
 
     def __init__(self, source: str, dns_server: str, urls: list[str], dns_name: str,
-                 timeout: float, dns_timeout: float, handshake_max_age: float):
+                 timeout: float, dns_timeout: float, handshake_max_age: float,
+                 source6: str = "", url6: str = ""):
         self.source, self.dns_server, self.urls, self.dns_name = source, dns_server, urls, dns_name
         self.timeout, self.dns_timeout, self.handshake_max_age = timeout, dns_timeout, handshake_max_age
+        self.source6, self.url6 = source6, url6   # IPv6 probe: bound to the tunnel's v6 address
+
+    async def _ipv6(self) -> tuple[bool | None, dict[str, str], str]:
+        if not (self.source6 and self.url6):
+            return None, {}, ""
+        ok, trace, err = await https_probe(self.url6, self.source6, self.timeout)
+        return ok, trace, f"ipv6: {err}" if err else ""
 
     async def cycle(self, latest_handshake: int, now: float | None = None) -> CycleResult:
         now = time.time() if now is None else now
         results = await asyncio.gather(
             *(https_probe(u, self.source, self.timeout) for u in self.urls),
-            dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout))
-        https = results[:-1]
-        dns_ok, dns_err = results[-1]
+            dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout),
+            self._ipv6())
+        https = results[:-2]
+        dns_ok, dns_err = results[-2]
+        v6_ok, v6_trace, v6_err = results[-1]
         https_ok = any(ok for ok, _, _ in https)
         trace = next((t for ok, t, _ in https if ok and t), {})
         age = (now - latest_handshake) if latest_handshake else None
@@ -97,4 +112,5 @@ class HealthProbe:
         if not hs_ok:
             errors.append(f"handshake age {age if age is None else round(age)}")
         return CycleResult(https_ok and dns_ok and hs_ok, https_ok, dns_ok, age,
-                           trace.get("ip"), trace.get("loc"), errors)
+                           trace.get("ip"), trace.get("loc"), errors,
+                           v6_ok, v6_trace.get("ip") if v6_ok else None, v6_err)

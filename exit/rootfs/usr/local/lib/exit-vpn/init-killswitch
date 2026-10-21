@@ -23,8 +23,16 @@ rule() { # family priority selector...
 rule -4 90  to 100.64.0.0/10       lookup 52            # tailnet destinations → Tailscale's table
 rule -6 90  to fd7a:115c:a1e0::/48 lookup 52
 rule -4 100 iif tailscale0         lookup "$EXIT_TABLE"  # forwarded exit traffic → VPN
-rule -6 100 iif tailscale0         lookup "$EXIT_TABLE"  # (IPv6 only ever hits unreachable)
+rule -6 100 iif tailscale0         lookup "$EXIT_TABLE"  # (IPv6 via wg0 only while the gate is open)
 rule -4 105 oif "$WG_IF"           lookup "$EXIT_TABLE"  # sockets bound to wg0
 rule -4 110 from "$VPN_SRC"        lookup "$EXIT_TABLE"  # sockets bound to the tunnel address
 rule -4 120 to "$VPN_DNS"          lookup "$EXIT_TABLE"  # VPN DNS only via the tunnel
-log "kill switch loaded (table $EXIT_TABLE, dns $VPN_DNS)"
+ip -6 route replace unreachable default metric 1000 table "$TUNNEL6_TABLE"
+if [ -n "$VPN_ADDR6" ]; then
+  rule -6 105 oif "$WG_IF"         lookup "$TUNNEL6_TABLE"
+  rule -6 110 from "$VPN_SRC6"     lookup "$TUNNEL6_TABLE"
+else
+  for p in 105 110; do ip -6 rule del priority "$p" 2>/dev/null || true; done
+fi
+rm -f "$IPV6_GATE"   # closed until the controller proves IPv6 on this server
+log "kill switch loaded (table $EXIT_TABLE, dns $VPN_DNS, ipv6 ${VPN_SRC6:-off})"

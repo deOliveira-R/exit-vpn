@@ -55,5 +55,7 @@
     }
   ],
   "version": "dev",
-  "api": 1
+  "api": 1,
+  "ipv6": false,
+  "exit_ip6": null
 }

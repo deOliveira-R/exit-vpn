@@ -8,7 +8,12 @@ set -eu
 KEY_DIR_A=${KEY_DIR_A:-/keys/a}
 if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
 WG_IF=${WG_IF:-wg0}
-EXIT_TABLE=${EXIT_TABLE:-100}
+EXIT_TABLE=${EXIT_TABLE:-100}      # forwarded exit traffic; its IPv6 default only while the gate is open
+TUNNEL6_TABLE=${TUNNEL6_TABLE:-101} # the tunnel's own IPv6 sockets (health probe): always via wg0
+# The IPv6 gate: written by the controller while IPv6 through the tunnel is proven to work;
+# route-keeper routes forwarded IPv6 via wg0 only while it exists. /run starts empty.
+IPV6_GATE=${IPV6_GATE:-/run/exit-vpn/ipv6}
+EXIT_IPV6=${EXIT_IPV6:-on}         # off: no IPv6 through the exit at all (.env)
 STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}   # peer.env: written by persistence.StateStore
 
 log() { echo "exit-vpn[$(basename "$0")]: $*" >&2; }
@@ -26,8 +31,9 @@ conf_value() {
     }' "$EXIT_VPN_CONF"
 }
 
-# first_ipv4 "<comma list>": the first IPv4 entry (no IPv6 leaves the node yet).
+# first_ipv4 / first_ipv6 "<comma list>": the first entry of that family.
 first_ipv4() { echo "$1" | tr ',' '\n' | tr -d ' ' | grep -E '^[0-9]+(\.[0-9]+){3}(/[0-9]+)?$' | head -n1; }
+first_ipv6() { echo "$1" | tr ',' '\n' | tr -d ' ' | grep -E '^[0-9a-fA-F]*:[0-9a-fA-F:]*(/[0-9]+)?$' | head -n1 || true; }
 
 load_conf() {
   [ -r "$EXIT_VPN_CONF" ] || die "cannot read $EXIT_VPN_CONF"
@@ -40,6 +46,11 @@ load_conf() {
   [ -n "$CONF_PEER_PUBKEY" ] && [ -n "$CONF_PEER_ENDPOINT" ] || die "no [Peer] PublicKey/Endpoint in $EXIT_VPN_CONF"
   case "$VPN_ADDR" in */*) ;; *) VPN_ADDR="$VPN_ADDR/32" ;; esac
   VPN_SRC=${VPN_ADDR%/*}
+  # IPv6 is optional: none in the config (or EXIT_IPV6=off) means the exit stays IPv4-only
+  VPN_ADDR6=""
+  [ "$EXIT_IPV6" = off ] || VPN_ADDR6=$(first_ipv6 "$(conf_value Interface Address)")
+  case "$VPN_ADDR6" in ""|*/*) ;; *) VPN_ADDR6="$VPN_ADDR6/128" ;; esac
+  VPN_SRC6=${VPN_ADDR6%/*}
 }
 
 # Tailscale

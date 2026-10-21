@@ -49,6 +49,8 @@ public struct Status: Codable, Hashable, Sendable {
     public var health: Health
     public var exitIp: String?
     public var exitLoc: String?
+    public var ipv6: Bool?            // forwarded IPv6 goes through the tunnel; nil from older nodes
+    public var exitIp6: String?
     public var errors: [String]
     public var warnings: [String]?
     public var prefs: Prefs

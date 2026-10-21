@@ -25,3 +25,12 @@ import Testing
     let st = try sample("controller/status", as: Status.self)
     #expect(st.endpointIP == "149.40.49.30")
 }
+
+@Test func statusSaysWhetherIPv6GoesThroughTheExitAndNothingForOlderNodes() throws {
+    var st = try sample("controller/status", as: Status.self)
+    #expect(StatusText.ipv6(st) == "IPv6 off on this server")
+    st.ipv6 = true; st.exitIp6 = "2001:db8::1"
+    #expect(StatusText.ipv6(st) == "IPv6 2001:db8::1")
+    st.ipv6 = nil
+    #expect(StatusText.ipv6(st) == nil)
+}

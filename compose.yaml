@@ -19,6 +19,7 @@ services:
     environment:
       EXIT_VPN_CONF: /secrets/${EXIT_VPN_CONF:-proton_a.conf}
       WG_MTU: ${WG_MTU:-1420}
+      EXIT_IPV6: ${EXIT_IPV6:-on}
       EXIT_NODE_NAME: ${EXIT_NODE_NAME:-exit-proton}
       TS_TAGS: ${TS_TAGS:-tag:exit}
       TS_PORT: ${TS_PORT:-41642}
@@ -46,8 +47,8 @@ services:
       net.ipv4.conf.default.rp_filter: "2"
       # tailscaled's connmark-based rp_filter workaround
       net.ipv4.conf.all.src_valid_mark: "1"
-      # On so IPv6 exit traffic hits the unreachable route (fast ICMP error, clients fall
-      # back to IPv4) instead of a silent drop. No IPv6 leaves the node yet.
+      # IPv6 leaves only via the tunnel, and only while the IPv6 gate is open; otherwise it
+      # hits the unreachable route (fast ICMP error, clients fall back to IPv4).
       net.ipv6.conf.all.forwarding: "1"
     # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
     # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.

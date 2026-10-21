@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A Mac's traffic through the exit node: it leaves via the VPN, DNS too, IPv6 fails cleanly,
+# A Mac's traffic through the exit node: it leaves via the VPN, DNS too, IPv6 via the VPN or not at all,
 # the path is direct, and it fails closed (never the VPS's own IP) while the tunnel is down or
 # the containers restart. Every outage restores itself on the VPS, so nothing here can strand
 # the node. From a Mac with no other VPN app connected.
@@ -20,8 +20,14 @@ if [ -n "$r" ] && [ "$r" != "$VPS_EGRESS" ] && [ -n "$g" ] && [ "$g" != "$VPS_EG
   ok "DNS leaves via the VPN: resolver egress $r, direct-query egress $g"
 else bad "DNS: resolver egress '$r', direct-query egress '$g'"; fi
 
-v6=$(curl -6 -s --max-time 5 https://ifconfig.co 2>/dev/null)
-[ -z "$v6" ] && ok "IPv6 fails cleanly through the exit node" || bad "IPv6 answered: $v6"
+# IPv6: via the VPN where the server carries it (the ipv6 suite), else an immediate failure
+t0=$SECONDS; v6=$(curl -6 -s --max-time 8 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p'); dt=$((SECONDS-t0))
+own=$(ifconfig | awk '$1=="inet6" && $2 !~ /^(fe80|fd7a|::1)/ {split($2,a,":"); print a[1]":"a[2]":"a[3]":"a[4]":"}' | sort -u)
+leak=""; for p in $own; do case "$v6" in "$p"*) leak=$v6;; esac; done
+if [ -n "$leak" ]; then bad "IPv6 LEAKED: this Mac's own address $leak"
+elif [ -n "$v6" ]; then ok "IPv6 leaves via the VPN: $v6 (gate open: $(status | j 'd.get("ipv6")'))"
+elif [ "$dt" -le 2 ]; then ok "IPv6 fails at once through the exit node (no IPv6 on this server)"
+else bad "IPv6 stalled for ${dt}s instead of failing at once"; fi
 
 p=$(tailscale ping -c 5 "$NODE" 2>&1 | tail -1)
 case "$p" in *"via DERP"*) bad "the path is relayed: $p";; *"via "*) ok "the path to the exit node is direct";; *) bad "tailscale ping: $p";; esac

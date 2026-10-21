@@ -1,7 +1,7 @@
 """Building the controller (the composition root): every object, its collaborators, and
 how they connect. `__main__` builds the real node; the tests build one with fakes.
 
-    ExitService ── Tunnel ── WireGuard (wg0), HealthProbe (HealthTracker)
+    ExitService ── Tunnel ── WireGuard (wg0), HealthProbe (HealthTracker, IPv6Gate → GateFile)
         │  └── selection (pure), Catalog, Prefs, State → StateStore, CatalogCache
         ├── EventBus → EventStore, /v1/events subscribers
     KeySlots ── ExitService.replace_exit_key, KeyStore, ProberClient
@@ -27,6 +27,7 @@ from .keys import KeyStore
 from .persistence import CatalogCache, EventStore, StateStore
 from .probes import HealthProbe
 from .prober_client import ProberClient
+from .routes import GateFile
 from .service import ExitService
 from .slots import KeySlots
 from .tunnel import Tunnel
@@ -53,7 +54,7 @@ def build(settings: Settings, *, exit_conf: WgConf, wg: WireGuard, probe: Health
     store = StateStore(s.state_file, s.peer_env_file, s.countries)
     events = EventBus(EventStore(s.events_file), clock, initial=store.load()[1])
     cache = CatalogCache(s.catalog_file)
-    tunnel = Tunnel(wg, probe, HealthTracker(s.strikes, s.warmup), clock)
+    tunnel = Tunnel(wg, probe, HealthTracker(s.strikes, s.warmup), clock, GateFile(s.ipv6_gate_file))
     service = ExitService(s, tunnel, catalog, store, events, exit_conf, catalog_cache=cache,
                           clock=clock, rng=rng)
 

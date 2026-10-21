@@ -1,13 +1,29 @@
 #!/command/with-contenv sh
-# Longrun: the kernel deletes table-100 routes via wg0 when the link goes down, so put
-# the default back whenever wg0 is up again. While wg0 is down, the unreachable route
-# holds and exit traffic fails closed.
+# Longrun, the owner of the routes via wg0. The kernel deletes them when the link goes down,
+# so put them back whenever wg0 is up again; while wg0 is down, the unreachable routes hold
+# and exit traffic fails closed. Forwarded IPv6 is routed via wg0 only while the IPv6 gate
+# (written by the controller) is open; otherwise it hits the unreachable route: a fast error,
+# so clients fall back to IPv4 instead of stalling on a server without IPv6.
 . /usr/local/lib/exit-vpn/common.sh
+load_conf
+set +e   # a failed route command is retried on the next pass, never the end of the keeper
+has_default() { ip "$1" route show table "$2" | grep -q "^default dev $WG_IF"; }
 while :; do
   if ip link show "$WG_IF" up 2>/dev/null | grep -q 'state UP\|state UNKNOWN'; then
-    if ! ip route show table "$EXIT_TABLE" | grep -q "^default dev $WG_IF"; then
+    if ! has_default -4 "$EXIT_TABLE"; then
       ip route replace default dev "$WG_IF" table "$EXIT_TABLE" && log "restored default dev $WG_IF in table $EXIT_TABLE"
     fi
+    if [ -n "$VPN_ADDR6" ]; then
+      # metric 1: below the unreachable routes' 1000 (IPv6 routes default to 1024)
+      has_default -6 "$TUNNEL6_TABLE" || ip -6 route replace default dev "$WG_IF" metric 1 table "$TUNNEL6_TABLE"
+      if [ -e "$IPV6_GATE" ]; then
+        has_default -6 "$EXIT_TABLE" || { ip -6 route replace default dev "$WG_IF" metric 1 table "$EXIT_TABLE" && log "IPv6 gate open: forwarded IPv6 via $WG_IF"; }
+      elif has_default -6 "$EXIT_TABLE"; then
+        ip -6 route del default dev "$WG_IF" table "$EXIT_TABLE" && log "IPv6 gate closed: forwarded IPv6 unreachable"
+      fi
+    fi
+  elif [ ! -e "$IPV6_GATE" ] && has_default -6 "$EXIT_TABLE"; then
+    ip -6 route del default dev "$WG_IF" table "$EXIT_TABLE"
   fi
-  sleep 2
+  sleep 1
 done

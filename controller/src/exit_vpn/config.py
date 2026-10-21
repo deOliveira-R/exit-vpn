@@ -57,6 +57,11 @@ class Settings:
         ]
     )
     dns_probe_name: str = "www.cloudflare.com"
+    # IPv6 through the exit (EXIT_IPV6=off: never). Probed over the tunnel's IPv6 address;
+    # the gate file tells route-keeper (common.sh's IPV6_GATE) to route forwarded IPv6 via wg0.
+    ipv6: bool = True
+    probe6_url: str = "https://www.cloudflare.com/cdn-cgi/trace"
+    ipv6_gate_file: Path = Path("/run/exit-vpn/ipv6")
 
     @property
     def state_file(self) -> Path:
@@ -104,6 +109,10 @@ class Settings:
         if e.get("KEY_DIR_A") or e.get("KEY_DIR_B"):
             kw["key_dirs"] = {"a": Path(e.get("KEY_DIR_A", "/keys/a")),
                               "b": Path(e.get("KEY_DIR_B", "/keys/b"))}
+        if e.get("EXIT_IPV6"):
+            kw["ipv6"] = e["EXIT_IPV6"].strip().lower() not in ("off", "0", "false", "no")
+        if e.get("IPV6_GATE"):
+            kw["ipv6_gate_file"] = Path(e["IPV6_GATE"])
         if e.get("EXIT_COUNTRIES"):
             kw["countries"] = _list(e["EXIT_COUNTRIES"])
         if e.get("EXIT_OWNERS"):

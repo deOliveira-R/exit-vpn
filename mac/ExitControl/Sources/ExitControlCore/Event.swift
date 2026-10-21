@@ -55,6 +55,9 @@ public struct Event: Codable, Hashable, Sendable {
         case "catalog_reverted": return "Server list reverted to the pinned list"
         case "find_started": return "Finding a server for \(s("url"))"
         case "key_meta": return "Key details saved (slot \(s("slot")))"
+        case "ipv6":
+            return data["open"] == .bool(true) ? "IPv6 through the exit on \(s("server"))"
+                                              : "IPv6 off on \(s("server")); apps use IPv4"
         default: return kind.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }

@@ -51,6 +51,7 @@ struct MenuContent: View {
                 Text("Secure Core: \(flag(entry)) \(entry) → \(flag(st.exitLoc)) \(st.exitLoc ?? "")")
             }
             Text("Exit IP \(st.exitIp ?? "—")" + (st.load.map { "  ·  load \($0)%" } ?? ""))
+            if let v6 = StatusText.ipv6(st) { Text(v6) }
             Text(c.online ? st.health.label : "Offline: \(c.offlineReason ?? "controller unreachable")")
             if let p = st.profile, !p.isEmpty {
                 Text("Keeping: \(p.map(Feature.name).joined(separator: ", "))")

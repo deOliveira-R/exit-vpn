@@ -44,16 +44,17 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_catalog.py` | logic | both catalog sources (gluetun fallback, pushed list): parsing, validation, lookups |
 | `test_selection.py` | logic | failover, rotate and find candidates |
 | `test_prefs.py` | logic | preferences: validation, normalisation, updates |
-| `test_health.py` | logic | the health state machine: strikes, warm-up, backoff |
+| `test_health.py` | logic | the health state machine: strikes, warm-up, backoff; the IPv6 gate |
 | `test_state.py` | logic | the active server and the blacklist |
 | `test_service.py` | component | the health cycle: failover, degraded, recovery, restart |
+| `test_ipv6.py` | component | IPv6 through the exit: the IPv6 gate in health cycles, switches and key changes; status, events, warnings |
 | `test_switching.py` | component | select, rotate, exact servers, Secure Core, all-or-nothing preference changes |
 | `test_slots.py` | component | key slots: validate, try, keep or roll back, mirror |
 | `test_finder.py` | component | find jobs |
 | `test_api.py` | component | the HTTP layer: auth, status codes, validation, nothing secret echoed; catalog push and revert |
 | `test_persistence.py` | boundary | state, event log and catalog cache files, migration of old state |
-| `test_adapters.py` | boundary | `wg` dump, WireGuard config, DNS and trace probes, Tailscale whois |
-| `test_shell_contract.py` | boundary | `peer.env` and `common.sh`, shared with the exit's shell scripts |
+| `test_adapters.py` | boundary | `wg` dump, WireGuard config, DNS, trace and IPv6 probes, the IPv6 gate file, Tailscale whois |
+| `test_shell_contract.py` | boundary | `peer.env`, `common.sh` (key choice, tunnel addresses, `EXIT_IPV6`) and the gate file's path, shared with the exit's shell scripts |
 | `test_contracts.py` | contract | API responses, events, prober requests |
 
 ### Prober (`prober/tests`)

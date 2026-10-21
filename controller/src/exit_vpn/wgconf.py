@@ -19,17 +19,22 @@ class WgConf:
     peer_endpoint: str
     peer_name: str = ""          # the `# <name>` comment in [Peer] (Proton writes it)
     options: dict[str, str] = field(default_factory=dict)  # provider option comments
+    address6: str = ""  # IPv6 address without prefix; "" when the config has none
 
 
-def _first_ipv4(values: str) -> str:
+def _first(values: str, family: type) -> str:
     for v in values.split(","):
         v = v.strip().split("/")[0]
         try:
-            if isinstance(ipaddress.ip_address(v), ipaddress.IPv4Address):
+            if isinstance(ipaddress.ip_address(v), family):
                 return v
         except ValueError:
             continue
     return ""
+
+
+def _first_ipv4(values: str) -> str:
+    return _first(values, ipaddress.IPv4Address)
 
 
 def parse(path: Path) -> WgConf:
@@ -59,7 +64,8 @@ def parse_text(text: str, where: str = "config") -> WgConf:
         dns=_first_ipv4(vals.get("interface.dns", "")),
         peer_pubkey=vals.get("peer.publickey", ""),
         peer_endpoint=vals.get("peer.endpoint", ""),
-        peer_name=peer_name, options=options)
+        peer_name=peer_name, options=options,
+        address6=_first(vals.get("interface.address", ""), ipaddress.IPv6Address))
     if not (conf.address and conf.dns and conf.peer_pubkey and conf.peer_endpoint):
         raise ValueError(f"{where}: missing IPv4 Address/DNS or [Peer] PublicKey/Endpoint")
     return conf

@@ -95,9 +95,17 @@ ip    route add default dev wg0 table 100            # added after wg0 is up; re
 ip    rule add priority 90  to 100.64.0.0/10        lookup 52   # tailnet destinations → Tailscale's table
 ip -6 rule add priority 90  to fd7a:115c:a1e0::/48  lookup 52
 ip    rule add priority 100 iif tailscale0          lookup 100  # forwarded exit traffic → Proton
-ip -6 rule add priority 100 iif tailscale0          lookup 100  # (v6 only ever hits unreachable)
+ip -6 rule add priority 100 iif tailscale0          lookup 100  # v6 via wg0 only while the IPv6 gate is open
 ip    rule add priority 110 from 10.2.0.2           lookup 100  # health probes bound to wg0
 ip    rule add priority 120 to 10.2.0.1             lookup 100  # Proton DNS only via tunnel
+
+# IPv6 (Phase V6): table 101 = the tunnel's own v6 sockets, always via wg0
+ip -6 route add unreachable default metric 1000 table 101
+ip -6 route add default dev wg0 metric 1 table 101   # metric 1: v6 routes default to 1024
+ip -6 rule add priority 105 oif wg0                   lookup 101
+ip -6 rule add priority 110 from 2a07:b944::2:2       lookup 101
+# route-keeper: `ip -6 route replace default dev wg0 metric 1 table 100` while
+# /run/exit-vpn/ipv6 exists (the controller's IPv6 gate), deleted otherwise
 ```
 
 Everything else (tailscaled's own control/DERP/peer traffic, catalog downloads) uses the main table → `eth0` → Oracle IP.
@@ -115,7 +123,7 @@ table inet killswitch {
     ip daddr 10.2.0.1 oifname != "wg0" drop      # Proton DNS must never leave via eth0
   }
 }
-table ip nat_exit {
+table inet nat_exit {   # inet since Phase V6: IPv6 sources become the tunnel's v6 address
   chain post { type nat hook postrouting priority 100; oifname "wg0" masquerade; }
 }
 table inet mss {
@@ -1072,6 +1080,69 @@ after concepts in the present code; phases and steps are ephemeral.
 - Host-level changes: the acceptance scripts ran from a temporary copy in `/tmp` on the VPS,
   removed afterwards.
 
+### Phase V6 — IPv6 through the exit (draft, to agree with the owner)
+
+Why: open question 6 chose "IPv4 first". Today every IPv6 packet a client sends through the
+exit hits table 100's `unreachable` route: a fast ICMPv6 error, so clients fall back to IPv4
+(T4). Sites that are IPv6-only, or that treat IPv6 users differently, are out of reach, and a
+dual-stack client learns nothing from its v6 path. Proton's configs already carry an in-tunnel
+IPv6 address (`2a07:b944::2:2/128`; DNS `2a07:b944::2:1`) and the catalog marks
+IPv6-capable servers (feature bit 16; 101 of the 141 enabled US servers in the live catalog).
+
+What holds today (read on the VPS, 2026-10-21): the host has no global IPv6 (only its
+tailnet `fd7a:` address); in the exit container `eth0` has `disable_ipv6=1`, `wg0` has no v6
+address, table 100 has only `unreachable default` for v6; tailscaled already advertises `::/0`
+and has its own `ip6` tables. So the tunnel is the only way IPv6 could ever leave, and adding it
+cannot open a path via the VPS.
+
+Principle: **IPv6 is open only while proven.** A server may not carry IPv6 (unflagged, or
+flagged but broken); then the exit keeps today's behaviour, a fast unreachable, never a silent
+drop that stalls clients without Happy Eyeballs.
+
+- **V6-0 Verify first** (throwaway container on the VPS, key b, own netns, like
+  `node/provider-keys.sh`; no change to the stack): on two flagged and two unflagged US
+  servers, with `2a07:b944::2:2/128` on wg0 and `::/0` allowed: does `curl -6` reach
+  Cloudflare's trace, with which address; does an unflagged server drop silently or answer
+  with an error; v6 throughput; does `ping -6 2a07:b944::2:1` answer. Decides whether the gate
+  below may rely on the flag or must probe (expected: probe).
+- **V6-1 Data plane** (`common.sh`, `init-wg`, `init-killswitch`, `killswitch.nft`,
+  `route-keeper`): `first_ipv6` beside `first_ipv4` (optional: a config without v6 behaves as
+  today); the v6 address on wg0; v6 rules 105 (`oif wg0`) and 110 (`from` the v6 tunnel
+  address); `nat_exit` becomes `table inet` (masquerade v4 and v6 on wg0: clients' `fd7a:`
+  sources become the tunnel address). The kill switch's forward drop is already `inet`. DNS
+  stays IPv4 (AAAA answers come over it). The **IPv6 gate**: `route-keeper` owns table 100's
+  v6 default via wg0 and keeps it only while `/run/exit-vpn/ipv6` exists; otherwise the
+  `unreachable` route answers (today's behaviour). One owner of routes, the controller decides.
+- **V6-2 Controller**: `wgconf` reads the optional v6 address; the health probe adds an IPv6
+  trace bound to it (`exit_ip6`); a **gate** in the health domain: closed on every server
+  change (new exit, new v6 address), open after one good v6 probe, closed after two failed in
+  a row. IPv6 never causes a failover (it is a soft feature, as in selection): a flagged
+  server whose v6 fails gets a warning. `EXIT_IPV6=off` in `.env` keeps the gate closed.
+  Status gains `ipv6` (gate open) and `exit_ip6`; an `ipv6` event when the gate changes
+  (contracts updated on both sides).
+- **V6-3 App**: the status line shows the IPv6 exit address when open ("IPv6: off on this
+  server" otherwise); the event in the log. Nothing to configure.
+- **V6-4 Prober**: stays IPv4 (its exit check and find results are about the v4 exit). Its
+  netns has no v6 route; a node check keeps it that way.
+- **V6-5 Tests** (TESTING.md kinds): logic: the gate; boundary: `first_ipv6` (shell contract),
+  `wgconf` v6, the v6 probe; component: gate closes on switch, opens after a probe, writes and
+  removes the flag; contract: status and event samples.
+
+Acceptance:
+- T43 (client `egress`) on a flagged server: `curl -6` through the exit gets a Proton v6
+  address, in the exit's country, never one in the Mac's own v6 prefix; DNS still via the VPN.
+- T44 (client `egress`) exact-select an unflagged (or v6-failing) server: `curl -6` fails in
+  under 1 s (unreachable, not a stall); IPv4 unaffected; status `ipv6: false`.
+- T45 (client `egress`) kill switch: while wg0 is down and during a restart, no v6 egress at
+  all; v6 back after recovery and after a failover (`failover`).
+- T46 (node `tunnel`) from the exit container: v6 leaves only via wg0; with the flag removed,
+  v6 is unreachable; the prober has no v6 route; `fin-intel` and the host untouched.
+- Host-level changes: none expected (container netns only).
+
+Decided (owner, 2026-10-21): the gate is opened by the probe (the catalog flag is only a hint
+for selection); IPv6 never triggers failover, even when `ipv6` is a required feature;
+`EXIT_IPV6=off` in `.env` is the off switch (no app preference).
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).
@@ -1177,6 +1248,6 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 3. ~~Default country preference~~ → US, then CH.
 4. ~~NetShield on generated keys~~ → 0 on all keys; filtering lever to be done on our side (own resolver) if wanted.
 5. ~~Repo location~~ → GitHub.
-6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
+6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")? → Phase V6.
 7. ~~`Bouncing` label~~ → does not restrict which servers a key can use (Phase 0).
 8. ~~Apple Developer Program~~ → no paid program: free Personal Team signing, not notarized, an explicit Open on first launch (Phase 5c).

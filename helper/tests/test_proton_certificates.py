@@ -38,3 +38,10 @@ async def test_a_new_key_never_shows_its_private_key(logged_in):
     new = await p.create_key("k", {}, PEER)
     priv = next(l.split(" = ")[1] for l in new.conf.splitlines() if l.startswith("PrivateKey"))
     assert priv not in repr(new)
+
+
+async def test_the_new_config_carries_the_in_tunnel_ipv4_and_ipv6_addresses(logged_in):
+    p, _ = logged_in
+    new = await p.create_key("k", {}, PEER)
+    assert "Address = 10.2.0.2/32, 2a07:b944::2:2/128" in new.conf.splitlines()
+    assert "DNS = 10.2.0.1, 2a07:b944::2:1" in new.conf.splitlines()

@@ -39,17 +39,25 @@ s6-overlay services, in order (`exit/rootfs/etc/s6-overlay/s6-rc.d`):
 
 1. `init-sysctl`: forwarding and reverse-path settings inside the container.
 2. `init-killswitch`: two layers. Routing: forwarded traffic uses table 100, whose fallback
-   route is *unreachable*. nftables (`killswitch.nft`): exit traffic may leave only through
-   wg0, and the underlay carries only WireGuard and Tailscale's own packets.
-3. `init-wg`: wg0 from the slot-a config (uploaded key, else the bootstrap file), on the
-   last good peer from `peer.env` if there is one, and table 100's default route via wg0.
-4. `route-keeper`, `tailscaled`, `tailscale-up`: the kernel drops table-100 routes when wg0
-   bounces; route-keeper restores them. tailscaled advertises the exit node.
+   route is *unreachable* (IPv4 and IPv6); the tunnel's own IPv6 sockets use table 101.
+   nftables (`killswitch.nft`): exit traffic may leave only through wg0, and the underlay
+   carries only WireGuard and Tailscale's own packets.
+3. `init-wg`: wg0 from the slot-a config (uploaded key, else the bootstrap file), with its
+   IPv4 and, if the config has one (and `EXIT_IPV6` is not off), IPv6 address, on the last good
+   peer from `peer.env` if there is one; table 100's IPv4 default and table 101's IPv6 default
+   via wg0.
+4. `route-keeper`, `tailscaled`, `tailscale-up`: route-keeper owns the routes via wg0. The
+   kernel drops them when wg0 bounces, and route-keeper restores them. It keeps table 100's
+   IPv6 default via wg0 only while the **IPv6 gate** is open (the file `/run/exit-vpn/ipv6`,
+   written by the controller): otherwise forwarded IPv6 meets the unreachable route, a fast
+   error after which clients use IPv4. tailscaled advertises the exit node (`0.0.0.0/0`, `::/0`).
 5. `controller`: `python -m exit_vpn`.
 
 Shared between the shell scripts and Python, and tested on both sides:
 - `peer.env` (`PEER_NAME`, `PEER_PUBKEY`, `PEER_ENDPOINT`), written by the controller.
 - The slot-a key precedence: `KEY_DIR_A/wg.conf` over the bootstrap config.
+- The tunnel addresses read from that config (`common.sh load_conf`, `wgconf`), `EXIT_IPV6`, and
+  the IPv6 gate file (`IPV6_GATE`, `Settings.ipv6_gate_file`).
 
 ## Controller (`controller/src/exit_vpn`)
 
@@ -62,14 +70,14 @@ Shared between the shell scripts and Python, and tested on both sides:
 | Prefs | `prefs` | Pinned regions in order, Secure Core mode, automatic failover, required features, favourites. Immutable: `updated()` validates a change against the catalog and returns a new Prefs. |
 | State | `state` | `ActiveServer` (the peer wg0 uses, with the profile of features a pick keeps) and `Blacklist` (recently failed keys). |
 | Selection | `selection` | Pure functions that order candidates: failover, rotation, region and exact picks, Secure Core switches, find. One set of rules (eligibility, tiers, favourites, profile, load). |
-| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded) and `Backoff`. |
+| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after two failed in a row). |
 
 **Services** (async, own the lock, get their collaborators injected):
 
 | Concept | Module | Responsibilities |
 |---|---|---|
 | ExitService | `service` | The active server, prefs, blacklist and catalog. One lock for every change. Runs the health cycle (`step`), failover and degraded retry, and the owner's changes (rotate, select, update_prefs, replace catalog, replace exit key). `snapshot()` is the status. |
-| Tunnel | `tunnel` | The only code that changes wg0: check health, try a peer, try a private key. Each is judged by real traffic, never by a handshake. |
+| Tunnel | `tunnel` | The only code that changes wg0: check health, try a peer, try a private key. Each is judged by real traffic, never by a handshake. Each cycle's IPv6 probe feeds the IPv6 gate, which every peer or key change closes first. |
 | EventBus | `events` | Every event: logged, kept (last 50, `events.json`), sent to SSE subscribers. |
 | KeySlots | `slots` | Uploading keys. Slot a is tried on wg0, then saved. Slot b is saved, then the prober reloads it and tests it. |
 | FindService | `finder` | "Find a server for this URL" jobs, run through the prober one at a time. |
@@ -77,7 +85,9 @@ Shared between the shell scripts and Python, and tested on both sides:
 
 **Adapters**:
 - `wg`: the `wg` CLI.
-- `probes.HealthProbe`: HTTPS, DNS and handshake checks bound to the tunnel address.
+- `probes.HealthProbe`: HTTPS, DNS and handshake checks bound to the tunnel address, and an
+  IPv6 check bound to its IPv6 address (reported apart: it never decides health).
+- `routes.GateFile`: the IPv6 gate file route-keeper reads.
 - `prober_client`: the prober's HTTP API.
 - `auth`: whois.
 - `persistence`: `state.json`, `peer.env`, `events.json`, `catalog.json`.
@@ -102,6 +112,8 @@ Rules worth knowing:
 - **Failover keeps the pick's hard features.** A P2P server never fails over to a non-P2P one. No match anywhere → degraded, and the kill switch holds; it is never a silent downgrade.
 - **Secure Core is a mode.** Turning it on or off switches servers at once. If nothing in the new mode works, nothing changes; `PUT /v1/prefs` is all-or-nothing.
 - **The blacklist is per public key.** A failed server is avoided under all its entry IPs.
+- **IPv6 is open only while proven.** A server without IPv6 drops it silently, which stalls
+  clients; the gate keeps the fast unreachable error instead. IPv6 never causes a failover.
 
 ## Prober (`prober/src/prober`)
 
@@ -116,7 +128,8 @@ Rules worth knowing:
 | Prober | `probe` | One probe, start to finish, under the lock; `needs_browser` is the escalation policy. |
 
 `api` maps the HTTP request onto `Prober.run`; `__main__` builds the parts. The prober's
-netns has its own kill switch: everything leaves through wg-probe or not at all.
+netns has its own kill switch: everything leaves through wg-probe or not at all. It is IPv4
+only (its IPv6 table holds just an unreachable route): probes judge the IPv4 exit.
 
 ## exitctl (`helper/src/exitctl`)
 

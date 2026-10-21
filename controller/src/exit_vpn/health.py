@@ -67,3 +67,34 @@ class Backoff:
         d = self.next
         self.next = min(self.next * 2, self.cap)
         return d
+
+
+class IPv6Gate:
+    """Whether forwarded IPv6 is routed through the tunnel (pure). Open only while proven:
+    closed on every server or key change, opened by one good IPv6 probe, closed again after
+    `failures` failed ones in a row. A server without IPv6 drops it silently, and a silent
+    drop stalls clients that would fall back to IPv4 at once on an unreachable error."""
+
+    def __init__(self, failures: int = 2):
+        self.failures_needed = failures
+        self.open = False
+        self.failures = 0
+
+    def close(self) -> bool:
+        """A new server or key: closed until proven. Returns True when this changed it."""
+        was, self.open, self.failures = self.open, False, 0
+        return was
+
+    def feed(self, ok: bool | None) -> bool:
+        """One IPv6 probe (None: not probed). Returns True when the gate changed."""
+        if ok is None:
+            return False
+        if ok:
+            self.failures = 0
+            was, self.open = self.open, True
+            return not was
+        self.failures += 1
+        if self.open and self.failures >= self.failures_needed:
+            self.open = False
+            return True
+        return False

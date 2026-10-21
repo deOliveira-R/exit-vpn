@@ -12,6 +12,8 @@ Health cycle (`step`, every `health_interval` seconds):
   until one carries traffic; none → degraded.
 - Degraded: retry with backoff (30 s doubling to 5 min): recover if the server works again,
   else fail over again.
+- IPv6: the tunnel's IPv6 gate opens and closes with its own probe (`Tunnel`); an `ipv6`
+  event reports each change as seen after a cycle or a switch. It never starts a failover.
 While anything is wrong, the kill switch (routing + nftables, set up before this process
 starts) keeps exit traffic off the underlay; this code only decides which server wg0 uses.
 """
@@ -60,6 +62,7 @@ class ExitService:
         self.lock = asyncio.Lock()
         # status warnings from other parts (key expiry): callables of `now`
         self.warning_sources: list[Callable[[float], list[str]]] = []
+        self._ipv6_reported = False   # the gate as the last `ipv6` event told it
 
     @property
     def health(self) -> Health:
@@ -108,6 +111,7 @@ class ExitService:
         elif not same:
             self.state.active = ActiveServer("unknown peer", p.pubkey, p.endpoint, since=now)
         self.tunnel.tracker.start_grace(now)
+        self.tunnel.close_ipv6()
         self.events.publish("started", server=self._name())
         self._save()
 
@@ -130,27 +134,42 @@ class ExitService:
     async def step(self) -> None:
         """One health cycle (the loop's body; tests drive it with a fake clock)."""
         async with self.lock:
-            tracker = self.tunnel.tracker
-            before = tracker.state
-            res = await self.tunnel.check()
-            now = self.clock()
+            try:
+                await self._step()
+            finally:
+                self._report_ipv6()
+
+    async def _step(self) -> None:
+        tracker = self.tunnel.tracker
+        before = tracker.state
+        res = await self.tunnel.check()
+        now = self.clock()
+        if res.ok:
+            self._learn_country(res.loc)
+        if before == Health.DEGRADED:
             if res.ok:
-                self._learn_country(res.loc)
-            if before == Health.DEGRADED:
-                if res.ok:
-                    tracker.feed(True, now)
-                    self.backoff.reset()
-                    self.events.publish("recovered", server=self._name())
-                elif self.prefs.auto_failover:
-                    await self._failover("retry from degraded")
-                return
-            need = tracker.feed(res.ok, now)
-            if tracker.state != before:
-                self.events.publish("health", state=str(tracker.state), errors=res.errors)
-            if need and self.prefs.auto_failover:
-                await self._failover("health checks failed: " + "; ".join(res.errors))
-            elif need:
-                self.events.publish("unhealthy_no_failover", errors=res.errors)
+                tracker.feed(True, now)
+                self.backoff.reset()
+                self.events.publish("recovered", server=self._name())
+            elif self.prefs.auto_failover:
+                await self._failover("retry from degraded")
+            return
+        need = tracker.feed(res.ok, now)
+        if tracker.state != before:
+            self.events.publish("health", state=str(tracker.state), errors=res.errors)
+        if need and self.prefs.auto_failover:
+            await self._failover("health checks failed: " + "; ".join(res.errors))
+        elif need:
+            self.events.publish("unhealthy_no_failover", errors=res.errors)
+
+    def _report_ipv6(self) -> None:
+        """An `ipv6` event when the gate differs from what the last one said."""
+        now_open = self.tunnel.ipv6_open
+        if now_open != self._ipv6_reported:
+            self._ipv6_reported = now_open
+            last = self.tunnel.last
+            self.events.publish("ipv6", open=now_open, server=self._name(),
+                                exit_ip6=last.exit_ip6 if now_open and last else None)
 
     def _learn_country(self, loc: str | None) -> None:
         """A server not in the catalog: at least its country, from where it exits."""
@@ -213,6 +232,13 @@ class ExitService:
 
     async def _switch(self, candidates: list[Server], reason: str,
                       profile: list[str] | None = None) -> Server:
+        try:
+            return await self._switch_to_first(candidates, reason, profile)
+        finally:
+            self._report_ipv6()
+
+    async def _switch_to_first(self, candidates: list[Server], reason: str,
+                               profile: list[str] | None) -> Server:
         """Try candidates in order; on total failure, go back to the old server."""
         if not candidates:
             raise SwitchError("no eligible server matches")
@@ -310,6 +336,7 @@ class ExitService:
                                     seconds=round(self.clock() - t0, 1))
             else:
                 self.events.publish("key_rejected", slot="a", reason=reason, restored_healthy=back)
+            self._report_ipv6()
             return kept
 
     # Read-only views for others -----------------------------------------------------
@@ -329,11 +356,24 @@ class ExitService:
 
     def warnings(self, now: float) -> list[str]:
         out = [w for src in self.warning_sources for w in src(now)]
+        out += self._ipv6_warnings()
         cat = self.catalog
         if cat.pushed and now - cat.fetched_at > self.s.pushed_catalog_max_age:
             out.append(f"pushed catalog is {(now - cat.fetched_at) / 86400:.0f} days old "
                        "(exitctl <provider> servers --push)")
         return out
+
+    def _ipv6_warnings(self) -> list[str]:
+        if not self.s.ipv6:
+            return []
+        if not self.tunnel.probe.source6:
+            return ["IPv6 is on but the tunnel has no IPv6 address: "
+                    + ("restart the exit to use the exit key's" if self.exit_conf.address6
+                       else "rotate the exit key (slot a), its config has none")]
+        cur, gate = self.current_server(), self.tunnel.ipv6
+        if cur and cur.ipv6 and not gate.open and gate.failures >= gate.failures_needed:
+            return ["IPv6 fails on this server, which the catalog lists as IPv6-capable"]
+        return []
 
     def snapshot(self) -> dict:
         """`/v1/status` (contracts/controller/status.json)."""
@@ -357,6 +397,8 @@ class ExitService:
             "health_since": tracker.since,
             "exit_ip": r.exit_ip if r else None,
             "exit_loc": r.loc if r else None,
+            "ipv6": self.tunnel.ipv6_open,   # forwarded IPv6 goes through the tunnel
+            "exit_ip6": r.exit_ip6 if r and self.tunnel.ipv6_open else None,
             "handshake_age": round(r.handshake_age, 1) if r and r.handshake_age is not None else None,
             "last_ok_age": round(now - self.tunnel.last_ok_at, 1) if self.tunnel.last_ok_at else None,
             "errors": r.errors if r else [],

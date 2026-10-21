@@ -4,7 +4,9 @@ Tailscale whois (boundary)."""
 import struct
 
 from exit_vpn.auth import decide
-from exit_vpn.probes import dns_answer_ok, dns_query, parse_trace
+from exit_vpn import probes
+from exit_vpn.probes import HealthProbe, dns_answer_ok, dns_query, parse_trace
+from exit_vpn.routes import GateFile
 from exit_vpn.wg import parse_dump
 from exit_vpn.wgconf import parse
 
@@ -55,3 +57,73 @@ def test_a_wireguard_config_is_read_without_its_private_key(tmp_path):
         ("10.2.0.2", "10.2.0.1", "pk=", "1.2.3.4:51820", "US-CA#556")
     assert c.options == {"NetShield": "0", "VPN Accelerator": "on"}
     assert "SECRET" not in repr(c)
+
+
+def test_a_wireguard_configs_ipv6_address_is_read_and_optional(tmp_path):
+    f = tmp_path / "a.conf"
+    body = ("[Interface]\nPrivateKey = K=\nAddress = {}\nDNS = 10.2.0.1\n\n"
+            "[Peer]\nPublicKey = pk=\nEndpoint = 1.2.3.4:51820\n")
+    f.write_text(body.format("10.2.0.2/32, 2a07:b944::2:2/128"))
+    assert (parse(f).address, parse(f).address6) == ("10.2.0.2", "2a07:b944::2:2")
+    f.write_text(body.format("10.2.0.2/32"))
+    assert parse(f).address6 == ""
+
+
+def _probe(source6):
+    return HealthProbe("10.2.0.2", "10.2.0.1", ["https://v4/cdn-cgi/trace"], "n", 1, 1, 180,
+                       source6=source6, url6="https://v6/cdn-cgi/trace")
+
+
+async def test_the_ipv6_probe_is_bound_to_the_tunnels_ipv6_address_and_never_decides_health(monkeypatch):
+    calls = []
+
+    async def https(url, source, timeout):
+        calls.append((url, source))
+        if source == "2a07:b944::2:2":
+            return False, {}, f"{url}: ConnectTimeout"
+        return True, {"ip": "198.51.100.1", "loc": "US"}, ""
+
+    async def dns(*a):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    r = await _probe("2a07:b944::2:2").cycle(1000, now=1001)
+    assert ("https://v6/cdn-cgi/trace", "2a07:b944::2:2") in calls
+    assert r.ok and r.errors == [], "IPv6 failing is not a health failure"
+    assert r.ipv6_ok is False and r.exit_ip6 is None and "ipv6:" in r.ipv6_error
+
+
+async def test_a_working_ipv6_probe_reports_the_ipv6_exit_address(monkeypatch):
+    async def https(url, source, timeout):
+        return True, {"ip": "2001:db8::1" if ":" in source else "198.51.100.1"}, ""
+
+    async def dns(*a):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    r = await _probe("2a07:b944::2:2").cycle(1000, now=1001)
+    assert (r.ipv6_ok, r.exit_ip6, r.exit_ip) == (True, "2001:db8::1", "198.51.100.1")
+
+
+async def test_without_an_ipv6_address_there_is_no_ipv6_probe(monkeypatch):
+    calls = []
+
+    async def https(url, source, timeout):
+        calls.append(source)
+        return True, {}, ""
+
+    async def dns(*a):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    r = await _probe("").cycle(1000, now=1001)
+    assert r.ipv6_ok is None and calls == ["10.2.0.2"]
+
+
+def test_the_ipv6_gate_file_exists_only_while_open(tmp_path):
+    f = GateFile(tmp_path / "run/exit-vpn/ipv6")
+    f.set(True)
+    assert f.is_set()
+    f.set(False)
+    assert not f.is_set()
+    f.set(False)   # closing twice is fine

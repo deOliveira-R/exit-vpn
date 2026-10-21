@@ -18,9 +18,10 @@ table inet killswitch {
   }
 }
 
-table ip nat_exit
-delete table ip nat_exit
-table ip nat_exit {
+# Both families: clients' tailnet sources become the tunnel's addresses
+table inet nat_exit
+delete table inet nat_exit
+table inet nat_exit {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
     oifname $WG_IF masquerade
