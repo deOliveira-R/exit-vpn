@@ -26,7 +26,7 @@ the App Intents metadata Shortcuts needs.
 
     swift test                         # unit tests
     EXITCONTROL_LIVE=http://exit-proton:8080 swift test --filter Live   # read-only, live
-    ./build-app.sh                     # build/ExitControl.app (universal)
+    ./build-app.sh                     # build/app.noindex/ExitControl.app (universal)
 
 Signing: without `Local.xcconfig` the app is ad-hoc signed and everything works except
 Shortcuts (macOS runs App Intents only for Apple-issued signatures with a team ID). For a
@@ -52,7 +52,8 @@ How the app is built (vocabulary, stores, ActionRunner, AppContainer): see
 
 `EXITCONTROL_DEBUG=1` also logs actions, URLs and events to stderr (always to Console.app, subsystem
 `org.exit-vpn.ExitControl`)
-(`open --env EXITCONTROL_DEBUG=1 --stderr /tmp/ec.log build/ExitControl.app`).
+(`open --env EXITCONTROL_DEBUG=1 --stderr /tmp/ec.log build/app.noindex/ExitControl.app`). The build
+folder ends in `.noindex` so Spotlight never registers a dev build next to the installed app.
 
 ## exitctl
 

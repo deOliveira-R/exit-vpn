@@ -83,7 +83,7 @@ formats between them (samples checked by both sides' tests).
   `release.yml` builds, signs, publishes; installed apps update via Check for Updates. CI:
   `ci.yml` on pushes to main and PRs (`gh run list`).
 - App: `mac/ExitControl` (SwiftPM core + XcodeGen app; `swift test`, `./build-app.sh`; see its README). `open exitvpn://servers|find|settings/<tab>`
-  opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/ExitControl.app` logs actions and updates. exitctl for
+  opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/app.noindex/ExitControl.app` logs actions and updates. exitctl for
   the app: `uv tool install --force --reinstall --python <Homebrew python3.13> ./helper` (uv's standalone
   Python aborts on libssl; `--reinstall`, else uv reuses a cached build of the same version).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
@@ -114,5 +114,6 @@ formats between them (samples checked by both sides' tests).
   XcodeGen/xcodebuild build). Signing needs Apple's WWDR G3 intermediate in the keychain.
 - In this zsh, `log` is a builtin: use `/usr/bin/log show`. `codesign` with a keychain identity
   and `shortcuts run` need the Bash sandbox off (keychain/XPC access).
-- LaunchServices sends `exitvpn://` to whichever copy it registered: keep one registered app
-  (`build-app.sh` moves the build out of DerivedData and unregisters that path).
+- LaunchServices sends `exitvpn://` and Shortcuts to whichever copy it registered (Shortcuts even
+  showed the dev build's icon): keep one registered app. Builds go to `*.noindex` folders, which
+  Spotlight skips, and `build-app.sh` unregisters them.
