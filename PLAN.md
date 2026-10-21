@@ -762,6 +762,27 @@ controller and 13 app unit tests green; `tests/acceptance/phase5b-client.sh` 3/3
 **Acceptance (T35–T37):** T35 CI green on a PR; T36 a `v*` tag produces a GitHub Release with
 the app; T37 an installed older build offers the newer release, updates and relaunches.
 
+**Phase 5c results (2026-10-21)** — CI and releases live; ExitControl installed from a release:
+- T35 `.github/workflows/ci.yml` green on `main`: controller, prober and helper unit tests
+  (Ubuntu, uv, Python 3.13) and `swift test` + app build (macos-26, ad-hoc). Actions pinned by
+  commit SHA.
+- T36 tag `v0.2.0` → `release.yml` built the app signed with the owner's Apple Development
+  identity (a throwaway keychain in the runner; WWDR G3 checked against a pinned SHA-256),
+  zipped it, wrote a one-item appcast with its EdDSA signature (Sparkle 2.10.0
+  `generate_appcast`) and published both as a GitHub Release.
+  `releases/latest/download/appcast.xml` served 0.2.0 (build 52 = commit count).
+- T37 0.2.0 from the release installed in `~/Applications`; tag `v0.2.1` (version line in the
+  menu) → "Check for Updates…" offered 0.2.1, installed it and relaunched; the installed app is
+  0.2.1 (53), signature valid.
+- Secrets (repo, used only by `release.yml`): `MACOS_SIGNING_P12`, `MACOS_SIGNING_P12_PASSWORD`,
+  `MACOS_DEVELOPMENT_TEAM`, `SPARKLE_ED_KEY`. The Sparkle private key also stays in the owner's
+  login keychain (account `exit-vpn-ExitControl`); the public key is in Info.plist. The
+  certificate expires 2027-10: renew in Xcode, re-export, update the two P12 secrets.
+- Found while testing: `swift test` built the package's old app target (no Sparkle), so the
+  package is now the core library and tests only; LaunchServices sends `exitvpn://` and
+  Shortcuts to any registered copy, so dev builds are no longer registered.
+- Host-level changes: none.
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).

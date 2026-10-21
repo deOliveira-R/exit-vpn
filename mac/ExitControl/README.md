@@ -5,6 +5,19 @@ Menu-bar app for the exit node (PLAN Phase 5, D21). A thin client: the controlle
 provider actions (login, keys, levers, server list). MIT; it never bundles exitctl or
 python-proton-core (GPLv3).
 
+## Install
+
+Download `ExitControl-<version>.zip` from the latest GitHub Release, unzip, move
+`ExitControl.app` to Applications, then right-click → Open once (signed, not notarized).
+Updates: menu → Check for Updates… (Sparkle; automatic checks are on by default).
+
+## Release
+
+Tag `vX.Y.Z` and push the tag: `.github/workflows/release.yml` builds the signed app
+(`release.sh`), the appcast, and the GitHub Release. The app reads
+`releases/latest/download/appcast.xml`; an update installs only with a valid EdDSA signature
+(`SUPublicEDKey`). The build number is the commit count, so tag a new commit.
+
 ## Build
 
 Swift package for the code and tests (macOS 14+, Xcode 16+); the app bundle is built by
