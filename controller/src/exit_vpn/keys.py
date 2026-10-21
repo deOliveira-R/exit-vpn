@@ -1,11 +1,15 @@
-"""Key slots (PLAN Phase 3b): `a` = the exit tunnel, `b` = the prober's tunnel.
+"""Key files (PLAN Phase 3b): `a` = the exit tunnel, `b` = the prober's tunnel.
 
 An uploaded key lives in its slot directory (a named volume) as `wg.conf` (0600) plus
 `meta.json` (public facts from the provider: certificate id, expiry, options). While a
 slot is empty, the bootstrap config from `secrets/` is used. Every accepted key is also
 mirrored to that bootstrap file, so the fallback is never a dead key (a rotation deletes
-the old key's certificate). The previous uploaded config is kept as `wg.conf.prev`. Private keys are only ever read
-from these files and passed on via stdin; they never appear in responses or logs.
+the old key's certificate). The previous uploaded config is kept as `wg.conf.prev`.
+Private keys are only ever read from these files and passed on via stdin; they never
+appear in responses or logs.
+
+Shell contract: `init-wg` (the top of common.sh) brings wg0 up with the file
+`KeyStore.path("a")` returns: `KEY_DIR_A/wg.conf` if present, else the bootstrap config.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .state import atomic_write
+from .persistence import atomic_write
 from .wgconf import WgConf, parse_text
 
 log = logging.getLogger("exit_vpn")

@@ -3,12 +3,13 @@
 set -eu
 
 : "${EXIT_VPN_CONF:?EXIT_VPN_CONF must point to the WireGuard config}"
-# An uploaded key (slot a, PLAN Phase 3b) takes precedence over the bootstrap config
+# An uploaded key (slot a, PLAN Phase 3b) takes precedence over the bootstrap config.
+# Must match the controller's KeyStore.path("a") (controller/src/exit_vpn/keys.py).
 KEY_DIR_A=${KEY_DIR_A:-/keys/a}
 if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
 WG_IF=${WG_IF:-wg0}
 EXIT_TABLE=${EXIT_TABLE:-100}
-STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}
+STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}   # peer.env: written by persistence.StateStore
 
 log() { echo "exit-vpn[$(basename "$0")]: $*" >&2; }
 die() { log "FATAL: $*"; exit 1; }

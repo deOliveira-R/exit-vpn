@@ -1,4 +1,6 @@
-"""Health probes, all bound to the tunnel address so they can only travel through wg0."""
+"""The health probe of the exit tunnel: HTTPS, DNS and handshake checks, all bound to the
+tunnel address so they can only travel through wg0. (Not the prober container, which tests
+other servers for /v1/find: that is `prober_client`.)"""
 
 from __future__ import annotations
 
@@ -70,7 +72,7 @@ async def dns_probe(server: str, name: str, source: str, timeout: float) -> tupl
         sock.close()
 
 
-class Prober:
+class HealthProbe:
     """One health cycle: (a) >= 1 HTTPS probe OK, (b) DNS OK, (c) fresh handshake.
     A handshake alone proves nothing (Proton completes it even for unknown keys), so
     (a) is authoritative and (c) only catches a stalled tunnel."""

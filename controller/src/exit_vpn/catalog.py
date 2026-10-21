@@ -1,62 +1,29 @@
-"""VPN server catalog: gluetun-servers format (same schema for all providers, PLAN D12/D16),
-or a list pushed from the provider's own API by exitctl (PLAN Phase 3b.2)."""
+"""The server catalog (pure): every server the exit may use, with lookups by identity, name
+and place. It comes from gluetun-servers (same schema for all providers, PLAN D12/D16) or
+from a list exitctl pushes from the provider's own API (PLAN 3b.2); both are validated as
+strictly, because the catalog decides where exit traffic goes. Caching on disk is
+`persistence.CatalogCache`; where a catalog comes from is `catalog_source`."""
 
 from __future__ import annotations
 
 import base64
 import binascii
 import ipaddress
-import json
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass
-from pathlib import Path
 
 from .countries import ISO_NAMES
-from .state import FEATURES, atomic_write
+from .errors import PolicyError
+from .servers import Region, Server
 
 MIN_SERVERS = 50  # a smaller list means a broken or truncated download
 MIN_PUSH_FRACTION = 0.3   # a push may not shrink the catalog below this share
 PUSH_PREFIX = "push:"
 _CODE = re.compile(r"^(?:node-)?([a-z]{2})-")
-_SC_NAME = re.compile(r"^([A-Z]{2})-[A-Z]{2}#")
 
 
 class CatalogError(ValueError):
-    pass
-
-
-@dataclass(frozen=True)
-class Server:
-    name: str
-    country: str
-    city: str
-    hostname: str
-    ip: str
-    pubkey: str
-    secure_core: bool = False
-    tor: bool = False
-    free: bool = False
-    stream: bool = False
-    port_forward: bool = False  # Proton: P2P
-    ipv6: bool = False
-    load: int | None = None     # percent, from a live catalog (None: unknown)
-    enabled: bool = True        # False: in maintenance (live catalog)
-
-    def endpoint(self, port: int) -> str:
-        return f"{self.ip}:{port}"
-
-    @property
-    def entry(self) -> str:
-        """Secure Core entry country code ("CH" for CH-US#3), else ""."""
-        m = _SC_NAME.match(self.name) if self.secure_core else None
-        return m.group(1) if m else ""
-
-    def features(self) -> list[str]:
-        return [f for f in FEATURES if getattr(self, f)]
-
-    def to_dict(self) -> dict:
-        return {**asdict(self), "entry": self.entry}
+    """A downloaded or pushed list that must not replace the current one."""
 
 
 def parse_gluetun(data: dict, hostname_suffix: str = "") -> list[Server]:
@@ -142,10 +109,7 @@ class Catalog:
         self.fetched_at = fetched_at
         # A public key is NOT unique: Secure Core entries reuse their exit server's key
         # with a different (entry) IP. A server's identity is (pubkey, endpoint IP).
-        self._by_peer = {(s.pubkey, s.ip): s for s in servers}
-        self._by_name: dict[str, Server] = {}
-        for s in servers:  # several physical servers can share a logical name
-            self._by_name.setdefault(s.name.lower(), s)
+        self._by_id = {s.id: s for s in servers}
         self._codes: dict[str, str] | None = None
 
     def __len__(self) -> int:
@@ -155,12 +119,32 @@ class Catalog:
     def pushed(self) -> bool:
         return self.source.startswith(PUSH_PREFIX)
 
-    def by_peer(self, pubkey: str, ip: str) -> Server | None:
-        return self._by_peer.get((pubkey, ip))
+    def by_id(self, pubkey: str, ip: str) -> Server | None:
+        return self._by_id.get((pubkey, ip))
 
     def by_name(self, name: str) -> list[Server]:
+        """Every physical server with this logical name (or hostname)."""
         n = name.lower()
         return [s for s in self.servers if s.name.lower() == n or s.hostname.lower() == n]
+
+    def canonical_name(self, name: str) -> str:
+        found = self.by_name(name)
+        if not found:
+            raise PolicyError(f"unknown server: {name!r}")
+        return found[0].name
+
+    def canonical_region(self, country: str, city: str | None = None) -> Region:
+        """The catalog's spelling of a region; unknown places are refused."""
+        countries = {c.lower(): c for c in self.countries()}
+        name = countries.get(country.lower())
+        if not name:
+            raise PolicyError(f"unknown country: {country!r}")
+        if not city:
+            return Region(name)
+        cities = {s.city.lower(): s.city for s in self.filter(name)}
+        if city.lower() not in cities:
+            raise PolicyError(f"no servers in {city!r}, {name}")
+        return Region(name, cities[city.lower()])
 
     def country_for_code(self, code: str) -> str | None:
         """Catalog country name for an ISO code (e.g. Cloudflare's loc=US), voted from
@@ -194,21 +178,9 @@ class Catalog:
         if city:
             out = [s for s in out if s.city.lower() == city.lower()]
         if feature:
-            out = [s for s in out if getattr(s, feature, False) is True]
+            out = [s for s in out if s.has(feature)]
         return out
 
-    # Persistence: the last good catalog survives restarts and upstream outages
-    def save(self, path: Path) -> None:
-        atomic_write(path, json.dumps({
-            "source": self.source, "fetched_at": self.fetched_at,
-            "servers": [s.to_dict() for s in self.servers],
-        }))
-
-    @classmethod
-    def load(cls, path: Path) -> Catalog:
-        d = json.loads(path.read_text())
-        fields = Server.__dataclass_fields__
-        servers = [Server(**{k: v for k, v in s.items() if k in fields}) for s in d["servers"]]
-        if len(servers) < MIN_SERVERS:
-            raise CatalogError(f"cached catalog has only {len(servers)} servers")
-        return cls(servers, d.get("source", ""), d.get("fetched_at", 0.0))
+    def view(self) -> dict:
+        return {"servers": len(self), "source": self.source, "pushed": self.pushed,
+                "fetched_at": self.fetched_at, "enabled": sum(1 for s in self.servers if s.enabled)}

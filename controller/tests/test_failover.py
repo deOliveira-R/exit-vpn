@@ -2,10 +2,12 @@ import random
 
 import pytest
 
-from exit_vpn.failover import choose_candidates
-from exit_vpn.state import Prefs, regions_from_countries
+from exit_vpn.selection import choose_candidates
+from exit_vpn.servers import Region
 
-PREFS = Prefs(regions_from_countries(["United States", "Switzerland"]))
+from harness import prefs_for
+
+PREFS = prefs_for(["United States", "Switzerland"])
 
 
 def _cur(catalog, city="New York"):
@@ -40,7 +42,7 @@ def test_excludes_secure_core_tor_free_and_blacklisted(catalog):
 
 def test_secure_core_is_a_mode(catalog):
     """On: only Secure Core servers, through failover too; off: none (PLAN Phase 5)."""
-    p = Prefs(regions_from_countries(["United States"]), secure_core=True)
+    p = prefs_for(["United States"], secure_core=True)
     c = choose_candidates(catalog.servers, None, p, set(), random.Random(4), scope="any", per_tier=100)
     assert c and all(s.secure_core for s in c)
     cur = next(s for s in catalog.servers if s.secure_core and s.country == "United States")
@@ -73,14 +75,13 @@ def test_p2p_profile_with_no_p2p_left_gives_nothing(catalog):
 
 
 def test_require_applies_without_profile(catalog):
-    p = Prefs(regions_from_countries(["United States"]), require=["port_forward"])
+    p = prefs_for(["United States"], require=["port_forward"])
     c = choose_candidates(catalog.servers, None, p, set(), random.Random(2), "any", per_tier=100)
     assert c and all(s.port_forward for s in c)
 
 
 def test_city_regions_in_priority_order(catalog):
-    p = Prefs([{"country": "Switzerland", "city": None},
-               {"country": "United States", "city": "Dallas"}])
+    p = prefs_for([], regions=(Region("Switzerland"), Region("United States", "Dallas")))
     c = choose_candidates(catalog.servers, None, p, set(), random.Random(3), "any", per_tier=100)
     first_us = next(i for i, s in enumerate(c) if s.country == "United States")
     assert all(s.country == "Switzerland" for s in c[:first_us])
@@ -121,7 +122,7 @@ def test_favorites_come_first_within_a_tier(catalog):
     others = [s for s in pool if s.city == "Chicago" and s.pubkey != cur.pubkey and eligible_regular(s)]
     fav = replace(others[-1], load=90)   # busiest in the city, still first: it is a favourite
     pool = [fav if s is others[-1] else s for s in pool]
-    prefs = Prefs(regions_from_countries(["United States"]), favorites=[fav.name.lower()])
+    prefs = prefs_for(["United States"], favorites=[fav.name.lower()])
     for seed in range(5):
         c = choose_candidates(pool, cur, prefs, set(), random.Random(seed), "city")
         assert c[0].name == fav.name

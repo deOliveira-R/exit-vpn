@@ -23,15 +23,15 @@ def catalog(raw_catalog) -> Catalog:
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "contracts"))
 import shape  # noqa: E402
 
-from exit_vpn.state import State  # noqa: E402
+from exit_vpn.events import EventBus  # noqa: E402
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "exit_vpn"
 
 
 def emitted_kinds() -> set[str]:
-    """Event kinds the controller's code can emit (every `_event("kind"` call)."""
+    """Event kinds the controller's code can emit (every `publish("kind"` call)."""
     import re
-    return {m for f in SRC.glob("*.py") for m in re.findall(r'_event\(\s*"([a-z_]+)"', f.read_text())}
+    return {m for f in SRC.glob("*.py") for m in re.findall(r'\bpublish\(\s*"([a-z_]+)"', f.read_text())}
 
 
 KINDS = emitted_kinds()
@@ -39,11 +39,18 @@ KINDS = emitted_kinds()
 
 @pytest.fixture(autouse=True)
 def event_contract(monkeypatch):
-    original = State.event
+    original = EventBus.publish
 
-    def checked(self, kind, now=None, **data):
-        ev = original(self, kind, now, **data)
-        if kind in KINDS:   # tests also log made-up kinds
+    def checked(self, kind, **data):
+        ev = original(self, kind, **data)
+        if kind in KINDS:   # tests also publish made-up kinds
             shape.check_event("controller/events", json.loads(json.dumps(ev)))
         return ev
-    monkeypatch.setattr(State, "event", checked)
+    monkeypatch.setattr(EventBus, "publish", checked)
+
+
+@pytest.fixture
+def rig(catalog, tmp_path, monkeypatch):
+    """A controller node with a fake tunnel (harness.py)."""
+    from harness import make
+    return make(catalog, tmp_path, monkeypatch)

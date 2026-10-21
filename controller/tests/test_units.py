@@ -1,10 +1,21 @@
 import struct
+import subprocess
+from pathlib import Path
 
 from exit_vpn.auth import decide
+from exit_vpn.events import EventBus
+from exit_vpn.keys import KeyStore
+from exit_vpn.persistence import EventStore, StateStore
+from exit_vpn.prefs import Prefs
 from exit_vpn.probes import dns_answer_ok, dns_query, parse_trace
-from exit_vpn.state import Current, Prefs, State, StateStore
+from exit_vpn.servers import Region
+from exit_vpn.state import ActiveServer, State
 from exit_vpn.wg import parse_dump
 from exit_vpn.wgconf import parse
+
+from harness import prefs_for
+
+COMMON = Path(__file__).resolve().parents[2] / "exit/rootfs/usr/local/lib/exit-vpn/common.sh"
 
 OWNERS = ["owner@github"]
 
@@ -57,31 +68,69 @@ def test_wgconf_never_reads_private_key(tmp_path):
 
 def test_state_roundtrip_and_peer_env(tmp_path):
     store = StateStore(tmp_path / "state.json", tmp_path / "peer.env", ["United States"])
-    st = store.load()
-    assert st.prefs.countries == ["United States"] and st.current is None
-    st.current = Current("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0)
-    st.blacklist_add("bad=", 100.0)
-    for i in range(60):
-        st.event("x", float(i), i=i)
+    st, old_events = store.load()
+    assert st.prefs.countries == ["United States"] and st.active is None and old_events == []
+    st.active = ActiveServer("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0)
+    st.blacklist.add("bad=", 100.0)
     store.save(st)
-    again = store.load()
-    assert again.current == st.current and len(again.events) == 50 and again.events[-1]["i"] == 59
-    assert again.blacklisted("bad=", 50) and not again.blacklisted("bad=", 150)
-    assert again.prefs.regions == [{"country": "United States", "city": None}]
+    again, _ = store.load()
+    assert again.active == st.active
+    assert again.blacklist.contains("bad=", 50) and not again.blacklist.contains("bad=", 150)
+    assert again.prefs.regions == (Region("United States"),)
     env = (tmp_path / "peer.env").read_text()
     assert "PEER_PUBKEY='pk='" in env and "PEER_ENDPOINT='1.2.3.4:51820'" in env
     assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
 
 
-def test_old_state_countries_migrate_to_regions(tmp_path):
+def test_peer_env_is_what_init_wg_sources(tmp_path):
+    """The shell contract: init-wg sources peer.env (POSIX sh); odd names stay intact."""
+    store = StateStore(tmp_path / "state.json", tmp_path / "peer.env", ["United States"])
+    name = "it's US-NY#1 $(boom)"
+    store.save(State(Prefs.default(["United States"]),
+                     ActiveServer(name, "pk+/=", "1.2.3.4:51820")))
+    out = subprocess.run(["sh", "-c", '. "$1"; printf "%s|%s|%s" "$PEER_NAME" "$PEER_PUBKEY" '
+                          '"$PEER_ENDPOINT"', "sh", str(tmp_path / "peer.env")],
+                         capture_output=True, text=True, check=True).stdout
+    assert out == f"{name}|pk+/=|1.2.3.4:51820"
+
+
+def test_init_scripts_pick_the_same_exit_key_as_the_controller(tmp_path):
+    """common.sh and KeyStore.path("a") agree: an uploaded key wins over the bootstrap."""
+    boot, keydir = tmp_path / "boot.conf", tmp_path / "keys-a"
+    boot.write_text("bootstrap")
+    keys = KeyStore({"a": keydir, "b": tmp_path / "keys-b"}, {"a": boot, "b": None})
+
+    def shell_choice():
+        return subprocess.run(["sh", "-c", '. "$1"; printf %s "$EXIT_VPN_CONF"', "sh", str(COMMON)],
+                              env={"EXIT_VPN_CONF": str(boot), "KEY_DIR_A": str(keydir),
+                                   "PATH": "/usr/bin:/bin"},
+                              capture_output=True, text=True, check=True).stdout
+    assert shell_choice() == str(keys.path("a")) == str(boot)
+    keydir.mkdir()
+    (keydir / "wg.conf").write_text("uploaded")
+    assert shell_choice() == str(keys.path("a")) == str(keydir / "wg.conf")
+
+
+def test_event_log_is_kept_and_bounded(tmp_path):
+    store = EventStore(tmp_path / "events.json")
+    bus = EventBus(store, clock=lambda: 5.0, initial=[{"ts": 1.0, "kind": "old"}])
+    for i in range(60):
+        bus.publish("x", i=i)
+    again = EventBus(store)
+    assert len(again.recent()) == 50 and again.recent()[-1]["i"] == 59
+    assert EventBus(EventStore(tmp_path / "none.json"), initial=[{"kind": "old"}]).recent() == [{"kind": "old"}]
+
+
+def test_old_state_migrates(tmp_path):
+    """countries → regions; events kept in state.json are handed to the event log."""
     import json
-    from exit_vpn.state import Prefs
     f = tmp_path / "state.json"
     f.write_text(json.dumps({"prefs": {"countries": ["Switzerland", "Germany"], "secure_core": False,
                                        "gone_field": 1},
-                             "current": {"name": "X", "pubkey": "k=", "endpoint": "1.1.1.1:51820"}}))
-    st = StateStore(f, tmp_path / "peer.env", ["United States"]).load()
-    assert st.prefs.regions == [{"country": "Switzerland", "city": None},
-                                {"country": "Germany", "city": None}]
-    assert st.prefs.countries == ["Switzerland", "Germany"] and st.current.profile == []
-    assert Prefs([{"country": "US", "city": "A"}, {"country": "us", "city": None}]).countries == ["US"]
+                             "current": {"name": "X", "pubkey": "k=", "endpoint": "1.1.1.1:51820"},
+                             "events": [{"ts": 1.0, "kind": "started", "server": "X"}]}))
+    st, events = StateStore(f, tmp_path / "peer.env", ["United States"]).load()
+    assert st.prefs.regions == (Region("Switzerland"), Region("Germany"))
+    assert st.prefs.countries == ["Switzerland", "Germany"] and st.active.profile == ()
+    assert events == [{"ts": 1.0, "kind": "started", "server": "X"}]
+    assert prefs_for([], regions=(Region("US", "A"), Region("us"))).countries == ["US"]

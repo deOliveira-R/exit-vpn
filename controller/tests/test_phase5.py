@@ -5,15 +5,15 @@ from fastapi.testclient import TestClient
 from exit_vpn.api import create_app
 from exit_vpn.catalog import parse_pushed
 
-from test_keys import AllowAll, env  # noqa: F401  (fixture)
+from harness import AllowAll
 from test_pushed_catalog import names, rows
 
 
-async def test_api_exact_select_regions_and_secure_core(env):  # noqa: F811
-    ctl, wg, store, slots, _, _ = env
-    await ctl.init()
-    app = create_app(ctl, AllowAll(), ["o@github"], slots=slots)
-    p2p = next(s for s in ctl.catalog.filter("United States", "Chicago") if s.port_forward)
+async def test_api_exact_select_regions_and_secure_core(rig):
+    svc = rig.svc
+    await svc.start()
+    app = create_app(rig.node, AllowAll(), ["o@github"])
+    p2p = next(s for s in svc.catalog.filter("United States", "Chicago") if s.port_forward)
     with TestClient(app) as c:
         r = c.post("/v1/select", json={"server": p2p.name, "ip": p2p.ip})
         assert r.status_code == 200, r.text
@@ -39,27 +39,27 @@ async def test_api_exact_select_regions_and_secure_core(env):  # noqa: F811
         c.put("/v1/prefs", json={"require": []})
         # the fixture has no Secure Core exit in Switzerland: nothing to switch to
         r = c.put("/v1/prefs", json={"secure_core": True})
-        assert r.status_code == 409 and "pinned regions" in r.text and not ctl.state.prefs.secure_core
+        assert r.status_code == 409 and "pinned regions" in r.text and not svc.prefs.secure_core
         c.put("/v1/prefs", json={"countries": ["Switzerland", "United States"]})
 
-        n = len(ctl.state.events)
+        n = len(rig.node.events.recent())
         r = c.put("/v1/prefs", json={"secure_core": True})
         assert r.status_code == 200 and r.json()["secure_core"], r.text
         # one prefs event, after the switch, with the new value
-        prefs_events = [e for e in list(ctl.state.events)[n:] if e["kind"] == "prefs"]
+        prefs_events = [e for e in rig.node.events.recent()[n:] if e["kind"] == "prefs"]
         assert [e["prefs"]["secure_core"] for e in prefs_events] == [True]
         st = c.get("/v1/status").json()
-        assert st["entry"] in ("CH", "SE", "IS") and ctl.current_server().secure_core
+        assert st["entry"] in ("CH", "SE", "IS") and svc.current_server().secure_core
         assert c.post("/v1/select", json={"server": p2p.name}).status_code == 400  # mode mismatch
         assert c.put("/v1/prefs", json={"secure_core": False}).json()["secure_core"] is False
-        assert not ctl.current_server().secure_core
+        assert not svc.current_server().secure_core
 
         # favourites: names checked against the catalog and normalised; a bad one changes nothing
         r = c.put("/v1/prefs", json={"favorites": [p2p.name.lower(), p2p.name]})
         assert r.status_code == 200 and r.json()["favorites"] == [p2p.name], r.text
-        before = ctl.state.prefs.view()
+        before = svc.prefs.view()
         r = c.put("/v1/prefs", json={"regions": [{"country": "Germany"}], "favorites": ["XX#999"]})
-        assert r.status_code == 400 and ctl.state.prefs.view() == before
+        assert r.status_code == 400 and svc.prefs.view() == before
         # a name alone selects its least loaded physical server
         assert c.post("/v1/select", json={"server": p2p.name}).status_code == 200
 

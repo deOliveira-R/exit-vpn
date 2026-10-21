@@ -15,8 +15,6 @@ class Peer:
     pubkey: str
     endpoint: str
     latest_handshake: int  # unix time, 0 = never
-    rx: int
-    tx: int
 
 
 async def _run(*args: str, stdin: str | None = None) -> str:
@@ -35,13 +33,13 @@ def parse_dump(text: str) -> list[Peer]:
     for line in text.strip().splitlines()[1:]:
         f = line.split("\t")
         if len(f) >= 7:
-            peers.append(Peer(f[0], f[2], int(f[4]), int(f[5]), int(f[6])))
+            peers.append(Peer(f[0], f[2], int(f[4])))
     return peers
 
 
 class WireGuard:
-    def __init__(self, ifname: str, port: int):
-        self.ifname, self.port = ifname, port
+    def __init__(self, ifname: str):
+        self.ifname = ifname
 
     async def peers(self) -> list[Peer]:
         return parse_dump(await _run("wg", "show", self.ifname, "dump"))

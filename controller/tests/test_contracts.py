@@ -10,28 +10,21 @@ import httpx
 from fastapi.testclient import TestClient
 
 from exit_vpn.api import create_app
-from exit_vpn.finder import Finder, ProberClient
+from exit_vpn.prober_client import ProberClient
 
 from conftest import KINDS, shape
-from test_keys import AllowAll, conf, env, new_key  # noqa: F401  (fixture)
-
-
-class SampleProber:
-    """A prober that answers with the prober's own response sample."""
-
-    async def probe(self, srv, code, url, mode, js, forbid_ips):
-        return {**shape.load("prober/probe_response"), "server": srv.name}
+from harness import AllowAll, conf, make, new_key
 
 
 def test_every_event_kind_has_a_sample():
     assert KINDS == set(shape.load("controller/events")), "contracts/controller/events.json"
 
 
-async def test_api_responses(env):  # noqa: F811
-    ctl, _, _, slots, _, _ = env
-    await ctl.init()
-    finder = Finder(SampleProber(), ctl.catalog.code_for_country, lambda: ["192.0.2.9"])
-    app = create_app(ctl, AllowAll(), ["o@github"], finder=finder, slots=slots)
+async def test_api_responses(catalog, tmp_path, monkeypatch):
+    # a prober that answers with the prober's own response sample
+    rig = make(catalog, tmp_path, monkeypatch, prober_answer=shape.load("prober/probe_response"))
+    await rig.svc.start()
+    app = create_app(rig.node, AllowAll(), ["o@github"])
     with TestClient(app) as c:
         st = c.get("/v1/status").json()
         shape.check("controller/status", st, maps={"$.key_options"})
@@ -67,10 +60,10 @@ async def test_prober_requests_match_the_sample(catalog, monkeypatch):
         sent.append(json.loads(request.content))
         return httpx.Response(200, json=shape.load("prober/probe_response"))
     real = httpx.AsyncClient
-    monkeypatch.setattr("exit_vpn.finder.httpx.AsyncClient",
+    monkeypatch.setattr("exit_vpn.prober_client.httpx.AsyncClient",
                         lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     srv = catalog.filter("United States")[0]
-    r = await ProberClient("http://prober").probe(srv, "US", "https://www.example.com/", "auto",
-                                                   False, ["192.0.2.9"])
+    r = await ProberClient("http://prober").probe(srv, country_code="US", url="https://www.example.com/",
+                                                   forbid_ips=["192.0.2.9"])
     shape.check("prober/probe_request", sent[0])
     assert r["outcome"] == "ok"

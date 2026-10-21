@@ -1,4 +1,7 @@
-"""HTTP API, bound to the node's tailnet IPv4 only (PLAN Phase 3 'API')."""
+"""HTTP API, bound to the node's tailnet IPv4 only (PLAN Phase 3 'API'); only the owner's
+untagged devices may call it (`auth`). This layer checks the shape of requests and turns
+domain errors into HTTP: PolicyError → 400, SwitchError → 409. Rules live in the services.
+Response shapes: contracts/controller/."""
 
 from __future__ import annotations
 
@@ -12,18 +15,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from urllib.parse import urlsplit
-
 from .auth import Whois, decide
-from .catalog import PUSH_PREFIX, Catalog, CatalogError, parse_pushed
-from .controller import Controller, SwitchError
-from .failover import find_candidates
-from .finder import Finder
+from .errors import PolicyError, SwitchError
 from .keys import MAX_CONF_BYTES, KeyRejected
-from .slots import KeyFailed, SlotManager
-from .state import FEATURES
-
-SERVER_FEATURES = ("secure_core", "tor", "free", "stream", "port_forward", "ipv6")
+from .node import Node
+from .servers import FEATURES, FLAGS, Region
+from .slots import KeyFailed
 
 
 class RotateBody(BaseModel):
@@ -106,9 +103,8 @@ class KeyBody(BaseModel):
     meta: KeyMeta = KeyMeta()
 
 
-def create_app(ctl: Controller, whois: Whois, owners: list[str],
-               finder: Finder | None = None, slots: SlotManager | None = None,
-               pinned=None) -> FastAPI:
+def create_app(node: Node, whois: Whois, owners: list[str]) -> FastAPI:
+    svc, slots, finder, events = node.service, node.slots, node.finder, node.events
     app = FastAPI(title="exit-vpn controller", docs_url=None, redoc_url=None,
                   openapi_url=None)
 
@@ -117,6 +113,14 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
         # FastAPI's default echoes the offending input, which for /v1/keys is a private key
         return JSONResponse(status_code=422, content={"detail": [
             {"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")} for e in exc.errors()]})
+
+    @app.exception_handler(PolicyError)
+    async def refused(_request: Request, exc: PolicyError):
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(SwitchError)
+    async def nothing_worked(_request: Request, exc: SwitchError):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     async def owner(request: Request) -> str:
         client = request.client
@@ -131,188 +135,106 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
             raise HTTPException(403, who)
         return who
 
+    # The exit: status, servers, switching ------------------------------------------------
     @app.get("/v1/status")
     async def status(_: str = Depends(owner)):
-        return ctl.status()
+        return svc.snapshot()
 
     @app.get("/v1/servers")
     async def servers(country: str | None = None, city: str | None = None,
                       feature: str | None = None, _: str = Depends(owner)):
-        if feature and feature not in SERVER_FEATURES:
+        if feature and feature not in FLAGS:
             raise HTTPException(400, f"unknown feature {feature!r}")
-        rows = ctl.catalog.filter(country, city, feature)
-        return {"count": len(rows), "countries": ctl.catalog.countries() if not country else None,
+        rows = svc.catalog.filter(country, city, feature)
+        return {"count": len(rows), "countries": svc.catalog.countries() if not country else None,
                 "servers": [s.to_dict() for s in rows]}
 
     @app.post("/v1/rotate")
     async def rotate(body: RotateBody, who: str = Depends(owner)):
-        try:
-            await ctl.switch(ctl.candidates(body.scope), f"rotate {body.scope} by {who}")
-        except SwitchError as e:
-            raise HTTPException(409, str(e)) from None
-        return ctl.status()
+        await svc.rotate(body.scope, who)
+        return svc.snapshot()
 
     @app.post("/v1/select")
     async def select(body: SelectBody, who: str = Depends(owner)):
-        if not (body.server or body.country or body.city):
-            raise HTTPException(400, "give server, country or city")
+        reason = f"select {body.model_dump(exclude_none=True)} by {who}"
         if body.server:
-            # an exact pick: failover keeps its features (PLAN Phase 5)
-            try:
-                cands = ctl.exact_server(body.server, body.ip)
-            except ValueError as e:
-                raise HTTPException(400, str(e)) from None
-            profile = [f for f in FEATURES if all(getattr(s, f) for s in cands)]
+            await svc.select_server(body.server, body.ip, reason)
+        elif body.country or body.city:
+            await svc.select_region(body.country, body.city, who, reason)
         else:
-            cands, profile = ctl.select_candidates(None, body.country, body.city), []
-        try:
-            await ctl.switch(cands, f"select {body.model_dump(exclude_none=True)} by {who}",
-                             profile)
-        except SwitchError as e:
-            raise HTTPException(409, str(e)) from None
-        return ctl.status()
+            raise HTTPException(400, "give server, country or city")
+        return svc.snapshot()
 
+    # Preferences ------------------------------------------------------------------------
     @app.get("/v1/prefs")
     async def get_prefs(_: str = Depends(owner)):
-        return ctl.state.prefs.view()
-
-    def check_regions(regions: list[RegionBody]) -> list[dict]:
-        if not regions:
-            raise HTTPException(400, "empty list")
-        countries = {c.lower(): c for c in ctl.catalog.countries()}
-        out = []
-        for r in regions:
-            country = countries.get(r.country.lower())
-            if not country:
-                raise HTTPException(400, f"unknown country: {r.country!r}")
-            city = None
-            if r.city:
-                cities = {s.city.lower(): s.city for s in ctl.catalog.filter(country)}
-                city = cities.get(r.city.lower())
-                if not city:
-                    raise HTTPException(400, f"no servers in {r.city!r}, {country}")
-            if {"country": country, "city": city} not in out:
-                out.append({"country": country, "city": city})
-        return out
+        return svc.prefs.view()
 
     @app.put("/v1/prefs")
     async def put_prefs(body: PrefsBody, who: str = Depends(owner)):
-        p = ctl.state.prefs
         if body.regions is not None and body.countries is not None:
             raise HTTPException(400, "give regions or countries, not both")
-        if body.regions is not None:
-            regions = check_regions(body.regions)
-        elif body.countries is not None:
-            regions = check_regions([RegionBody(country=c) for c in body.countries])
-        else:
-            regions = None
-        favs = None   # validated before anything changes
-        if body.favorites is not None:
-            favs = []
-            for name in body.favorites:
-                found = ctl.catalog.by_name(name)
-                if not found:
-                    raise HTTPException(400, f"unknown server: {name!r}")
-                if found[0].name not in favs:
-                    favs.append(found[0].name)
-        if regions is not None:
-            p.regions = regions
-        if favs is not None:
-            p.favorites = favs
-        for k in ("auto_failover", "allow_free", "require"):
-            if getattr(body, k) is not None:
-                setattr(p, k, list(dict.fromkeys(body.require)) if k == "require" else getattr(body, k))
-        if body.model_fields_set - {"secure_core"}:  # set_secure_core reports its own change
-            ctl._event("prefs", by=who, prefs=p.view())
-            ctl._save()
-        if body.secure_core is not None:
-            try:
-                await ctl.set_secure_core(body.secure_core, who)
-            except SwitchError as e:
-                raise HTTPException(409, f"Secure Core unchanged: {e}") from None
+        regions = ([Region(r.country, r.city) for r in body.regions] if body.regions is not None
+                   else [Region(c) for c in body.countries] if body.countries is not None else None)
+        try:
+            p = await svc.update_prefs(who, regions=regions, auto_failover=body.auto_failover,
+                                       secure_core=body.secure_core, allow_free=body.allow_free,
+                                       require=body.require, favorites=body.favorites)
+        except SwitchError as e:
+            raise HTTPException(409, f"Secure Core unchanged: {e}") from None
         return p.view()
+
+    # Find a server for a URL ------------------------------------------------------------
+    def find_service():
+        if not finder:
+            raise HTTPException(503, "no prober configured")
+        return finder
 
     @app.post("/v1/find", status_code=202)
     async def find(body: FindBody, who: str = Depends(owner)):
-        if not finder:
-            raise HTTPException(503, "no prober configured")
-        u = urlsplit(body.url)
-        if u.scheme not in ("http", "https") or not u.hostname:
-            raise HTTPException(400, "url must be http(s)://host/...")
-        if not 1 <= body.max_candidates <= 30:
-            raise HTTPException(400, "max_candidates must be 1..30")
-        known = {c.lower(): c for c in ctl.catalog.countries()}
-        bad = [c for c in body.countries if c.lower() not in known]
-        if bad:
-            raise HTTPException(400, f"unknown countries: {bad}")
-        ctl.state.prune(ctl.clock())
-        cands = find_candidates(ctl.catalog.servers, ctl.current_server(), ctl.state.prefs,
-                                set(ctl.state.blacklist), [known[c.lower()] for c in body.countries],
-                                body.max_candidates, ctl.rng)
-        if not cands:
-            raise HTTPException(409, "no eligible candidates")
-        job = finder.start(body.url, cands, body.mode, body.js)
-        ctl._event("find_started", by=who, url=body.url, job=job.id, candidates=len(cands))
-        return job.view()
+        return find_service().start(body.url, body.countries, body.max_candidates, body.mode,
+                                    body.js, who).view()
 
     @app.get("/v1/find/{job_id}")
     async def find_status(job_id: str, _: str = Depends(owner)):
-        job = finder.jobs.get(job_id) if finder else None
+        job = find_service().jobs.get(job_id)
         if not job:
             raise HTTPException(404, "no such job")
         return job.view()
 
     @app.post("/v1/find/{job_id}/apply")
     async def find_apply(job_id: str, body: ApplyBody, who: str = Depends(owner)):
-        job = finder.jobs.get(job_id) if finder else None
-        if not job:
-            raise HTTPException(404, "no such job")
-        hit = next((r for r in job.results if r["server"] == body.server
-                    and (body.ip is None or r.get("ip") == body.ip)), None)
-        if not hit:
-            raise HTTPException(400, "server was not probed in this job")
-        srv = next((s for s in job.candidates if s.name == hit["server"] and s.ip == hit["ip"]), None)
         try:
-            await ctl.switch([srv], f"find {job_id} apply by {who}", srv.features())
-        except SwitchError as e:
-            raise HTTPException(409, str(e)) from None
-        return ctl.status()
+            await find_service().apply(job_id, body.server, body.ip, who)
+        except KeyError:
+            raise HTTPException(404, "no such job") from None
+        return svc.snapshot()
 
+    # Catalog ----------------------------------------------------------------------------
     @app.put("/v1/catalog")
     async def put_catalog(body: CatalogBody, who: str = Depends(owner)):
-        if body.provider != ctl.s.provider:
-            raise HTTPException(400, f"this node's provider is {ctl.s.provider!r}")
-        try:
-            servers = parse_pushed([s.model_dump() for s in body.servers], ctl.s.hostname_suffix,
-                                   ctl.catalog.country_for_code, len(ctl.catalog))
-        except CatalogError as e:
-            raise HTTPException(400, str(e)) from None
-        await ctl.replace_catalog(Catalog(servers, f"{PUSH_PREFIX}{body.provider} api by {who}",
-                                          time.time()))
-        return ctl.status()["catalog"]
+        cat = node.catalogs.accept_push(body.provider, [s.model_dump() for s in body.servers],
+                                        svc.catalog, who, time.time())
+        await svc.replace_catalog(cat)
+        return svc.catalog.view()
 
     @app.delete("/v1/catalog")
     async def delete_catalog(who: str = Depends(owner)):
-        if not pinned:
-            raise HTTPException(503, "no pinned catalog source")
         try:
-            cat = await pinned()
+            cat = await node.catalogs.fetch_pinned()
         except Exception as e:
             raise HTTPException(502, f"pinned catalog download failed: {e}") from None
-        await ctl.replace_catalog(cat)
-        ctl._event("catalog_reverted", by=who)
-        return ctl.status()["catalog"]
+        await svc.replace_catalog(cat)
+        events.publish("catalog_reverted", by=who)
+        return svc.catalog.view()
 
+    # Key slots --------------------------------------------------------------------------
     @app.get("/v1/keys")
     async def get_keys(_: str = Depends(owner)):
-        if not slots:
-            raise HTTPException(503, "key slots not configured")
         return {"slots": await slots.views()}
 
     @app.put("/v1/keys/{slot}")
     async def put_key(slot: str, body: KeyBody, who: str = Depends(owner)):
-        if not slots:
-            raise HTTPException(503, "key slots not configured")
         try:
             return await slots.put(slot, body.conf, body.meta.model_dump(exclude_none=True), who)
         except KeyRejected as e:
@@ -322,20 +244,19 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
 
     @app.put("/v1/keys/{slot}/meta")
     async def put_key_meta(slot: str, body: KeyMeta, who: str = Depends(owner)):
-        if not slots:
-            raise HTTPException(503, "key slots not configured")
         try:
             return await slots.put_meta(slot, body.model_dump(exclude_none=True), who)
         except KeyRejected as e:
             raise HTTPException(400, str(e)) from None
 
+    # Live updates (server-sent events) --------------------------------------------------
     @app.get("/v1/events")
-    async def events(request: Request, _: str = Depends(owner)):
-        q = ctl.subscribe()
+    async def stream_events(request: Request, _: str = Depends(owner)):
+        q = events.subscribe()
 
         async def stream():
             try:
-                yield f"event: status\ndata: {json.dumps(ctl.status())}\n\n"
+                yield f"event: status\ndata: {json.dumps(svc.snapshot())}\n\n"
                 while not await request.is_disconnected():
                     try:
                         ev = await asyncio.wait_for(q.get(), 15)
@@ -343,7 +264,7 @@ def create_app(ctl: Controller, whois: Whois, owners: list[str],
                     except TimeoutError:
                         yield ": keepalive\n\n"
             finally:
-                ctl.unsubscribe(q)
+                events.unsubscribe(q)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

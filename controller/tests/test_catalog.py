@@ -3,6 +3,7 @@ import copy
 import pytest
 
 from exit_vpn.catalog import Catalog, CatalogError, parse_gluetun
+from exit_vpn.persistence import CatalogCache
 
 
 def test_parses_only_wireguard(raw_catalog):
@@ -42,17 +43,17 @@ def test_filter_and_lookup(catalog):
     ny = catalog.filter(country="United States", city="New York")
     assert ny and all(s.city == "New York" for s in ny)
     s = ny[0]
-    assert catalog.by_peer(s.pubkey, s.ip) == s
-    assert catalog.by_peer(s.pubkey, "192.0.2.1") is None
+    assert catalog.by_id(s.pubkey, s.ip) == s
+    assert catalog.by_id(s.pubkey, "192.0.2.1") is None
     assert s in catalog.by_name(s.name.lower())
     assert "Switzerland" in catalog.countries()
 
 
 def test_save_load_roundtrip(catalog, tmp_path):
     p = tmp_path / "catalog.json"
-    catalog.save(p)
+    CatalogCache(p).save(catalog)
     assert oct(p.stat().st_mode & 0o777) == "0o600"
-    again = Catalog.load(p)
+    again = CatalogCache(p).load()
     assert again.servers == catalog.servers and again.source == "fixture"
 
 
@@ -66,8 +67,8 @@ def test_shared_pubkey_identity_is_pubkey_and_ip(raw_catalog):
     sc.update(server_name="SE-US#99", secure_core=True, ips=["198.51.100.7"])
     d["servers"].append(sc)
     cat = Catalog(parse_gluetun(d))
-    assert cat.by_peer(regular["wgpubkey"], regular["ips"][0]).name == regular["server_name"]
-    assert cat.by_peer(regular["wgpubkey"], "198.51.100.7").name == "SE-US#99"
+    assert cat.by_id(regular["wgpubkey"], regular["ips"][0]).name == regular["server_name"]
+    assert cat.by_id(regular["wgpubkey"], "198.51.100.7").name == "SE-US#99"
 
 
 def test_country_for_code(catalog):

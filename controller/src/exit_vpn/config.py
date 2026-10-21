@@ -42,6 +42,7 @@ class Settings:
     key_dirs: dict[str, Path] = field(
         default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b")})
     probe_conf: Path | None = None       # slot b's bootstrap config (the prober's)
+    prober_url: str = ""                 # the prober container (empty: no /v1/find)
     key_expiry_warn_days: float = 14.0
     pushed_catalog_max_age: float = 7 * 86400
     handshake_max_age: float = 180.0
@@ -68,6 +69,10 @@ class Settings:
     def peer_env_file(self) -> Path:
         return self.state_dir / "peer.env"
 
+    @property
+    def events_file(self) -> Path:
+        return self.state_dir / "events.json"
+
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
         e = os.environ if env is None else env
@@ -89,6 +94,8 @@ class Settings:
         for var, (name, conv) in simple.items():
             if e.get(var):
                 kw[name] = conv(e[var])
+        if e.get("PROBER_URL"):
+            kw["prober_url"] = e["PROBER_URL"]
         if e.get("PROBE_VPN_CONF"):
             kw["probe_conf"] = Path(e["PROBE_VPN_CONF"])
         if e.get("KEY_DIR_A") or e.get("KEY_DIR_B"):

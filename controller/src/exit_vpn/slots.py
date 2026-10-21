@@ -1,4 +1,12 @@
-"""Uploading keys into slots (PLAN Phase 3b): validate, try, keep or roll back."""
+"""Key slots (PLAN Phase 3b): uploading a key into slot a (the exit) or b (the prober),
+keeping it only if it carries traffic.
+
+The two slots are tested in opposite orders, because of where the key runs:
+- Slot a: the new key is tried on wg0 first (`ExitService.replace_exit_key`) and saved only
+  once traffic passes; otherwise wg0 is back on the old key and nothing was saved.
+- Slot b: the prober reads its key from the slot's file, so the key is saved first, the
+  prober reloads it and probes a few servers; if none answers, the old key is restored.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +15,10 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from .controller import Controller
+from .events import EventBus
 from .keys import SLOTS, KeyFile, KeyRejected, KeyStore, load_text
+from .prober_client import ProberClient
+from .service import ExitService
 from .wg import public_key
 
 log = logging.getLogger("exit_vpn")
@@ -21,28 +31,23 @@ class KeyFailed(RuntimeError):
     """The key was well-formed but carried no traffic; the previous key is back."""
 
 
-class SlotManager:
-    def __init__(self, ctl: Controller, store: KeyStore, prober=None,
-                 code_for: Callable[[str], str] | None = None,
-                 forbid_ips: Callable[[], list[str]] | None = None,
-                 pubkey: Callable[[str], Awaitable[str]] = public_key):
-        self.ctl, self.store, self.prober = ctl, store, prober
-        self.code_for = code_for or (lambda _c: "")
-        self.forbid_ips = forbid_ips or (lambda: [])
-        self.pubkey = pubkey
+class KeySlots:
+    def __init__(self, service: ExitService, store: KeyStore, events: EventBus,
+                 prober: ProberClient | None = None,
+                 code_for: Callable[[str], str] = lambda _c: "",
+                 forbid_ips: Callable[[], list[str]] = lambda: [],
+                 pubkey: Callable[[str], Awaitable[str]] = public_key,
+                 expiry_warn_days: float = 14.0):
+        self.service, self.store, self.events, self.prober = service, store, events, prober
+        self.code_for, self.forbid_ips, self.pubkey = code_for, forbid_ips, pubkey
+        self.expiry_warn_days = expiry_warn_days
         self.lock = asyncio.Lock()
-        ctl.conf_key = self._exit_private_key
-        ctl.warnings = self.warnings
-
-    def _exit_private_key(self) -> str:
-        cur = self.store.current("a")
-        return cur.private_key if cur else ""
 
     async def put(self, slot: str, text: str, meta: dict, who: str) -> dict:
         if slot not in SLOTS:
             raise KeyRejected(f"unknown slot {slot!r}")
         if slot == "a":
-            like = self.ctl.conf
+            like = self.service.exit_conf
         else:
             cur = self.store.current("b")
             like = cur.conf if cur else None
@@ -51,13 +56,17 @@ class SlotManager:
                 "uploaded_by": who, "uploaded_at": int(time.time())}
         async with self.lock:
             if slot == "a":
-                ok = await self.ctl.replace_key(key, lambda: self.store.commit("a", key, meta),
-                                                f"upload by {who}")
-                if not ok:
-                    raise KeyFailed("the new key carried no traffic; the previous key is back")
+                await self._put_exit_key(key, meta, who)
             else:
                 await self._put_probe_key(key, meta, who)
         return await self.view(slot)
+
+    async def _put_exit_key(self, key: KeyFile, meta: dict, who: str) -> None:
+        cur = self.store.current("a")
+        if not await self.service.replace_exit_key(key.private_key, cur.private_key if cur else "",
+                                                   key.conf, f"upload by {who}"):
+            raise KeyFailed("the new key carried no traffic; the previous key is back")
+        self.store.commit("a", key, meta)
 
     async def _put_probe_key(self, key: KeyFile, meta: dict, who: str) -> None:
         if not self.prober:
@@ -68,7 +77,7 @@ class SlotManager:
         try:
             await self.prober.reload_key()
             if await self._probe_works():
-                self.ctl._event("key_replaced", slot="b", reason=f"upload by {who}")
+                self.events.publish("key_replaced", slot="b", reason=f"upload by {who}")
                 return
         except Exception as e:  # prober down or reload refused: undo
             log.warning("prober key reload failed: %s", e)
@@ -77,13 +86,13 @@ class SlotManager:
             await self.prober.reload_key()
         except Exception as e:
             log.warning("prober key restore failed: %s", e)
-        self.ctl._event("key_rejected", slot="b", reason=f"upload by {who}")
+        self.events.publish("key_rejected", slot="b", reason=f"upload by {who}")
         raise KeyFailed("the new prober key carried no traffic; the previous key is back")
 
     async def _probe_works(self) -> bool:
-        for srv in self.ctl.candidates("country")[:TEST_SERVERS]:
-            r = await self.prober.probe(srv, self.code_for(srv.country), TEST_URL, "http",
-                                        False, self.forbid_ips())
+        for srv in self.service.test_servers(TEST_SERVERS):
+            r = await self.prober.probe(srv, country_code=self.code_for(srv.country), url=TEST_URL,
+                                        mode="http", forbid_ips=self.forbid_ips())
             if r.get("outcome") != "error":
                 return True
         return False
@@ -96,11 +105,12 @@ class SlotManager:
             raise KeyRejected("wg_public_key does not match the slot's key")
         async with self.lock:
             self.store.write_meta(slot, {**meta, "updated_by": who, "updated_at": int(time.time())})
-        self.ctl._event("key_meta", slot=slot, by=who, expires_at=meta.get("expires_at"))
+        self.events.publish("key_meta", slot=slot, by=who, expires_at=meta.get("expires_at"))
         return await self.view(slot)
 
     # Views ------------------------------------------------------------------------
     async def view(self, slot: str) -> dict:
+        """One slot (contracts/controller/key_slot.json); never the private key."""
         cur = self.store.current(slot)
         pub = await self.pubkey(cur.private_key) if cur else None
         meta = self.store.meta(slot)
@@ -117,12 +127,12 @@ class SlotManager:
     async def views(self) -> list[dict]:
         return [await self.view(s) for s in SLOTS]
 
-    def warnings(self) -> list[str]:
+    def warnings(self, now: float) -> list[str]:
         out = []
         for s in SLOTS:
             exp = self.store.meta(s).get("expires_at")
-            if exp and exp - time.time() < self.ctl.s.key_expiry_warn_days * DAY:
-                days = (exp - time.time()) / DAY
+            if exp and exp - now < self.expiry_warn_days * DAY:
+                days = (exp - now) / DAY
                 out.append(f"slot {s} key certificate "
                            + (f"expires in {days:.0f} days" if days > 0 else "has expired"))
         return out
