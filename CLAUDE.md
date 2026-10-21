@@ -34,8 +34,9 @@ formats between them (samples checked by both sides' tests).
 - `mac/ExitControl/`: the menu-bar app. `ExitControlCore` (vocabulary, wire models, stores,
   ActionRunner, ProcessRunner; `swift test`) and the app target (AppContainer, views, Intents,
   Updater), built from `project.yml` (XcodeGen).
-- `compose.yaml` (project `exit-vpn`, services `exit` and `prober`, network `exitnet`
-  172.30.42.0/24: exit .2, prober .10), `.env.example`, `tests/acceptance/phase*.sh`.
+- `compose.yaml` (project `exit-vpn`, services `exit` and `prober` from `EXIT_IMAGE`/`PROBER_IMAGE`,
+  network `exitnet` 172.30.42.0/24: exit .2, prober .10), `compose.build.yaml` (build from source),
+  `.env.example`, `deploy/` (kit: `install.sh`, `rollout.sh`, README), `tests/acceptance/phase*.sh`.
 - Tailnet policy lives in the separate **private** repo `deOliveira-R/tailnet-policy`
   (local clone `~/git/tailnet-policy`), GitOps: PR → CI `test`, merge → CI `apply`
   (federated identity, no stored secrets). Policy `tests` need concrete users as `src`
@@ -77,8 +78,10 @@ formats between them (samples checked by both sides' tests).
   why the exit mounts `secrets/` read-write.
 - **SSH over the tailnet** (public-IP sessions were reset twice during deploys):
   `ssh -o HostName=$(tailscale ip -4 fin-intel) -o HostKeyAlias=$(ssh -G fin-intel | awk '$1=="hostname"{print $2}') fin-intel`
-- Deploy: `cd /opt/exit-node && sudo git pull --ff-only && sudo docker compose up -d --build`
-  (push from the Mac first).
+- Deploy: published images, from the Mac: `deploy/rollout.sh <X.Y.Z>` (verifies provenance, pins
+  digests in the host's `.env`, waits for healthy); see `deploy/README.md`. Release: tag
+  `node-vX.Y.Z` (`node-release.yml`; never marked "latest", that is the app's feed). From a
+  checkout instead: `sudo docker compose -f compose.yaml -f compose.build.yaml up -d --build`.
 - Release: bump nothing by hand; commit, then `git tag -a vX.Y.Z -m … && git push origin vX.Y.Z`.
   `release.yml` builds, signs, publishes; installed apps update via Check for Updates. CI:
   `ci.yml` on pushes to main and PRs (`gh run list`).

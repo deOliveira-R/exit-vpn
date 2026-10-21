@@ -10,10 +10,9 @@ x-logging: &logging
 
 services:
   exit:
-    build:
-      context: .
-      dockerfile: exit/Dockerfile
-    image: exit-vpn/exit:latest
+    # Published images pinned by digest (.env, from a release's images.env); build from source
+    # with `docker compose -f compose.yaml -f compose.build.yaml up -d --build`.
+    image: ${EXIT_IMAGE:-exit-vpn/exit:dev}
     container_name: ${EXIT_NODE_NAME:-exit-proton}
     hostname: ${EXIT_NODE_NAME:-exit-proton}
     restart: unless-stopped
@@ -80,10 +79,7 @@ services:
   # Probes URLs through other VPN servers on its own tunnel (key B), never the active
   # exit's (PLAN Phase 4, D11/D19). Reachable only from the exit container.
   prober:
-    build:
-      context: .
-      dockerfile: prober/Dockerfile
-    image: exit-vpn/prober:latest
+    image: ${PROBER_IMAGE:-exit-vpn/prober:dev}
     container_name: ${EXIT_NODE_NAME:-exit-proton}-prober
     restart: unless-stopped
     environment:

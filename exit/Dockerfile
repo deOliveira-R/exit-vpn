@@ -1,6 +1,6 @@
 # The exit node: WireGuard to the VPN provider, the kill switch, tailscaled and the
 # controller, supervised by s6-overlay. Build context: the repo root (.dockerignore).
-# Built on the host without buildx, so downloads are verified with sha256sum.
+# Downloads are verified with sha256sum (the same file builds on the host and in CI).
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 ARG S6_VERSION=3.2.3.2
@@ -58,5 +58,9 @@ ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
   CMD ["/usr/local/lib/exit-vpn/healthcheck"]
+
+# The release (node-vX.Y.Z), reported in /v1/status; "dev" for a local build
+ARG VERSION=dev
+ENV EXIT_VPN_VERSION=$VERSION
 
 ENTRYPOINT ["/init"]

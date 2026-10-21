@@ -53,5 +53,7 @@
       "kind": "started",
       "server": "US-NY#723"
     }
-  ]
+  ],
+  "version": "dev",
+  "api": 1
 }

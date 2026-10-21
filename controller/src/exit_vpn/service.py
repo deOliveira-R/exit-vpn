@@ -41,6 +41,9 @@ from .wgconf import WgConf
 log = logging.getLogger("exit_vpn")
 
 MAX_SWITCH_TRIES = 5
+# The controller API's version (contracts/controller/): raised when a change would break the
+# app; additions that clients may ignore keep it.
+API_VERSION = 1
 
 
 class ExitService:
@@ -338,6 +341,8 @@ class ExitService:
         cur = self.current_server()
         tracker = self.tunnel.tracker
         return {
+            "version": self.s.version,   # the node's release; `api` says which app speaks to it
+            "api": API_VERSION,
             "server": a.name if a else None,
             "country": a.country if a else None,
             "city": a.city if a else None,

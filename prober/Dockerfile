@@ -20,4 +20,8 @@ COPY prober/entrypoint.sh /usr/local/bin/prober-entrypoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["/opt/prober/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/healthz', timeout=3)"]
 
+# The release (node-vX.Y.Z), reported in /v1/status; "dev" for a local build
+ARG VERSION=dev
+ENV EXIT_VPN_VERSION=$VERSION
+
 ENTRYPOINT ["/usr/local/bin/prober-entrypoint"]

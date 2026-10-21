@@ -1,0 +1,17 @@
+# Build the images from this checkout instead of pulling the published ones:
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# (development, or a host that should not pull). Tagged locally; EXIT_IMAGE/PROBER_IMAGE are
+# then not needed.
+services:
+  exit:
+    build:
+      context: .
+      dockerfile: exit/Dockerfile
+      args: { VERSION: "dev" }
+    image: exit-vpn/exit:dev
+  prober:
+    build:
+      context: .
+      dockerfile: prober/Dockerfile
+      args: { VERSION: "dev" }
+    image: exit-vpn/prober:dev

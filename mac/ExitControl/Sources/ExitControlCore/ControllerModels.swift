@@ -35,6 +35,8 @@ public struct CatalogInfo: Codable, Hashable, Sendable {
 }
 
 public struct Status: Codable, Hashable, Sendable {
+    public var version: String?       // the node's release (node-vX.Y.Z); nil before Phase D
+    public var api: Int?              // the controller API version
     public var server: String?
     public var country: String?
     public var city: String?

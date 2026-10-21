@@ -43,6 +43,7 @@ class Settings:
         default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b")})
     probe_conf: Path | None = None       # slot b's bootstrap config (the prober's)
     prober_url: str = ""                 # the prober container (empty: no /v1/find)
+    version: str = "dev"                 # the image's release (node-vX.Y.Z)
     key_expiry_warn_days: float = 14.0
     pushed_catalog_max_age: float = 7 * 86400
     handshake_max_age: float = 180.0
@@ -94,6 +95,8 @@ class Settings:
         for var, (name, conv) in simple.items():
             if e.get(var):
                 kw[name] = conv(e[var])
+        if e.get("EXIT_VPN_VERSION"):
+            kw["version"] = e["EXIT_VPN_VERSION"]
         if e.get("PROBER_URL"):
             kw["prober_url"] = e["PROBER_URL"]
         if e.get("PROBE_VPN_CONF"):

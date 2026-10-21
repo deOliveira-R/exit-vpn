@@ -101,8 +101,9 @@ def _as_sample(value, maps: set[str], path: str = "$"):
 
 
 def _merge(old, new):
-    """Union of two samples: keys from both, the non-null value where one is null; values
-    of different JSON types (a lever that is a number or a boolean) become null: any."""
+    """Union of two samples: keys from both, the non-null value where one is null, the old
+    example value where both have one; values of different JSON types (a lever that is a
+    number or a boolean) become null: any."""
     if old is ANY or new is ANY:
         return ANY
     if old is None:
@@ -111,11 +112,15 @@ def _merge(old, new):
         return old
     if _kind(old) != _kind(new):
         return ANY
+    if isinstance(old, list) and isinstance(new, list):   # one-element list samples
+        if not old or not new:
+            return old or new
+        return [_merge(old[0], new[0])]
     if isinstance(old, dict) and isinstance(new, dict):
         if list(old) == ["*"] and list(new) == ["*"]:     # two samples of one map
             return {"*": _merge(old["*"], new["*"])}
         return {**old, **{k: _merge(old.get(k), v) for k, v in new.items()}}
-    return new
+    return old   # same type: keep the sample's example value (diffs show only shape changes)
 
 
 def load(name: str):
