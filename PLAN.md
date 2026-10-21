@@ -837,6 +837,21 @@ first confirms the untested degraded-recovery path, fixed in R2).
   monkey-patched callbacks → value types (state.json stays readable) → Tunnel → CatalogSource
   and composition root, dead code out → shell/Python contract (peer.env, slot-a precedence) tested.
 
+*R2 done (2026-10-21):* the controller is now `servers` (Server, Region, features),
+`catalog`, `prefs` (immutable, `updated()` validates), `state` (ActiveServer, Blacklist),
+`selection` (pure), `tunnel` (the only code touching wg0), `service.ExitService` (one lock, one
+health `step()`, use cases, `snapshot()`), `events.EventBus` (persisted in `events.json`),
+`slots.KeySlots`, `finder.FindService`, `prober_client`, `catalog_source`, `persistence`,
+`errors`, `node.build` (composition root, also used by the tests) and a thin `api`. 86 unit
+tests (78 before; new: degraded recovery and retry, all-or-nothing prefs, events across a
+restart, a failing find candidate, the peer.env and slot-a key shell contracts). Deployed;
+acceptance phase2 9/9 (T6 needed a second run: the first restart came right after a
+kill-switch failover and recovered after the 60 s window; no leak either time), phase3 4/4
+(T9 failover 19 s), phase3b 10/10, phase3b2 7/7, phase4 5/5, phase5a 6/6, phase5b 3/3. Behaviour
+changes: PUT /v1/prefs is all-or-nothing; a region pick orders candidates like every other
+list (favourites, profile, load) instead of at random; an unknown country in a pick is 400.
+Host-level changes: none (new file `events.json` in the state volume).
+
 **R3 — Prober:** `Prober` service (one probe, start to finish, with the lock), `ProbeTunnel`
 with a session context, `ExitCheck` (no engine import), `Engine` interface (`HttpEngine`,
 `BrowserEngine`, `Persona`), `Classifier` with explicit rule precedence, `Outcome` enum (same
