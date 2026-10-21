@@ -29,6 +29,7 @@ struct MenuContent: View {
         Button("Open Status JSON") { model.openStatusJSON() }.disabled(!model.online)
         Divider()
         Button("Settings…") { open("settings") }.keyboardShortcut(",")
+        Button("Check for Updates…") { Updater.shared.check() }.disabled(!Updater.shared.canCheck)
         Button("Quit ExitControl") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 

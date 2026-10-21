@@ -27,6 +27,10 @@ struct ExitControlApp: App {
 /// `exitvpn://` URLs arrive as Apple Events. Handling them here (instead of SwiftUI's
 /// per-scene matching) lets action URLs run without opening a window.
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = Updater.shared   // starts Sparkle's scheduled checks
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(
             self, andSelector: #selector(handleURL(_:reply:)),

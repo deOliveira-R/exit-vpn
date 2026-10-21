@@ -42,6 +42,9 @@ struct GeneralTab: View {
                 Toggle("Show the exit country's flag in the menu bar", isOn: $model.showFlag)
                 Toggle("Notifications (failover, degraded, key expiry)", isOn: $model.notify)
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { Updater.shared.automaticChecks }, set: { Updater.shared.automaticChecks = $0 }))
+                LabeledContent("Version", value: Updater.shared.version)
             }
         }
         .formStyle(.grouped)

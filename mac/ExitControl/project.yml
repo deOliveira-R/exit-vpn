@@ -7,6 +7,9 @@ options:
   createIntermediateGroups: true
 packages:
   ExitControlPackage: { path: . }
+  Sparkle:   # in-app updates (PLAN Phase 5c); bump deliberately
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -24,6 +27,7 @@ targets:
     dependencies:
       - package: ExitControlPackage
         product: ExitControlCore
+      - package: Sparkle
     settings:
       base:
         PRODUCT_NAME: ExitControl

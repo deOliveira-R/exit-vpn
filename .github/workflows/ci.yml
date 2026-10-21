@@ -1,0 +1,29 @@
+# PLAN Phase 5c: unit tests of every package and the app build, on every push and PR.
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+concurrency: { group: "ci-${{ github.ref }}", cancel-in-progress: true }
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: { pkg: [controller, prober, helper] }
+    defaults: { run: { working-directory: "${{ matrix.pkg }}" } }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - run: uv venv -p 3.13 && uv pip install -e '.[test]'
+      - run: .venv/bin/pytest -q
+
+  mac:
+    runs-on: macos-26
+    defaults: { run: { working-directory: mac/ExitControl } }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - run: brew install xcodegen
+      - run: swift test
+      - run: ./build-app.sh   # no Local.xcconfig in CI: ad-hoc signed, proves the build only

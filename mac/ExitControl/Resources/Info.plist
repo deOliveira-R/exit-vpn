@@ -35,6 +35,12 @@
 			</array>
 		</dict>
 	</array>
+	<key>SUFeedURL</key>
+	<string>https://github.com/deOliveira-R/exit-vpn/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>ZY3SrpLhjAxAt/JdEBxEAxWBWF8zFYDtNTUqA8y/qok=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ExitControl talks to your exit node's controller over your tailnet.</string>
 	<key>NSAppTransportSecurity</key>
