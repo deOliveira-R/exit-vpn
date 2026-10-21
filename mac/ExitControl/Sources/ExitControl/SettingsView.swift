@@ -32,7 +32,8 @@ struct GeneralTab: View {
                 }
                 LabeledContent("Connection", value: app.connection.online ? "Online" : "Offline: \(app.connection.offlineReason ?? "")")
                 LabeledContent("This Mac", value: app.exitNode.use.label)
-                Text("Whether this Mac routes through the exit node is chosen in the Tailscale app; ExitControl chooses which VPN server the exit node uses, for every device routed through it.")
+                Toggle("Keep this Mac on the exit node", isOn: $settings.keepExitNode)
+                Text("When this Mac has no exit node (cleared by a script, the Tailscale menu or a re-login), its traffic goes out directly; ExitControl then selects \(settings.nodeName) again within seconds. Another exit node chosen in Tailscale is left alone. Pause it from the menu for a captive portal. ExitControl chooses which VPN server the exit node uses, for every device routed through it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("exitctl (provider actions)") {

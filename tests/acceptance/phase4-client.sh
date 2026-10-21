@@ -5,8 +5,7 @@
 # on 2026-10-20; override if that changes).
 set -uo pipefail
 NODE=${EXIT_NODE_NAME:-exit-proton}; A="http://$NODE:${API_PORT:-8080}"
-# the exit node this Mac used before the test, restored on exit ("" = none)
-EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
+. "$(dirname "$0")/exitnode.sh"   # EXIT0: the exit node to restore; refuses a Mac with none
 VPS=${VPS_SSH:-fin-intel}; VPS_TS_NAME=${VPS_TS_NAME:-fin-intel}
 FRIENDLY_URL=${FRIENDLY_URL:-https://example.com/}
 CHALLENGE_URL=${CHALLENGE_URL:-https://www.indeed.com/}

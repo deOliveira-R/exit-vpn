@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Phase 3 acceptance (PLAN T9-T11), run on a Mac in the tailnet (any VPN app off).
-# Selects the exit node for T9, restores "no exit node" on exit. Fault injection runs
+# Selects the exit node for T9, restores the previous exit node on exit. Fault injection runs
 # on the VPS over the tailnet and is removed by a trap even if the script fails.
 set -uo pipefail
 NODE=${EXIT_NODE_NAME:-exit-proton}
-# the exit node this Mac used before the test, restored on exit ("" = none)
-EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
+. "$(dirname "$0")/exitnode.sh"   # EXIT0: the exit node to restore; refuses a Mac with none
 VPS=${VPS_SSH:-fin-intel}; VPS_TS_NAME=${VPS_TS_NAME:-fin-intel}
 API="http://$NODE:${API_PORT:-8080}"
 pass=0; fail=0

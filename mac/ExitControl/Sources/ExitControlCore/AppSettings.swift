@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// The app's own settings, in UserDefaults (keys unchanged since v1: `controllerURL`,
-/// `exitctlPath`, `showFlag`, `notify`). `onControllerURLChange` lets the app reconnect and
+/// `exitctlPath`, `showFlag`, `notify`; v0.4 adds `keepExitNode`). `onControllerURLChange` lets the app reconnect and
 /// re-point the background agent.
 @MainActor @Observable
 public final class AppSettings {
@@ -17,6 +17,8 @@ public final class AppSettings {
     public var exitctlPath: String { didSet { defaults.set(exitctlPath, forKey: "exitctlPath") } }
     public var showFlag: Bool { didSet { defaults.set(showFlag, forKey: "showFlag") } }
     public var notify: Bool { didSet { defaults.set(notify, forKey: "notify") } }
+    /// Re-select the exit node when this Mac has none (ExitNodeGuard). On by default.
+    public var keepExitNode: Bool { didSet { defaults.set(keepExitNode, forKey: "keepExitNode") } }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -24,6 +26,7 @@ public final class AppSettings {
         exitctlPath = defaults.string(forKey: "exitctlPath") ?? ""
         showFlag = defaults.object(forKey: "showFlag") as? Bool ?? true
         notify = defaults.object(forKey: "notify") as? Bool ?? true
+        keepExitNode = defaults.object(forKey: "keepExitNode") as? Bool ?? true
     }
 
     /// The exit node's Tailscale name: the controller URL's first host label.

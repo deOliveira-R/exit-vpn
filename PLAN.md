@@ -788,6 +788,39 @@ the app; T37 an installed older build offers the newer release, updates and rela
   Shortcuts to any registered copy, so dev builds are no longer registered.
 - Host-level changes: none.
 
+### Phase 5d — Keep the Mac on the exit node (app v0.4.0)
+
+Why: the exit fails closed only while a device has it selected. On 2026-10-21 a hand-run check
+cleared the Mac's exit node (`tailscale set --exit-node=`), the next acceptance run saved and
+"restored" that empty value, and the Mac's traffic went out directly via the home ISP.
+Tailscale's own answer, a mandatory exit node (`ExitNodeID` system policy), needs a Premium or
+Enterprise plan and device management.
+
+- **ExitNodeGuard** (ExitControlCore): fed by ExitNodeMonitor (now every 5 s; one second after
+  a change). When this Mac has *no* exit node, it selects the controller's node again
+  (`tailscale set --exit-node=<node>`; LAN access untouched) and notifies. Another exit node is
+  a choice and is left alone; Tailscale being off (`BackendState` ≠ Running, new
+  `ExitNodeUse.tailscaleOff`) is VPN On Demand's job. A failure is shown in the menu and
+  notified once per distinct message. Setting "Keep this Mac on the exit node" (on by default).
+- **Go Direct for 10 Minutes** (menu, for captive portals): clears the exit node and pauses the
+  guard, which selects it again when the pause ends ("Use the Exit Node Now" ends it early).
+- **Acceptance scripts** source `tests/acceptance/exitnode.sh`: they record the exit node in use
+  and refuse to run on a Mac with none (exit 2; `ALLOW_NO_EXIT=1` overrides), so a test can no
+  longer end by "restoring" none.
+
+Acceptance: T41 with the guard on, clearing the exit node gets it back within one interval;
+T42 a client script on a Mac with no exit node stops before changing anything.
+
+**Phase 5d results (2026-10-21)**:
+- T41 dev build (live Tailscale): `tailscale set --exit-node=` → `exit-proton` selected again
+  after 1 s ("this Mac had no exit node; selected exit-proton"), `ExitNodeAllowLANAccess` kept.
+  Unit tests: the guard acts only on `.none`, not when disabled or paused, the pause ends by
+  itself, a repeated failure is reported once; the monitor re-reads one second after a change;
+  `BackendState` Stopped parses as `tailscaleOff`. 28 tests.
+- T42 `exitnode.sh` with a fake `tailscale` reporting no exit node: exit 2 and the message;
+  with `ALLOW_NO_EXIT=1` it continues; on the real Mac it records exit-proton.
+- Host-level changes: none.
+
 ### Phase R — Architecture pass (before Phase 6)
 
 Goal: for each component, one can say "these are the important concepts, they are represented
@@ -1086,6 +1119,7 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 | T35–T37 | 5c | CI; tagged release; in-app update |
 | R | R1–R6 | contracts pinned; unit + acceptance suites green after each step; failover drill; owner review |
 | T38–T40 | D | published images with provenance; fresh deploy from the kit; VPS on published images |
+| T41–T42 | 5d | the app re-selects a cleared exit node; client scripts refuse a Mac with none |
 | T13–T15 | 6 | per-domain residential routing over the exit node; safe policy edits; fail-closed |
 
 ---

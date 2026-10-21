@@ -145,6 +145,7 @@ the views:
 | Provider | `Exitctl`, `ProcessRunner` | `ProviderCommand`. `ProcessRunner` reads stdout and stderr concurrently, has a timeout, and stops the process on cancel. |
 | ActionRunner | `ActionRunner` | One change at a time. Menu clicks are refused while busy; URLs and Shortcuts queue in order. |
 | Stores | `ConnectionStore`, `CatalogStore`, `ProviderStore`, `ExitNodeMonitor`, `AppSettings` | Live status and events (which events notify); the server list; the account, levers and keys; whether this Mac uses the exit node; the app's settings. |
+| Guard | `ExitNodeGuard` | Fed by `ExitNodeMonitor`: re-selects the exit node when this Mac has none (unless turned off or paused by "Go Direct"); leaves another exit node and Tailscale-off alone. |
 | Helpers | `ServerQuery`, `StatusText`, `LoginFlow`, `FindSession`, `ExitURL` | Browser filter and order; status lines and icon; the login steps; a find job; `exitvpn://` URLs. |
 
 The app target (`Sources/ExitControl`):

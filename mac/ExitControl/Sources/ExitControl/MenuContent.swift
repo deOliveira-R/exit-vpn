@@ -72,8 +72,22 @@ struct MenuContent: View {
         case .unknown: EmptyView()
         default:
             Text("⚠️ \(use.label)")
-            Button("Choose the Exit Node in Tailscale…") {
+            if let failure = app.exitGuard.lastFailure { Text("❌ Re-selecting it failed: \(failure)") }
+            Button("Open Tailscale…") {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Tailscale.app"))
+            }
+        }
+        guardLine
+    }
+
+    /// The exit node guard's pause: direct traffic for a captive portal, then the exit node again.
+    @ViewBuilder var guardLine: some View {
+        if app.settings.keepExitNode {
+            if let until = app.exitGuard.pausedUntil {
+                Text("⏸ Direct until \(until.formatted(date: .omitted, time: .shortened)), then the exit node again")
+                Button("Use the Exit Node Now") { app.exitGuard.resume() }
+            } else {
+                Button("Go Direct for 10 Minutes (Captive Portal)") { app.goDirect(for: 600) }
             }
         }
     }

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Phase 2, client side: run on a Mac in the tailnet (any VPN app disconnected).
-# Selects the exit node, runs T1-T8, and restores "no exit node" on exit.
+# Selects the exit node, runs T1-T8, and restores the previous exit node on exit.
 # The VPS is reached over the tailnet (not through the exit node), and every
 # kill-switch step restores itself on the server, so nothing here can strand the node.
 set -uo pipefail
 NODE=${EXIT_NODE_NAME:-exit-proton}
-# the exit node this Mac used before the test, restored on exit ("" = none)
-EXIT0=$(tailscale status --json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next((p["TailscaleIPs"][0] for p in (s.get("Peer") or {}).values() if p.get("ExitNode")), ""))')
+. "$(dirname "$0")/exitnode.sh"   # EXIT0: the exit node to restore; refuses a Mac with none
 VPS=${VPS_SSH:-fin-intel}            # ssh alias for the VPS
 VPS_TS_NAME=${VPS_TS_NAME:-fin-intel} # its tailnet name
 pass=0; fail=0

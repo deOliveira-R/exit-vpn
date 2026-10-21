@@ -67,7 +67,8 @@ General takes another path.
 ## What it does
 
 - Menu: current server, Secure Core route, exit IP, load, health; whether this Mac uses
-  the exit node (read-only; choose it in the Tailscale app); new server in the same city /
+  the exit node, kept on: when this Mac has none, the app selects it again within seconds
+  (Settings → General; "Go Direct for 10 Minutes" for a captive portal); new server in the same city /
   country / pinned regions; pinned regions and all countries; Secure Core and automatic
   failover toggles; Server Browser (⌘B), Find Server for URL (⌘F), Settings (⌘,).
 - Server Browser: the live list with load and features, filters (country, P2P,

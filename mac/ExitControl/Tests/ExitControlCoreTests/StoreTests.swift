@@ -146,3 +146,49 @@ private func sample<T: Decodable>(_ name: String, as type: T.Type) throws -> T {
     }
     #expect(Date().timeIntervalSince(t0) < 5)
 }
+
+@MainActor @Test func exitNodeGuardReselectsOnlyWhenThereIsNone() async {
+    var selected: [String] = []
+    var failWith: String?
+    var clock = Date(timeIntervalSince1970: 0)
+    let g = ExitNodeGuard(select: { node in
+        if let m = failWith { throw ProcessRunner.Failure(message: m) }
+        selected.append(node)
+    }, now: { clock })
+
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .reselected)
+    for use in [ExitNodeUse.usingThis, .usingOther("home-gw"), .tailscaleOff("Stopped"), .unknown("x")] {
+        #expect(await g.check(use, node: "exit-proton", enabled: true) == .nothing, "\(use) is left alone")
+    }
+    #expect(await g.check(.none, node: "exit-proton", enabled: false) == .nothing, "turned off")
+    #expect(selected == ["exit-proton"])
+
+    g.pause(for: 600)
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .nothing, "paused")
+    clock += 601
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .reselected, "the pause ends by itself")
+    #expect(g.pausedUntil == nil)
+
+    failWith = "not allowed"
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .failed("not allowed"))
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .nothing, "the same failure is reported once")
+    #expect(g.lastFailure == "not allowed")
+    failWith = nil
+    #expect(await g.check(.none, node: "exit-proton", enabled: true) == .reselected)
+    #expect(g.lastFailure == nil)
+}
+
+@MainActor @Test func exitNodeMonitorRereadsSoonAfterTheGuardActs() async throws {
+    let readings = Counter()
+    let m = ExitNodeMonitor(interval: .seconds(60), read: { _ in await readings.next() == 0 ? .none : .usingThis })
+    var seen: [ExitNodeUse] = []
+    m.onUse = { use in seen.append(use); return use == .none }
+    m.watch(node: "exit-proton")
+    for _ in 0..<40 where seen.count < 2 { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(seen == [.none, .usingThis], "a second reading one second after the change, not 60")
+}
+
+private actor Counter {
+    private var n = 0
+    func next() -> Int { defer { n += 1 }; return n }
+}

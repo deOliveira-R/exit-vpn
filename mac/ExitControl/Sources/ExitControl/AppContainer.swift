@@ -12,7 +12,8 @@ import ServiceManagement
 ///                 └─► Exitctl ─────────┴─► ProviderStore (account, levers, keys, certificates)
 ///     ActionRunner: every change, one at a time (menu: refuse while busy; URLs/Shortcuts: queue)
 ///     Router: which window to open (the menu-bar label opens it)
-///     ExitNodeMonitor: whether this Mac uses the exit node (tailscale)
+///     ExitNodeMonitor: whether this Mac uses the exit node (tailscale) ──► ExitNodeGuard
+///                      (re-selects it when this Mac has none, unless paused or turned off)
 @MainActor @Observable
 final class AppContainer {
     static let shared = AppContainer()   // AppDelegate (URLs) and Shortcuts reach the app here
@@ -22,6 +23,7 @@ final class AppContainer {
     let catalog = CatalogStore()
     let provider = ProviderStore()
     let exitNode = ExitNodeMonitor()
+    let exitGuard = ExitNodeGuard(select: { try await Tailscale.selectExitNode($0) })
     let runner = ActionRunner()
     let router = Router()
     let updater = Updater()
@@ -46,6 +48,7 @@ final class AppContainer {
             if self?.settings.notify == true { self?.notifier.post(title: "Exit node: \(label) failed", body: message) }
         }
         settings.onControllerURLChange = { [weak self] _ in self?.connect(reinstallAgent: true) }
+        exitNode.onUse = { [weak self] use in await self?.guardExitNode(use) ?? false }
         notifier.requestAuthorization()
         connect(reinstallAgent: false)
     }
@@ -110,6 +113,37 @@ final class AppContainer {
         case .run(let command): Task { try? await runQueued(command) }
         case .refresh: Task { await connection.refresh(); await catalog.load() }
         }
+    }
+
+    // Keeping this Mac on the exit node --------------------------------------------------
+    private func guardExitNode(_ use: ExitNodeUse) async -> Bool {
+        let node = settings.nodeName
+        switch await exitGuard.check(use, node: node, enabled: settings.keepExitNode) {
+        case .nothing:
+            return false
+        case .reselected:
+            Log.info("this Mac had no exit node; selected \(node)")
+            if settings.notify {
+                notifier.post(title: "Exit node re-selected",
+                              body: "This Mac had no exit node, so its traffic was going out directly. It uses \(node) again.",
+                              id: "exit-guard")
+            }
+            return true
+        case .failed(let message):
+            Log.error("could not select \(node): \(message)")
+            if settings.notify {
+                notifier.post(title: "This Mac has no exit node",
+                              body: "Selecting \(node) failed: \(message). Traffic is going out directly.", id: "exit-guard")
+            }
+            return false
+        }
+    }
+
+    /// Clears this Mac's exit node and pauses the guard, which selects it again afterwards.
+    func goDirect(for duration: TimeInterval) {
+        exitGuard.pause(for: duration)
+        Log.info("direct for \(Int(duration)) s")
+        Task { try? await Tailscale.selectExitNode(nil) }
     }
 
     // Notifications ------------------------------------------------------------------------

@@ -7,7 +7,7 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-21)
 
-Phases 0–5c (incl. 3b, 3b.2, 5a, 5b), R (architecture pass) and D (published node images; the VPS runs
+Phases 0–5d (incl. 3b, 3b.2, 5a, 5b), R (architecture pass) and D (published node images; the VPS runs
 node-v1.0.0 from GHCR) done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
 `org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
@@ -93,7 +93,8 @@ formats between them (samples checked by both sides' tests).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
   `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the
-  Mac (Proton app **off**; scripts select and clear the exit node themselves)
+  Mac (Proton app **off**; scripts select the exit node and restore the previous one; they refuse a Mac with none,
+  `tests/acceptance/exitnode.sh`)
   `tests/acceptance/phase2-client.sh`, `phase3-client.sh`, `phase4-client.sh`,
   `phase3b-client.sh`, `phase3b2-client.sh`, `phase5a-client.sh` (need `helper/.venv/bin/exitctl proton login` first, done by the owner
   in their own terminal: password/2FA/CAPTCHA prompts).

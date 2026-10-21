@@ -65,6 +65,8 @@ let statusJSON = """
     #expect(Tailscale.parse(Data(using.utf8), node: "exit-proton") == .usingThis)
     #expect(Tailscale.parse(Data(other.utf8), node: "exit-proton") == .usingOther("nas"))
     #expect(Tailscale.parse(Data(#"{"Peer":{}}"#.utf8), node: "exit-proton") == ExitNodeUse.none)
+    #expect(Tailscale.parse(Data(#"{"BackendState":"Running","Peer":{}}"#.utf8), node: "exit-proton") == ExitNodeUse.none)
+    #expect(Tailscale.parse(Data(#"{"BackendState":"Stopped"}"#.utf8), node: "exit-proton") == .tailscaleOff("Stopped"))
 }
 
 @Test func exitctlNeedInputAndOptions() async throws {
