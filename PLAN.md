@@ -1026,6 +1026,24 @@ MagicDNS via the exit, three tries) and passed on the rerun; T7 (fin-intel's API
 now with no connection (000). Host-level changes: none (the `.env` dedupe is inside the deploy
 dir).
 
+### Phase RT — Test organisation
+
+Why: the tests had a sound underlying structure (logic, component, boundary, contract,
+acceptance) that their files did not show. Files were named after the phase that added them
+(`test_phase5`, `phase3b-client.sh`) or were grab bags (`test_units`, `test_helper`, `CoreTests`);
+fakes lived in test files and were imported across them; one API test checked eight behaviours;
+the acceptance scripts carried nine copies of the same helpers. Principle (owner): name things
+after concepts in the present code; phases and steps are ephemeral.
+
+- RT1 `TESTING.md`: the five kinds, the rules, one table per component (file → kind → concept).
+- RT2–RT5 controller, prober, exitctl, app: files per concept; fakes in the harness; one
+  behaviour per test; every existing behaviour keeps a test (old → new mapping), coverage not lower.
+- RT6 acceptance: scripts named by concept (`client/egress.sh`, `client/failover.sh`, ...;
+  `node/...` on the VPS), a shared `lib.sh`, checks named by concept, a README with what each
+  proves (and the old PLAN IDs, for history), `run-client.sh`.
+- RT7 the same principle in code comments: references to phases replaced by the concept or
+  document they meant.
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).
