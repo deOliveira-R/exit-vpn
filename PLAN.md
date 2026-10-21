@@ -718,6 +718,28 @@ on P2P servers; T32 a favourite in the current city is chosen first by "Rotate (
 each `exitvpn://` action works and shows in the controller events; T34 the Shortcuts app lists
 the three intents and "Exit Status" returns the live values.
 
+**Phase 5b results (2026-10-21)** — controller (favourites, ISO country names) deployed; 75
+controller and 13 app unit tests green; `tests/acceptance/phase5b-client.sh` 3/3:
+- T31 `require: [port_forward]`: rotate city / country / any all landed on P2P servers.
+- T32 the busiest server in Los Angeles as a favourite → "Rotate (city)" picked it; an unknown
+  favourite is refused and changes nothing.
+- T33 four `exitvpn://` URLs sent back to back (rotate, Secure Core on, off, connect Los
+  Angeles) ran in order (a FIFO queue; menu clicks still refuse while busy).
+- T34 the Shortcuts app lists Rotate Exit Server, Connect Exit to Region and Exit Status;
+  `shortcuts run` of a shortcut with Exit Status returns the live server, place, exit IP and
+  health. **App Intents only run for apps signed by an Apple-issued certificate with a team
+  ID**: linkd rejects ad-hoc and self-signed apps ("requiresValidatedBundle", Shortcuts says
+  it "couldn't communicate with the app"). The build therefore signs with the owner's free
+  Personal Team "Apple Development" certificate (no paid program), set in the gitignored
+  `mac/ExitControl/Local.xcconfig`; without it the build is ad-hoc and everything but
+  Shortcuts works. The certificate needs Apple's WWDR G3 intermediate in the keychain.
+- Also: the app build moved to XcodeGen + xcodebuild (`swift build` does not extract App
+  Intents metadata); flags from server names; China was named "CN" (ISO fallback); server
+  browser columns star | server | country | city | load | features | IP, nearest first, and a
+  static load bar (the animated one moved between reused rows while scrolling).
+- Host-level changes: none. Mac: the Apple Development certificate (Xcode) and the WWDR G3
+  intermediate in the login keychain.
+
 ### Phase 5c — Release: CI, signed builds, in-app updates
 
 - **CI** (GitHub Actions, public repo → free macOS runners): on every push/PR run the
@@ -729,10 +751,13 @@ the three intents and "Exit Status" returns the live values.
   "Check for Updates…" in the menu and automatic checks.
 - **exitctl**: stays a separate install (GPLv3 proton-core is not bundled, D21); releases
   pin a helper version, and the app tells when the installed `exitctl` is older.
-- **Signing (Q8, decided 2026-10-21): no Apple Developer account.** Ad-hoc signed builds;
-  the first launch of a download needs an explicit Open (right-click → Open, or System
-  Settings → Privacy & Security → Open Anyway). Sparkle verifies every update with its
-  EdDSA signature, which is what protects the update channel.
+- **Signing (Q8, decided 2026-10-21): no paid Apple Developer account.** Builds are signed
+  with the owner's free Personal Team "Apple Development" certificate (needed for Shortcuts,
+  5b T34; it also keeps one identity across updates, so macOS keeps the app's permissions).
+  Not notarized: the first launch of a download needs an explicit Open (right-click → Open,
+  or System Settings → Privacy & Security → Open Anyway). CI signs with that certificate
+  (exported .p12 as a GitHub secret; it expires yearly, so renew and update the secret).
+  Sparkle verifies every update with its EdDSA signature, which protects the update channel.
 
 **Acceptance (T35–T37):** T35 CI green on a PR; T36 a `v*` tag produces a GitHub Release with
 the app; T37 an installed older build offers the newer release, updates and relaunches.
@@ -841,4 +866,4 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 5. ~~Repo location~~ → GitHub.
 6. **Decided: IPv4 first**, IPv6 after v4 is solid. Proton configs now include in-tunnel IPv6 (`2a07:b944::2:2/128`, DNS `2a07:b944::2:1`). Keep IPv6 blocked at the exit (T4 as written), or carry IPv6 through wg0 (dual-stack exit; T4 becomes "IPv6 exits via Proton")?
 7. ~~`Bouncing` label~~ → does not restrict which servers a key can use (Phase 0).
-8. ~~Apple Developer Program~~ → no: ad-hoc signed builds, an explicit Open on first launch (Phase 5c).
+8. ~~Apple Developer Program~~ → no paid program: free Personal Team signing, not notarized, an explicit Open on first launch (Phase 5c).

@@ -1,0 +1,8 @@
+// Code signing. Default: ad-hoc ("-"), which builds anywhere but cannot run Shortcuts
+// actions (macOS only accepts App Intents from Apple-issued signatures with a team ID).
+// For a signed build, create Local.xcconfig next to this file (gitignored):
+//   DEVELOPMENT_TEAM = <your team ID>          (a free Apple ID "Personal Team" works)
+//   CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Manual
+#include? "Local.xcconfig"

@@ -7,9 +7,9 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 
 ## Status (2026-10-21)
 
-Phases 0–5 (incl. 3b, 3b.2, 5a) done and deployed; all acceptance suites green. The exit runs on a
+Phases 0–5b (incl. 3b, 3b.2, 5a) done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
-`org.exit-vpn.catalog-push` refreshes it hourly). Remaining: Phase 5 v1.1 (see PLAN), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
+`org.exit-vpn.catalog-push` refreshes it hourly). Remaining: **5c** (CI, releases, Sparkle updates), **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
 
 ## Layout
@@ -98,3 +98,10 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
 - FastAPI's default 422 echoes the request body: the controller overrides it (keys!).
 - proton-core raises the login CAPTCHA (422/9001) as a plain `ProtonAPIError`.
 - tailscaled logs "SetPrivateKey called": grep for `PrivateKey *=`, not the bare word.
+- App Intents (Shortcuts) run only for apps signed with an Apple-issued cert with a team ID
+  (linkd: "requiresValidatedBundle"); `swift build` emits no App Intents metadata (use the
+  XcodeGen/xcodebuild build). Signing needs Apple's WWDR G3 intermediate in the keychain.
+- In this zsh, `log` is a builtin: use `/usr/bin/log show`. `codesign` with a keychain identity
+  and `shortcuts run` need the Bash sandbox off (keychain/XPC access).
+- LaunchServices sends `exitvpn://` to whichever copy it registered: keep one registered app
+  (`build-app.sh` moves the build out of DerivedData and unregisters that path).

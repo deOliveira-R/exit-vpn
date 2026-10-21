@@ -2,3 +2,4 @@
 build/
 .swiftpm/
 ExitControl.xcodeproj/
+Local.xcconfig

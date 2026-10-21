@@ -12,6 +12,9 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
 targets:
   ExitControlApp:   # not "ExitControl": the package's executable product has that name
     type: application
@@ -27,7 +30,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.exit-vpn.ExitControl
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
         ONLY_ACTIVE_ARCH: NO

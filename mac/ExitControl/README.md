@@ -7,12 +7,30 @@ python-proton-core (GPLv3).
 
 ## Build
 
-Swift package (macOS 14+, Xcode 16+); open the folder in Xcode, or:
+Swift package for the code and tests (macOS 14+, Xcode 16+); the app bundle is built by
+Xcode from `project.yml` (XcodeGen: `brew install xcodegen`), because only Xcode extracts
+the App Intents metadata Shortcuts needs.
 
     swift test                         # unit tests
     EXITCONTROL_LIVE=http://exit-proton:8080 swift test --filter Live   # read-only, live
-    ./build-app.sh                     # build/ExitControl.app (universal, ad-hoc signed)
-    cp -R build/ExitControl.app ~/Applications/
+    ./build-app.sh                     # build/ExitControl.app (universal)
+
+Signing: without `Local.xcconfig` the app is ad-hoc signed and everything works except
+Shortcuts (macOS runs App Intents only for Apple-issued signatures with a team ID). For a
+signed build, sign in to Xcode with an Apple ID (a free Personal Team is enough), create an
+Apple Development certificate (Settings → Accounts → Manage Certificates), and add the
+gitignored `Local.xcconfig`:
+
+    DEVELOPMENT_TEAM = <team ID>       # the certificate's OU
+    CODE_SIGN_IDENTITY = Apple Development
+
+If `codesign` fails with `errSecInternalComponent`, Apple's WWDR G3 intermediate is missing
+from the keychain (apple.com/certificateauthority, `AppleWWDRCAG3.cer`), or the shell cannot
+show the keychain prompt.
+
+`exitvpn://` URLs: `servers`, `find`, `settings/<tab>` open windows; `rotate?scope=city|country|any`,
+`connect?country=…&city=…`, `connect?server=CH%23821`, `securecore?on=1|0` act (queued in
+order). Shortcuts actions: Rotate Exit Server, Connect Exit to Region, Exit Status.
 
 `EXITCONTROL_DEBUG=1` logs updates to stderr
 (`open --env EXITCONTROL_DEBUG=1 --stderr /tmp/ec.log build/ExitControl.app`).
