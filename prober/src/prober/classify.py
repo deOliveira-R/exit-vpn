@@ -1,15 +1,14 @@
-"""Verdict for one page load (pure). Ordered rules; the first match sets the outcome,
-but every matching signal is reported (PLAN Phase 4 'Classifier')."""
+"""The verdict on one page load (pure; PLAN Phase 4 'Classifier'). `RULES` run in order;
+the first that matches sets the outcome, and every match is reported as a signal, so the
+controller and the app can show why."""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from urllib.parse import urlsplit
 
-# Outcomes, best to worst for "can I use this server for this site?"
-OK, SUSPICIOUS, INCONCLUSIVE, REDIRECTED, BLOCKED, CHALLENGE, ERROR = (
-    "ok", "suspicious", "inconclusive", "redirected", "blocked", "challenge", "error")
+from .model import Engine, Observation, Outcome, Verdict
 
 CHALLENGE_TITLE = re.compile(r"^\s*(just a moment|attention required|checking your browser|"
                              r"verify you are human|please wait|security check)", re.I)
@@ -23,6 +22,9 @@ SUSPICIOUS_TEXT = re.compile(
     r"not available in your (region|country|location)|"
     r"you('re| are) (using|connected (to|through)) an? (vpn|proxy)", re.I | re.S)
 BLOCK_STATUS = {401: "status 401", 403: "status 403", 429: "status 429", 451: "status 451"}
+SCAN = 200_000          # how much markup and text the patterns look at
+STUB_PAGE = 4096        # a 202 smaller than this is a WAF challenge page, not content
+EMPTY_PAGE = 2048       # without JS, a page smaller than this (and no title) says nothing
 
 # Registrable domain without a PSL download: last two labels, or three under these.
 TWO_LEVEL_SUFFIXES = {
@@ -34,20 +36,6 @@ SSO_DOMAINS = {"accounts.google.com", "login.microsoftonline.com", "appleid.appl
                "auth0.com", "okta.com", "login.live.com"}
 
 
-def visible_text(html: str) -> str:
-    """Rough visible text of an HTML document (for the HTTP tier)."""
-    import html as _html
-    h = re.sub(r"(?is)<(script|style|noscript|template)[^>]*>.*?</\1>", " ", html)
-    h = re.sub(r"(?s)<!--.*?-->", " ", h)
-    return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", h))).strip()
-
-
-def title_of(html: str) -> str:
-    import html as _html
-    m = re.search(r"(?is)<title[^>]*>(.*?)</title>", html)
-    return re.sub(r"\s+", " ", _html.unescape(m.group(1))).strip() if m else ""
-
-
 def registrable(host: str) -> str:
     labels = host.lower().rstrip(".").split(".")
     if len(labels) >= 3 and ".".join(labels[-2:]) in TWO_LEVEL_SUFFIXES:
@@ -55,60 +43,50 @@ def registrable(host: str) -> str:
     return ".".join(labels[-2:])
 
 
-@dataclass
-class Observation:
-    engine: str                          # "http" (curl_cffi) or "browser" (Chromium)
-    requested_url: str
-    final_url: str = ""
-    status: int | None = None
-    headers: dict[str, str] = field(default_factory=dict)   # lower-case names
-    title: str = ""
-    text: str = ""                       # visible text (scripts/styles removed)
-    html: str = ""                       # markup, truncated (challenge markers live here)
-    html_len: int = 0
-    frame_urls: list[str] = field(default_factory=list)
-    error: str = ""
+def _redirect(o: Observation) -> str | None:
+    if not o.final_url:
+        return None
+    req, fin = urlsplit(o.requested_url).hostname or "", urlsplit(o.final_url).hostname or ""
+    if fin and registrable(fin) != registrable(req) and not any(
+            fin == d or fin.endswith("." + d) for d in SSO_DOMAINS):
+        return f"redirected to {fin}"
+    return None
 
 
-@dataclass
-class Verdict:
-    outcome: str
-    signals: list[str]
+def _suspicious(o: Observation) -> str | None:
+    m = SUSPICIOUS_TEXT.search(o.text[:SCAN])
+    return f"text: {m.group(0)[:80]!r}" if m else None
+
+
+# (outcome, rule): a rule returns a signal when it matches. Order is precedence.
+Rule = Callable[[Observation], "str | None"]
+RULES: list[tuple[Outcome, Rule]] = [
+    (Outcome.ERROR, lambda o: f"error: {o.error}" if o.error else None),
+    (Outcome.CHALLENGE, lambda o: "cf-mitigated: challenge"
+        if o.headers.get("cf-mitigated", "").lower() == "challenge" else None),
+    (Outcome.CHALLENGE, lambda o: f"challenge title: {o.title[:60]!r}"
+        if CHALLENGE_TITLE.search(o.title or "") else None),
+    (Outcome.CHALLENGE, lambda o: "captcha iframe"
+        if any(CAPTCHA_FRAMES.search(u) for u in o.frame_urls) else None),
+    (Outcome.CHALLENGE, lambda o: "challenge markup" if CHALLENGE_BODY.search(o.html[:SCAN]) else None),
+    (Outcome.CHALLENGE, lambda o: "status 202 with a stub page (WAF challenge)"
+        if o.status == 202 and o.html_len < STUB_PAGE else None),
+    (Outcome.BLOCKED, lambda o: BLOCK_STATUS.get(o.status or 0)),
+    (Outcome.REDIRECTED, _redirect),
+    (Outcome.SUSPICIOUS, _suspicious),
+]
 
 
 def classify(o: Observation) -> Verdict:
     signals: list[str] = []
-    outcome: str | None = None
-
-    def hit(kind: str, signal: str) -> None:
-        nonlocal outcome
-        signals.append(signal)
-        if outcome is None:
-            outcome = kind
-
-    if o.error:
-        hit(ERROR, f"error: {o.error}")
-    if o.headers.get("cf-mitigated", "").lower() == "challenge":
-        hit(CHALLENGE, "cf-mitigated: challenge")
-    if CHALLENGE_TITLE.search(o.title or ""):
-        hit(CHALLENGE, f"challenge title: {o.title[:60]!r}")
-    if any(CAPTCHA_FRAMES.search(u) for u in o.frame_urls):
-        hit(CHALLENGE, "captcha iframe")
-    if CHALLENGE_BODY.search(o.html[:200_000]):
-        hit(CHALLENGE, "challenge markup")
-    if o.status == 202 and o.html_len < 4096:
-        hit(CHALLENGE, "status 202 with a stub page (WAF challenge)")
-    if o.status in BLOCK_STATUS:
-        hit(BLOCKED, BLOCK_STATUS[o.status])
-    if o.final_url:
-        req, fin = urlsplit(o.requested_url).hostname or "", urlsplit(o.final_url).hostname or ""
-        if fin and registrable(fin) != registrable(req) and not any(
-                fin == d or fin.endswith("." + d) for d in SSO_DOMAINS):
-            hit(REDIRECTED, f"redirected to {fin}")
-    m = SUSPICIOUS_TEXT.search(o.text[:200_000])
-    if m:
-        hit(SUSPICIOUS, f"text: {m.group(0)[:80]!r}")
-    # The HTTP tier sees no JS: an almost empty page means "ask the browser"
-    if o.engine == "http" and outcome is None and o.html_len < 2048 and not o.title:
-        hit(INCONCLUSIVE, "near-empty page without JS")
-    return Verdict(outcome or OK, signals)
+    outcome: Outcome | None = None
+    for kind, rule in RULES:
+        signal = rule(o)
+        if signal:
+            signals.append(signal)
+            outcome = outcome or kind
+    # The HTTP engine runs no JS: an almost empty page means "ask the browser"
+    if outcome is None and o.engine == Engine.HTTP and o.html_len < EMPTY_PAGE and not o.title:
+        signals.append("near-empty page without JS")
+        outcome = Outcome.INCONCLUSIVE
+    return Verdict(outcome or Outcome.OK, signals)

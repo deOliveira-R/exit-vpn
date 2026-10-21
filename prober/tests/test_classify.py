@@ -1,6 +1,10 @@
-from prober.classify import (BLOCKED, CHALLENGE, ERROR, INCONCLUSIVE, OK, REDIRECTED,
-                             SUSPICIOUS, Observation, classify, registrable, title_of,
-                             visible_text)
+from prober.classify import classify, registrable
+from prober.html import title_of, visible_text
+from prober.model import Observation, Outcome
+
+OK, SUSPICIOUS, INCONCLUSIVE, REDIRECTED, BLOCKED, CHALLENGE, ERROR = (
+    Outcome.OK, Outcome.SUSPICIOUS, Outcome.INCONCLUSIVE, Outcome.REDIRECTED, Outcome.BLOCKED,
+    Outcome.CHALLENGE, Outcome.ERROR)
 
 U = "https://www.example.com/page"
 
