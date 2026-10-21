@@ -56,7 +56,8 @@
     "kind": "ipv6",
     "open": true,
     "server": "US-NY#1",
-    "exit_ip6": null
+    "exit_ip6": null,
+    "error": "ipv6: https://www.cloudflare.com/cdn-cgi/trace: ConnectTimeout"
   },
   "key_meta": {
     "ts": 1000000.0,

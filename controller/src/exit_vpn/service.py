@@ -168,8 +168,9 @@ class ExitService:
         if now_open != self._ipv6_reported:
             self._ipv6_reported = now_open
             last = self.tunnel.last
+            why = {} if now_open or not last or not last.ipv6_error else {"error": last.ipv6_error}
             self.events.publish("ipv6", open=now_open, server=self._name(),
-                                exit_ip6=last.exit_ip6 if now_open and last else None)
+                                exit_ip6=last.exit_ip6 if now_open and last else None, **why)
 
     def _learn_country(self, loc: str | None) -> None:
         """A server not in the catalog: at least its country, from where it exits."""

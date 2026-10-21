@@ -107,6 +107,8 @@ async def test_each_change_of_the_gate_is_one_ipv6_event(rig):
         await rig.svc.step()
     ev = [e for e in rig.node.events.recent() if e["kind"] == "ipv6"]
     assert [e["open"] for e in ev] == [True, False] and ev[-1]["server"] == rig.start.name
+    assert ev[-1]["error"] == "ipv6: ConnectTimeout", "a close says what the probe saw"
+    assert "error" not in ev[0]
 
 
 async def test_a_switch_between_two_ipv6_servers_reports_no_change(rig):

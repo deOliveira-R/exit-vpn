@@ -77,6 +77,38 @@ def test_an_unprobed_cycle_leaves_the_ipv6_gate_as_it_is():
     assert not g.feed(None) and g.failures == 1
 
 
+def test_after_closing_on_a_server_the_ipv6_gate_reopens_only_after_three_good_probes():
+    g = IPv6Gate()
+    g.feed(True)
+    g.feed(False)
+    assert g.feed(False) and not g.open
+    assert not g.feed(True) and not g.feed(True), "two are not enough"
+    assert g.feed(True) and g.open
+
+
+def test_each_further_close_on_a_server_doubles_the_good_probes_needed_up_to_a_cap():
+    g = IPv6Gate()
+    needed = []
+    g.feed(True)
+    for _ in range(6):
+        g.feed(False)
+        g.feed(False)
+        n = 0
+        while not g.feed(True):
+            n += 1
+        needed.append(n + 1)
+    assert needed == [3, 6, 12, 24, 24, 24]
+
+
+def test_a_new_server_starts_the_ipv6_gate_afresh():
+    g = IPv6Gate()
+    g.feed(True)
+    g.feed(False)
+    g.feed(False)
+    g.close()
+    assert g.feed(True) and g.open, "one good probe opens it again"
+
+
 def test_closing_the_ipv6_gate_forgets_its_failures():
     g = IPv6Gate()
     g.feed(True)

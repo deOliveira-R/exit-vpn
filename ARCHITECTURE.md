@@ -75,7 +75,7 @@ Shared between the shell scripts and Python, and tested on both sides:
 | Prefs | `prefs` | Pinned regions in order, Secure Core mode, automatic failover, required features, favourites. Immutable: `updated()` validates a change against the catalog and returns a new Prefs. |
 | State | `state` | `ActiveServer` (the peer wg0 uses, with the profile of features a pick keeps) and `Blacklist` (recently failed keys). |
 | Selection | `selection` | Pure functions that order candidates: failover, rotation, region and exact picks, Secure Core switches, find. One set of rules (eligibility, tiers, favourites, profile, load). |
-| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after two failed in a row). |
+| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after two failed in a row; after a close on the same server, reopened only after 3, 6, 12, then 24 good probes in a row). |
 
 **Services** (async, own the lock, get their collaborators injected):
 

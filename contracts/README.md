@@ -65,7 +65,7 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `failover_start` | `server`, `reason` |
 | `find_started` | `by`, `url`, `job`, `candidates` |
 | `health` | `state`, `errors` |
-| `ipv6` | `open` (forwarded IPv6 now goes through the tunnel, or not), `server`, `exit_ip6` |
+| `ipv6` | `open` (forwarded IPv6 now goes through the tunnel, or not), `server`, `exit_ip6`; `error` (what the IPv6 probe saw) when it closed |
 | `key_meta` | `slot`, `by`, `expires_at` |
 | `key_rejected` | `slot`, `reason`, `restored_healthy` |
 | `key_replaced` | `slot`, `reason`, `seconds` |

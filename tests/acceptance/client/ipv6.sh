@@ -34,7 +34,10 @@ s=$(wait_ipv6 True 30)
 if [ -n "$s" ]; then
   e6=$(echo "$s" | j 'd["exit_ip6"]'); loc=$(echo "$s" | j 'd["exit_loc"]')
   ok "on $name the IPv6 gate opens: the exit's IPv6 address is $e6"
-  t=$(trace6); v6=${t%% *}
+  # The first IPv6 flows to a destination sometimes stall for 4-8 s upstream at Proton (seen
+  # from the exit itself too; Happy Eyeballs hides it from apps): allow three tries
+  for try in 1 2 3; do t=$(trace6 10); [ -n "$t" ] && break; done; v6=${t%% *}
+  [ -n "$t" ] && [ "$try" -gt 1 ] && info "the first IPv6 request stalled; try $try answered"
   if [ -z "$t" ]; then bad "IPv6 from this Mac fails on $name although the gate is open"
   elif mine "$v6"; then bad "IPv6 LEAKED: this Mac's own address $v6"
   elif [ "${t#* }" != "$loc" ]; then bad "IPv6 egress $t is not in the exit's country $loc"

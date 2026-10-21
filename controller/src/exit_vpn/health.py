@@ -70,19 +70,26 @@ class Backoff:
 
 
 class IPv6Gate:
-    """Whether forwarded IPv6 is routed through the tunnel (pure). Open only while proven:
-    closed on every server or key change, opened by one good IPv6 probe, closed again after
-    `failures` failed ones in a row. A server without IPv6 drops it silently, and a silent
-    drop stalls clients that would fall back to IPv4 at once on an unreachable error."""
+    """Whether forwarded IPv6 goes through the tunnel (pure). Open only while proven: closed on
+    every server or key change, opened by one good IPv6 probe, closed again after `failures`
+    failed ones in a row. A server without IPv6 drops it silently, which stalls clients; the
+    closed gate refuses IPv6 at once instead, and clients use IPv4.
 
-    def __init__(self, failures: int = 2):
-        self.failures_needed = failures
+    Damped: every close resets clients' IPv6 connections, so on a server whose IPv6 comes and
+    goes, reopening needs `reopen` good probes in a row, doubling with each further close (up
+    to `reopen_max`). A new server or key starts afresh."""
+
+    def __init__(self, failures: int = 2, reopen: int = 3, reopen_max: int = 24):
+        self.failures_needed, self.reopen, self.reopen_max = failures, reopen, reopen_max
         self.open = False
-        self.failures = 0
+        self.failures = self.successes = 0
+        self.successes_needed = 1
 
     def close(self) -> bool:
         """A new server or key: closed until proven. Returns True when this changed it."""
-        was, self.open, self.failures = self.open, False, 0
+        was, self.open = self.open, False
+        self.failures = self.successes = 0
+        self.successes_needed = 1
         return was
 
     def feed(self, ok: bool | None) -> bool:
@@ -90,11 +97,14 @@ class IPv6Gate:
         if ok is None:
             return False
         if ok:
-            self.failures = 0
-            was, self.open = self.open, True
-            return not was
-        self.failures += 1
+            self.failures, self.successes = 0, self.successes + 1
+            if not self.open and self.successes >= self.successes_needed:
+                self.open = True
+                return True
+            return False
+        self.successes, self.failures = 0, self.failures + 1
         if self.open and self.failures >= self.failures_needed:
             self.open = False
+            self.successes_needed = min(max(self.reopen, self.successes_needed * 2), self.reopen_max)
             return True
         return False
