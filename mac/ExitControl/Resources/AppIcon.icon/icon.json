@@ -1,0 +1,82 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.07843,0.13725,0.24706,1.00000",
+      "srgb:0.02745,0.04706,0.09020,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.35,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 1
+      }
+    }
+  },
+  "groups": [
+    {
+      "name": "Light",
+      "layers": [
+        {
+          "name": "light",
+          "image-name": "light.svg",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "name": "Tunnel",
+      "layers": [
+        {
+          "name": "ring5",
+          "image-name": "ring5.svg",
+          "glass": true
+        },
+        {
+          "name": "ring4",
+          "image-name": "ring4.svg",
+          "glass": true
+        },
+        {
+          "name": "ring3",
+          "image-name": "ring3.svg",
+          "glass": true
+        },
+        {
+          "name": "ring2",
+          "image-name": "ring2.svg",
+          "glass": true
+        },
+        {
+          "name": "ring1",
+          "image-name": "ring1.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.4
+      },
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

@@ -23,7 +23,11 @@ targets:
     type: application
     platform: macOS
     scheme: {}
-    sources: [Sources/ExitControl]
+    sources:
+      - Sources/ExitControl
+      - path: Resources/AppIcon.icon   # Icon Composer document (layers in Assets/)
+        type: file
+        buildPhase: resources
     dependencies:
       - package: ExitControlPackage
         product: ExitControlCore
@@ -33,6 +37,7 @@ targets:
         PRODUCT_NAME: ExitControl
         PRODUCT_BUNDLE_IDENTIFIER: org.exit-vpn.ExitControl
         INFOPLIST_FILE: Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
         ONLY_ACTIVE_ARCH: NO
