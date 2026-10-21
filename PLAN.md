@@ -960,6 +960,28 @@ Phase 4 response). Released as ExitControl 0.3.0.
   provenance; T39 a fresh directory with the kit, `.env` and secrets brings up a working exit;
   T40 the VPS runs the published images and the Phase 3/5a suites pass.
 
+**Phase D results (2026-10-21)**:
+- T38 `node-v1.0.0`: `node-release.yml` built `exit` and `prober` on native amd64 and arm64
+  runners, merged multi-arch images to `ghcr.io/deoliveira-r/exit-vpn-{exit,prober}:1.0.0`
+  (+ `latest`), with BuildKit provenance and SBOM. GitHub attestations verify (`gh attestation
+  verify`: built by node-release.yml from refs/tags/node-v1.0.0 at 2ad2953). The packages are
+  public (anonymous pulls work). The release carries the deploy kit (compose.yaml,
+  .env.example, install.sh, README, images.env with the digests) and is not "latest": the app's
+  feed still serves 0.3.1.
+- T40 `deploy/rollout.sh 1.0.0` from the Mac: verified both images, pinned the digests in the
+  VPS's `.env`, pulled, restarted, and saw `node-v1.0.0` healthy after 84 s. Keys, the pushed
+  catalog and the event log carried over (same project, same volumes). Then phase3 4/4 (T9 18 s),
+  phase5a 6/6, phase4 5/5 and phase2 8/9: T7 (fin-intel's API) failed with a TLS "internal
+  error" alert from fin-intel's own HTTPS server, while it had passed at 13:00 UTC. That is
+  fin-intel's side (this stack has its own Tailscale node and restarted only its containers);
+  left to the owner, not investigated on the host.
+- T39 partly: the kit's files and install.sh's checks are in place, but a run on a fresh host
+  needs a second host (a node on the VPS beside the live one would need its own tailnet
+  identity, keys, ports and subnet); left for the next new host.
+- `/v1/status` reports `version` (`node-v1.0.0`; `dev` for a source build) and `api` (1).
+  Host-level changes: none (the deploy directory is still the git checkout, now running the
+  published images; `docker compose up -d` there uses them).
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).
