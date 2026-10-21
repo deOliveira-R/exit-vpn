@@ -26,8 +26,8 @@ done
 vps() { ssh -o HostName="$(tailscale ip -4 "$VPS_TS_NAME")" \
             -o HostKeyAlias="$(ssh -G "$VPS" | awk '$1=="hostname"{print $2}')" "$VPS" "$@"; }
 vps "cd $NODE_DIR && sudo sed -i -e 's#^EXIT_IMAGE=.*#EXIT_IMAGE=$exit_ref#' -e 's#^PROBER_IMAGE=.*#PROBER_IMAGE=$prober_ref#' .env \
-     && (grep -q '^EXIT_IMAGE=' .env || echo 'EXIT_IMAGE=$exit_ref' | sudo tee -a .env >/dev/null) \
-     && (grep -q '^PROBER_IMAGE=' .env || echo 'PROBER_IMAGE=$prober_ref' | sudo tee -a .env >/dev/null) \
+     && (sudo grep -q '^EXIT_IMAGE=' .env || echo 'EXIT_IMAGE=$exit_ref' | sudo tee -a .env >/dev/null) \
+     && (sudo grep -q '^PROBER_IMAGE=' .env || echo 'PROBER_IMAGE=$prober_ref' | sudo tee -a .env >/dev/null) \
      && sudo docker compose pull -q && sudo docker compose up -d"
 echo "waiting for node-v$v to report healthy"
 for _ in $(seq 60); do

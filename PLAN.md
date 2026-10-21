@@ -982,6 +982,17 @@ Phase 4 response). Released as ExitControl 0.3.0.
   Host-level changes: none (the deploy directory is still the git checkout, now running the
   published images; `docker compose up -d` there uses them).
 
+**node-v1.0.1 (2026-10-21)**: Tailscale 1.102.5 → 1.104.2, built with Go 1.27.3 (1.102.5 had Go
+1.26.6, without the crypto/x509 denylist for the compromised eMudhra intermediates,
+CVE-2026-111943). The images' Debian `ca-certificates` (20250419+deb13u1) and certifi
+(2026.10.19) already exclude the affected roots. `deploy/rollout.sh 1.0.1`: live and healthy.
+Its `grep` checks ran without sudo on the 0600 `.env`, so each rollout appended the image lines
+a second time (same values); fixed, and the duplicates removed from the host's `.env`. Then
+phase3 4/4 (T9 23 s), phase5a 6/6, phase4 5/5, phase2 8/9: T3 failed once (no answer from
+MagicDNS via the exit, three tries) and passed on the rerun; T7 (fin-intel's API) still fails,
+now with no connection (000). Host-level changes: none (the `.env` dedupe is inside the deploy
+dir).
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).
