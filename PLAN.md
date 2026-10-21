@@ -859,6 +859,16 @@ strings), `needs_browser` policy, `KeyFile`; `api.py` maps typed request/respons
 Controller side: `ProberClient` in its own module with keyword arguments, `Finder` builds a
 typed `FindResult`. Re-run phase4 and phase5a suites.
 
+*R3 done (2026-10-21):* the prober is `model` (Outcome, Engine, Target, Observation,
+Verdict, TierResult, ProbeResult), `classify` (ordered `RULES`), `html`, `engines` (`HttpEngine`,
+`BrowserEngine`, `Persona`), `exitcheck.ExitCheck` (no engine import), `keyfile.KeyFile`,
+`tunnel.ProbeTunnel` (`session()` always detaches), `probe.Prober` (one probe start to finish,
+`needs_browser` policy) and a thin `api`; `__main__` builds it. 29 unit tests (23 before); the
+contract samples did not change. Fix: an engine failure (Chromium dying while a context opens)
+is an `error` result and the peer is detached, instead of a 500 with the peer left on
+wg-probe. Deployed; phase4 5/5, phase3b 10/10 (T20 covers the key reload). Host-level changes:
+none.
+
 **R4 — exitctl:** typed model (`Lever`, `Account`, `Certificate`, `KeyMeta`, `NewKey`,
 `ServerRow`, `SlotId`), ports (`Provider`, `SessionStore` with Keychain and memory
 implementations, `ExitNode` controller client with typed errors), `KeyService` (rotate, renew,
