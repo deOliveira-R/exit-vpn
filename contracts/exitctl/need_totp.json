@@ -1,0 +1,4 @@
+{
+  "error": "a 2FA code is needed (run login again with it)",
+  "need": "totp"
+}

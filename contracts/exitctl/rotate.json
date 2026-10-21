@@ -1,0 +1,26 @@
+{
+  "slot": "a",
+  "key": {
+    "slot": "a",
+    "role": "exit",
+    "source": "uploaded",
+    "public_key": "cDf38U2e2i7Q/Kxpo1h48jHrPBtfiflMJq+whMQ+txE=",
+    "options": {
+      "*": "on"
+    },
+    "meta": {
+      "provider": "proton",
+      "cert_id": "fp0",
+      "device_name": "exit-proton-a-20261021",
+      "created_at": 1792586344,
+      "expires_at": 2000000000,
+      "options": {
+        "*": null
+      },
+      "client_public_key": "brMFpQxVhAqkX7ZlTm3UvscAnzlEfN000cJlX4ltyQc=",
+      "wg_public_key": "cDf38U2e2i7Q/Kxpo1h48jHrPBtfiflMJq+whMQ+txE="
+    },
+    "expires_in_days": null
+  },
+  "deleted_old": null
+}

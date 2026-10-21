@@ -1,0 +1,57 @@
+{
+  "server": "US-NY#723",
+  "country": "United States",
+  "city": "New York",
+  "endpoint": "149.40.49.30:51820",
+  "pubkey": "JikV7Lj3rjIYG9MePiE19qFwVoUhACYFM7m55rEs2TA=",
+  "since": 1000000.0,
+  "profile": [],
+  "entry": "",
+  "features": [
+    "stream"
+  ],
+  "load": null,
+  "health": "starting",
+  "health_since": 0.0,
+  "exit_ip": null,
+  "exit_loc": null,
+  "handshake_age": null,
+  "last_ok_age": null,
+  "errors": [],
+  "warnings": [],
+  "prefs": {
+    "regions": [
+      {
+        "country": "Switzerland",
+        "city": null
+      }
+    ],
+    "auto_failover": true,
+    "secure_core": false,
+    "allow_free": false,
+    "require": [],
+    "favorites": [],
+    "countries": [
+      "Switzerland"
+    ]
+  },
+  "provider": "proton",
+  "key_options": {
+    "*": "0"
+  },
+  "catalog": {
+    "servers": 55,
+    "source": "fixture",
+    "pushed": false,
+    "fetched_at": 0.0,
+    "enabled": 55
+  },
+  "blacklisted": 0,
+  "events": [
+    {
+      "ts": 1000000.0,
+      "kind": "started",
+      "server": "US-NY#723"
+    }
+  ]
+}

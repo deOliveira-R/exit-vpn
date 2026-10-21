@@ -1,0 +1,136 @@
+{
+  "candidate_failed": {
+    "ts": 1000080.0,
+    "kind": "candidate_failed",
+    "server": "SE-US#1"
+  },
+  "catalog": {
+    "ts": 1000000.0,
+    "kind": "catalog",
+    "source": "pinned-url",
+    "servers": 55,
+    "before": 80
+  },
+  "catalog_reverted": {
+    "ts": 1000000.0,
+    "kind": "catalog_reverted",
+    "by": "o@github (?)"
+  },
+  "degraded": {
+    "ts": 1000333.0,
+    "kind": "degraded",
+    "tried": 15
+  },
+  "failover_done": {
+    "ts": 1000035.0,
+    "kind": "failover_done",
+    "old": "US-IL#510",
+    "new": "US-IL#710",
+    "exit_ip": "9.9.9.9",
+    "seconds": 1.0
+  },
+  "failover_start": {
+    "ts": 1000034.0,
+    "kind": "failover_start",
+    "server": "US-IL#510",
+    "reason": "health checks failed: https: timeout"
+  },
+  "find_started": {
+    "ts": 1000000.0,
+    "kind": "find_started",
+    "by": "o@github (?)",
+    "url": "https://www.example.com/",
+    "job": "f1-1792586345",
+    "candidates": 2
+  },
+  "health": {
+    "ts": 1000034.0,
+    "kind": "health",
+    "state": "failing_over",
+    "errors": [
+      "https: timeout"
+    ]
+  },
+  "key_meta": {
+    "ts": 1000000.0,
+    "kind": "key_meta",
+    "slot": "a",
+    "by": "o@github",
+    "expires_at": 4000000000
+  },
+  "key_rejected": {
+    "ts": 1000047.0,
+    "kind": "key_rejected",
+    "slot": "a",
+    "reason": "upload by o@github",
+    "restored_healthy": true
+  },
+  "key_replaced": {
+    "ts": 1000000.0,
+    "kind": "key_replaced",
+    "slot": "b",
+    "reason": "upload by o@github (?)",
+    "seconds": 1.0
+  },
+  "prefs": {
+    "ts": 1000004.0,
+    "kind": "prefs",
+    "by": "o@github (?)",
+    "prefs": {
+      "regions": [
+        {
+          "country": "Switzerland",
+          "city": null
+        }
+      ],
+      "auto_failover": true,
+      "secure_core": false,
+      "allow_free": false,
+      "require": [],
+      "favorites": [
+        "US-IL#510"
+      ],
+      "countries": [
+        "Switzerland"
+      ]
+    }
+  },
+  "recovered": {
+    "ts": 1000400.0,
+    "kind": "recovered",
+    "server": "US-IL#510"
+  },
+  "started": {
+    "ts": 1000000.0,
+    "kind": "started",
+    "server": "US-NY#723"
+  },
+  "swap_error": {
+    "ts": 1000050.0,
+    "kind": "swap_error",
+    "server": "US-IL#510",
+    "error": "wg set failed: exit status 1"
+  },
+  "switch_reverted": {
+    "ts": 1000081.0,
+    "kind": "switch_reverted",
+    "server": "US-NY#723",
+    "reason": "secure core on by o@github"
+  },
+  "switched": {
+    "ts": 1000005.0,
+    "kind": "switched",
+    "old": "US-NY#723",
+    "new": "US-IL#510",
+    "reason": "select {'server': 'US-IL#510'} by o@github (?)",
+    "exit_ip": "9.9.9.9",
+    "seconds": 1.0
+  },
+  "unhealthy_no_failover": {
+    "ts": 1000033.0,
+    "kind": "unhealthy_no_failover",
+    "errors": [
+      "https: timeout"
+    ]
+  }
+}

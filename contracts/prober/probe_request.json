@@ -1,0 +1,14 @@
+{
+  "server": {
+    "name": "US-NY#723",
+    "ip": "149.40.49.30",
+    "pubkey": "JikV7Lj3rjIYG9MePiE19qFwVoUhACYFM7m55rEs2TA=",
+    "country_code": "US"
+  },
+  "url": "https://www.example.com/",
+  "mode": "auto",
+  "js": false,
+  "forbid_ips": [
+    "192.0.2.9"
+  ]
+}

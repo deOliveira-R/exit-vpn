@@ -1,0 +1,28 @@
+{
+  "slots": [
+    {
+      "slot": "b",
+      "role": "prober",
+      "source": "uploaded",
+      "public_key": "pub:zfJC0u",
+      "options": {
+        "*": "0"
+      },
+      "meta": {
+        "provider": "proton",
+        "cert_id": "c3RhYmxlLWlk",
+        "device_name": "exit-proton-b-20261021",
+        "created_at": 1792540000,
+        "expires_at": 1824076000,
+        "options": {
+          "*": null
+        },
+        "client_public_key": "MCowBQYDK2VwAyEA",
+        "wg_public_key": "pub:zfJC0u",
+        "uploaded_by": "o@github (?)",
+        "uploaded_at": 1792586345
+      },
+      "expires_in_days": 364
+    }
+  ]
+}

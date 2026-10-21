@@ -1,0 +1,9 @@
+{
+  "error": "Proton asks for human verification",
+  "need": "human_verification",
+  "token": "hvtok",
+  "methods": [
+    "captcha"
+  ],
+  "url": "https://verify.proton.me/?methods=captcha&token=hvtok"
+}

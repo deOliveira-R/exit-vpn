@@ -1,0 +1,16 @@
+[
+  {
+    "id": "fp0",
+    "serial": "s",
+    "device_name": "exit-proton-a-20261021",
+    "mode": "persistent",
+    "expires_at": 2000000000,
+    "client_public_key": "brMFpQxVhAqkX7ZlTm3UvscAnzlEfN000cJlX4ltyQc=",
+    "wg_public_key": "cDf38U2e2i7Q/Kxpo1h48jHrPBtfiflMJq+whMQ+txE=",
+    "options": {
+      "*": null
+    },
+    "slot": "a",
+    "orphan": false
+  }
+]

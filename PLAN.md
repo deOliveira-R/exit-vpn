@@ -811,6 +811,15 @@ producer's tests must emit and the consumer's tests must parse (pytest on both P
 swift-testing in the app). Write `contracts/README.md`: each format, required fields,
 compatibility rules (unknown fields ignored, unknown enum values tolerated).
 
+*R1 done (2026-10-21):* 24 samples in `contracts/` (controller 7, prober 4, exitctl 13) with
+`shape.py` and a README (formats, exit codes, SSE framing, event catalogue, how to change a
+contract). Producer checks: controller API responses and every event any test emits (and a
+test that every event kind in the code has a sample), the controller's prober requests, the
+prober's responses, exitctl's `--json` output and exit codes. Consumer checks: the app decodes
+every controller and exitctl sample (and has a summary line for every event kind). Found while
+writing them: `recovered`, `find_started` and `swap_error` are never emitted by any test (the
+first confirms the untested degraded-recovery path, fixed in R2).
+
 **R2 — Controller** (target concepts):
 - Domain (pure): `Server`/`ServerId`, `Feature` (one vocabulary, hard vs soft), `Region`,
   `Catalog` (lookups, canonical names/regions, no file I/O), `Prefs` (`updated(...)` validates
@@ -876,8 +885,9 @@ ARCHITECTURE.md and the code and agrees the concepts are clear.
 - **Updates**: change the version in `.env`, pull, restart. The controller reports its version
   in `/v1/status`; the app can later show "exit node update available".
 - **Migration**: the VPS moves from the git checkout to the kit after a test run there.
-- **Open (owner)**: one version for the repo or separate tag series (app `v0.x`, node
-  `node-v1.x`); confirm the VPS architecture; public images.
+- **Versions (decided 2026-10-21)**: separate tag series: the app keeps `vX.Y.Z`, the node
+  images use `node-vX.Y.Z`; the controller's API version (in `/v1/status`) says which app versions
+  work with it. Still to confirm: the VPS architecture; public images.
 - **Acceptance**: T38 a node tag publishes both images (both architectures) with verifiable
   provenance; T39 a fresh directory with the kit, `.env` and secrets brings up a working exit;
   T40 the VPS runs the published images and the Phase 3/5a suites pass.

@@ -1,0 +1,9 @@
+[
+  {
+    "name": "manual",
+    "title": "Manual (.conf import)",
+    "capabilities": [
+      "import"
+    ]
+  }
+]

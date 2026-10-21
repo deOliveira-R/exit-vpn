@@ -1,0 +1,23 @@
+{
+  "server": "US-NY#1",
+  "url": "https://www.example.com/",
+  "exit_ip": "203.0.113.7",
+  "exit_loc": "US",
+  "outcome": "ok",
+  "signals": [],
+  "tiers": [
+    {
+      "engine": "http",
+      "outcome": "challenge",
+      "signals": [
+        "challenge title: 'Just a moment...'"
+      ],
+      "http_status": 200,
+      "final_url": "https://www.example.com/",
+      "title": "Just a moment...",
+      "text_len": 1,
+      "error": ""
+    }
+  ],
+  "elapsed_ms": 0
+}

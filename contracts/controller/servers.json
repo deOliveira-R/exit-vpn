@@ -1,0 +1,25 @@
+{
+  "count": 55,
+  "countries": [
+    "United States"
+  ],
+  "servers": [
+    {
+      "name": "SE-DE#1",
+      "country": "Germany",
+      "city": "Frankfurt",
+      "hostname": "node-de-24.protonvpn.net",
+      "ip": "185.159.156.29",
+      "pubkey": "MOLPnnM2MSq7s7KqAgpm+AWpmzFAtuE46qBFHeLg5Tk=",
+      "secure_core": true,
+      "tor": false,
+      "free": false,
+      "stream": false,
+      "port_forward": false,
+      "ipv6": false,
+      "load": null,
+      "enabled": true,
+      "entry": "SE"
+    }
+  ]
+}

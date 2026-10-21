@@ -1,0 +1,16 @@
+{
+  "regions": [
+    {
+      "country": "Switzerland",
+      "city": null
+    }
+  ],
+  "auto_failover": true,
+  "secure_core": false,
+  "allow_free": false,
+  "require": [],
+  "favorites": [],
+  "countries": [
+    "Switzerland"
+  ]
+}

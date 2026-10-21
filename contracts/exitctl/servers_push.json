@@ -1,0 +1,12 @@
+{
+  "servers": 1,
+  "enabled": 1,
+  "countries": 1,
+  "catalog": {
+    "servers": 55,
+    "source": "fixture",
+    "pushed": false,
+    "fetched_at": 0.0,
+    "enabled": 55
+  }
+}

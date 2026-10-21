@@ -1,0 +1,13 @@
+[
+  {
+    "key": "port_forward",
+    "label": "NAT-PMP (Port Forwarding)",
+    "conf_label": "NAT-PMP (Port Forwarding)",
+    "kind": "bool",
+    "default": null,
+    "choices": {
+      "*": "block malware, ads and trackers"
+    },
+    "help": "NAT-PMP port forwarding on P2P servers"
+  }
+]
