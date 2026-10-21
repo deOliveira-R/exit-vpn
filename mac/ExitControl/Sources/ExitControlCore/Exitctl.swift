@@ -1,9 +1,9 @@
 import Foundation
 
-/// Provider actions run through `exitctl --json` (D20): login, keys, levers, catalog.
-/// exitctl is installed separately (`uv tool install ./helper`), so the app never bundles
-/// GPLv3 code. Exit codes: 0 ok, 1 error, 2 controller refused (409), 3 needs input.
-public enum ExitctlError: Error, LocalizedError, Sendable {
+/// Provider actions run through `exitctl --json` (D20): login, keys, levers, catalog. exitctl
+/// is installed separately (`uv tool install ./helper`), so the app never bundles GPLv3 code.
+/// Exit codes (contracts/README.md): 0 done, 1 error, 2 the exit node refused, 3 input needed.
+public enum ExitctlError: Error, LocalizedError, Sendable, Equatable {
     case notInstalled
     case needInput(what: String, message: String, info: [String: JSONValue])
     case failed(code: Int32, message: String)
@@ -17,55 +17,61 @@ public enum ExitctlError: Error, LocalizedError, Sendable {
     }
 }
 
-public struct ProviderOption: Codable, Hashable, Sendable, Identifiable {
-    public var key: String
-    public var label: String
-    public var confLabel: String?  // how the .conf comments name it ("NetShield")
-    public var kind: String        // "bool" | "choice"
-    public var `default`: JSONValue
-    public var choices: [String: String]
-    public var help: String
-    public var id: String { key }
-    /// Choice values in numeric order.
-    public var sortedChoices: [(value: String, label: String)] {
-        choices.sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }.map { ($0.key, $0.value) }
+/// What the app asks of the provider (`Exitctl`; a fake in tests).
+public protocol ProviderCLI: Sendable {
+    func options(_ provider: String) async throws -> [ProviderOption]
+    func whoami(_ provider: String) async throws -> Account
+    func certificates(_ provider: String) async throws -> [Certificate]
+    func login(_ provider: String, _ step: LoginStep) async throws -> Account
+    func perform(_ provider: String, _ command: ProviderCommand) async throws
+}
+
+/// Everything the owner can ask the provider (through exitctl) to do.
+public enum ProviderCommand: Sendable, Equatable {
+    case logout
+    case rotateKey(slot: String, options: [String: String])   // lever values in flag form
+    case renewKey(slot: String)
+    case deleteCertificate(id: String)
+    case pushServers
+    case revertServers
+
+    public var label: String {
+        switch self {
+        case .logout: return "Log out"
+        case .rotateKey(let s, let o): return o.isEmpty ? "New key, slot \(s)" : "New key with options"
+        case .renewKey(let s): return "Renew slot \(s)"
+        case .deleteCertificate: return "Delete certificate"
+        case .pushServers: return "Push server list"
+        case .revertServers: return "Revert server list"
+        }
+    }
+
+    var arguments: [String] {
+        switch self {
+        case .logout: return ["logout"]
+        case .rotateKey(let slot, let options):
+            return ["rotate", "--slot", slot] + options.sorted { $0.key < $1.key }.flatMap {
+                ["--\($0.key.replacingOccurrences(of: "_", with: "-"))", $0.value]
+            }
+        case .renewKey(let slot): return ["renew", "--slot", slot]
+        case .deleteCertificate(let id): return ["delete", id]
+        case .pushServers: return ["servers", "--push"]
+        case .revertServers: return ["servers", "--revert"]
+        }
     }
 }
 
-public struct Account: Codable, Sendable, Equatable {
-    public var account: String?
-    public var loggedIn: Bool?
-    public var needs2fa: Bool?
-    public var isLoggedIn: Bool { account != nil && loggedIn != false && needs2fa != true }
-}
-
-public struct Certificate: Codable, Hashable, Sendable, Identifiable {
-    public var id: String?
-    public var deviceName: String
-    public var expiresAt: Double?
-    public var options: [String: JSONValue]
-    public var wgPublicKey: String?
-    public var slot: String?
-    public var orphan: Bool?
-    public var stableID: String { id ?? deviceName }
-}
-
-public struct ProviderInfo: Codable, Hashable, Sendable {
-    public var name: String
-    public var title: String
-    public var capabilities: [String]
-}
-
-public struct Exitctl: Sendable {
+public struct Exitctl: ProviderCLI {
     public var executable: URL
     public var controllerURL: String
+    var runner = ProcessRunner(timeout: 300)   // a key rotation can take ~2 minutes
 
     public init(executable: URL, controllerURL: String) {
         self.executable = executable
         self.controllerURL = controllerURL
     }
 
-    /// Where `uv tool install` and common setups put it; the repo's venv last.
+    /// Where `uv tool install` and common setups put it.
     public static func locate(override: String? = nil) -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let candidates = [override, "\(home)/.local/bin/exitctl", "/opt/homebrew/bin/exitctl",
@@ -74,41 +80,16 @@ public struct Exitctl: Sendable {
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
-    /// Runs `exitctl <args> --json`; `stdin` is written then closed (used for login
-    /// credentials, which never appear in argv).
+    /// Runs `exitctl <args> --json`; `stdin` is written then closed (login credentials).
     public func run(_ args: [String], stdin: Data? = nil) async throws -> Data {
-        let exe = executable, url = controllerURL
-        return try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global().async {
-                let p = Process()
-                p.executableURL = exe
-                p.arguments = args + ["--json", "--url", url]
-                var env = ProcessInfo.processInfo.environment
-                // GUI apps get a minimal PATH; proton-core needs gpg (Homebrew)
-                env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (env["PATH"] ?? "")
-                p.environment = env
-                let out = Pipe(), err = Pipe(), inp = Pipe()
-                p.standardOutput = out; p.standardError = err; p.standardInput = inp
-                do { try p.run() } catch {
-                    cont.resume(throwing: ExitctlError.failed(code: -1, message: "exitctl: \(error.localizedDescription)"))
-                    return
-                }
-                if let stdin { inp.fileHandleForWriting.write(stdin) }
-                try? inp.fileHandleForWriting.close()
-                let data = out.fileHandleForReading.readDataToEndOfFile()
-                let errText = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                p.waitUntilExit()
-                let code = p.terminationStatus
-                if code == 0 { cont.resume(returning: data); return }
-                let obj = (try? JSONDecoder().decode([String: JSONValue].self, from: data)) ?? [:]
-                let msg = obj["error"]?.string ?? errText.split(separator: "\n").last.map(String.init) ?? "exitctl failed (\(code))"
-                if code == 3, let what = obj["need"]?.string {
-                    cont.resume(throwing: ExitctlError.needInput(what: what, message: msg, info: obj))
-                } else {
-                    cont.resume(throwing: ExitctlError.failed(code: code, message: msg))
-                }
-            }
+        let r = try await runner.run(executable, args + ["--json", "--url", controllerURL], stdin: stdin)
+        if r.code == 0 { return r.stdout }
+        let obj = (try? JSONDecoder().decode([String: JSONValue].self, from: r.stdout)) ?? [:]
+        let msg = obj["error"]?.string ?? r.lastErrorLine ?? "exitctl failed (\(r.code))"
+        if r.code == 3, let what = obj["need"]?.string {
+            throw ExitctlError.needInput(what: what, message: msg, info: obj)
         }
+        throw ExitctlError.failed(code: r.code, message: msg)
     }
 
     func decode<T: Decodable>(_ t: T.Type, _ args: [String], stdin: Data? = nil) async throws -> T {
@@ -119,38 +100,13 @@ public struct Exitctl: Sendable {
     public func options(_ p: String) async throws -> [ProviderOption] { try await decode([ProviderOption].self, [p, "options"]) }
     public func whoami(_ p: String) async throws -> Account { try await decode(Account.self, [p, "whoami"]) }
     public func certificates(_ p: String) async throws -> [Certificate] { try await decode([Certificate].self, [p, "list"]) }
-    public func logout(_ p: String) async throws { _ = try await run([p, "logout"]) }
-    public func delete(_ p: String, id: String) async throws { _ = try await run([p, "delete", id]) }
-    public func renew(_ p: String, slot: String) async throws { _ = try await run([p, "renew", "--slot", slot]) }
-    public func pushServers(_ p: String) async throws { _ = try await run([p, "servers", "--push"]) }
-    public func revertServers(_ p: String) async throws { _ = try await run([p, "servers", "--revert"]) }
-
-    /// New key for a slot with the given lever values (flag form: key → "on"/"off"/"2").
-    public func rotate(_ p: String, slot: String, options: [String: String]) async throws {
-        var args = [p, "rotate", "--slot", slot]
-        for (k, v) in options.sorted(by: { $0.key < $1.key }) {
-            args += ["--\(k.replacingOccurrences(of: "_", with: "-"))", v]
-        }
-        _ = try await run(args)
-    }
-
-    /// One login step. Credentials go on stdin as JSON; a missing 2FA code or a CAPTCHA
-    /// comes back as `.needInput` (what: "totp" / "human_verification" with a "url").
-    public struct LoginStep: Encodable, Sendable {
-        public var username: String?
-        public var password: String?
-        public var totp: String?
-        public var hvToken: String?
-        public var hvType: String?
-        public init(username: String? = nil, password: String? = nil, totp: String? = nil,
-                    hvToken: String? = nil, hvType: String? = nil) {
-            self.username = username; self.password = password; self.totp = totp
-            self.hvToken = hvToken; self.hvType = hvType
-        }
-    }
 
     public func login(_ p: String, _ step: LoginStep) async throws -> Account {
         let e = JSONEncoder(); e.keyEncodingStrategy = .convertToSnakeCase
         return try await decode(Account.self, [p, "login", "--stdin"], stdin: try e.encode(step))
+    }
+
+    public func perform(_ p: String, _ command: ProviderCommand) async throws {
+        _ = try await run([p] + command.arguments)
     }
 }

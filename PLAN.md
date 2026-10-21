@@ -903,6 +903,22 @@ hardened `ProcessRunner`. The app target keeps views, `AppContainer` (compositio
 `Router`, Intents, Updater. Unchanged: UserDefaults keys, bundle id, LaunchAgent label,
 `exitvpn://` grammar, Intent names and parameters. Release only after T27–T34 by hand.
 
+*R5 done (2026-10-21):* the app's core library is now the vocabulary (`Health`,
+`RotationScope`, `Feature`, `FindMode`, `FindOutcome`, `SettingsTab`, `AppRoute`), wire models
+(`ControllerModels`, `Event`, `ExitctlModels`, `Geography`), `ControllerAPI` +
+`ControllerCommand` (the client conforms; one `perform`), `ProviderCLI` + `ProviderCommand`
+(`Exitctl`), `ProcessRunner` (concurrent pipes, timeout, terminate on cancel; exitctl,
+tailscale, launchctl), `ActionRunner` (menu: refuse while busy; URLs and Shortcuts: queue in
+order), `ConnectionStore`, `CatalogStore`, `ProviderStore` (lever resolution as exitctl's),
+`ExitNodeMonitor`, `AppSettings` (same UserDefaults keys), `ServerQuery`, `StatusText`,
+`LoginFlow`, `FindSession`, and typed `ExitURL`. The app target is `AppContainer` (composition
+root, replaces the 343-line AppModel), `Router`, `Updater` (owned, not a singleton), the views
+and Intents (names and parameters unchanged). 26 core tests (17 before). Behaviour changes:
+warnings already present at launch no longer notify on every start; the server list reloads
+when the catalog changes; an unreadable status shows "can't be read" instead of stale data;
+`exitvpn://settings/<unknown>` opens General. Checked: build without warnings, the four URLs
+in a row ran in order (T33), the windows render live data.
+
 **R6 — Documentation:** `ARCHITECTURE.md` (the system, then one concept map per component:
 concepts, objects, connections, locks, files on disk, startup order), component READMEs
 (`controller/`, `prober/`, `helper/` with "adding a provider"), module/class docstrings stating

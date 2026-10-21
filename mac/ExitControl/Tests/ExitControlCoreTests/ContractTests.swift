@@ -17,7 +17,7 @@ private func sample<T: Decodable>(_ name: String, as type: T.Type = T.self) thro
 
 @Test func controllerSamplesDecode() throws {
     let st = try sample("controller/status", as: Status.self)
-    #expect(st.server != nil && st.health_ != .unknown)
+    #expect(st.server != nil && st.health.isKnown)
     let servers = try sample("controller/servers", as: ServersResponse.self)
     #expect(!servers.servers.isEmpty)
     let prefs = try sample("controller/prefs", as: Prefs.self)

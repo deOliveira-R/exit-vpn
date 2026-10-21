@@ -6,23 +6,25 @@ import Sparkle
 /// installs an update only if its EdDSA signature matches SUPublicEDKey in Info.plist.
 @MainActor @Observable
 final class Updater {
-    static let shared = Updater()
-
-    private let controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil,
-                                                          userDriverDelegate: nil)
+    @ObservationIgnored private var controller: SPUStandardUpdaterController?
+    @ObservationIgnored private var observation: NSKeyValueObservation?
     private(set) var canCheck = false
-    private var observation: NSKeyValueObservation?
+    private(set) var automaticChecks = true
 
-    private init() {
-        observation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, change in
+    func start() {
+        guard controller == nil else { return }
+        let c = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        controller = c
+        automaticChecks = c.updater.automaticallyChecksForUpdates
+        observation = c.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, change in
             let can = change.newValue ?? false
             Task { @MainActor in self?.canCheck = can }
         }
     }
 
-    var automaticChecks: Bool {
-        get { controller.updater.automaticallyChecksForUpdates }
-        set { controller.updater.automaticallyChecksForUpdates = newValue }
+    func setAutomaticChecks(_ on: Bool) {
+        controller?.updater.automaticallyChecksForUpdates = on
+        automaticChecks = on
     }
 
     var version: String {
@@ -32,6 +34,6 @@ final class Updater {
 
     func check() {
         bringToFront()   // a menu-bar app: the update window must come forward
-        controller.checkForUpdates(nil)
+        controller?.checkForUpdates(nil)
     }
 }

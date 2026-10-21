@@ -35,18 +35,11 @@ public enum Tailscale {
         guard let exe = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return .unknown("tailscale CLI not found")
         }
-        return await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: exe)
-                p.arguments = ["status", "--json"]
-                let out = Pipe()
-                p.standardOutput = out; p.standardError = Pipe()
-                do { try p.run() } catch { cont.resume(returning: .unknown(error.localizedDescription)); return }
-                let data = out.fileHandleForReading.readDataToEndOfFile()
-                p.waitUntilExit()
-                cont.resume(returning: parse(data, node: node))
-            }
+        do {
+            let r = try await ProcessRunner(timeout: 10).run(URL(fileURLWithPath: exe), ["status", "--json"])
+            return parse(r.stdout, node: node)
+        } catch {
+            return .unknown(error.localizedDescription)
         }
     }
 

@@ -25,7 +25,7 @@ let liveURL = ProcessInfo.processInfo.environment["EXITCONTROL_LIVE"]
             switch u {
             case .connected: got.append("connected")
             case .status: got.append("status")
-            case .event, .disconnected: break
+            case .event, .incompatible, .disconnected: break
             }
             if got.count == 2 { break }
         }
@@ -44,7 +44,7 @@ let liveURL = ProcessInfo.processInfo.environment["EXITCONTROL_LIVE"]
 
     @Test func badRequestsSurfaceTheDetail() async throws {
         await #expect {
-            try await client.select(server: "NO-SUCH#1", ip: nil)
+            try await client.perform(.connectServer(name: "NO-SUCH#1", ip: nil))
         } throws: { e in
             (e as? APIError).map { $0.status == 400 && $0.detail.contains("no server") } ?? false
         }

@@ -2,66 +2,68 @@ import ExitControlCore
 import SwiftUI
 
 struct SettingsView: View {
-    @Bindable var model: AppModel
+    let app: AppContainer
 
     var body: some View {
-        TabView(selection: $model.settingsTab) {
-            GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }.tag("general")
-            RegionsTab(model: model).tabItem { Label("Regions", systemImage: "pin") }.tag("regions")
-            ConnectionTab(model: model).tabItem { Label("Connection", systemImage: "slider.horizontal.3") }.tag("connection")
-            AccountTab(model: model).tabItem { Label("Account", systemImage: "person.badge.key") }.tag("account")
-            LogTab(model: model).tabItem { Label("Events", systemImage: "list.bullet.rectangle") }.tag("events")
+        @Bindable var router = app.router
+        TabView(selection: $router.settingsTab) {
+            GeneralTab(app: app).tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsTab.general)
+            RegionsTab(app: app).tabItem { Label("Regions", systemImage: "pin") }.tag(SettingsTab.regions)
+            ConnectionTab(app: app).tabItem { Label("Connection", systemImage: "slider.horizontal.3") }.tag(SettingsTab.connection)
+            AccountTab(app: app).tabItem { Label("Account", systemImage: "person.badge.key") }.tag(SettingsTab.account)
+            LogTab(app: app).tabItem { Label("Events", systemImage: "list.bullet.rectangle") }.tag(SettingsTab.events)
         }
         .frame(width: 620, height: 460)
-        .task { await model.loadProvider() }
-
+        .task { await app.provider.load() }
     }
 }
 
 struct GeneralTab: View {
-    @Bindable var model: AppModel
+    let app: AppContainer
     @State private var url = ""
 
     var body: some View {
+        @Bindable var settings = app.settings
         Form {
             Section("Exit node") {
                 HStack {
                     TextField("Controller URL", text: $url)
-                    Button("Apply") { model.controllerURL = url }.disabled(url == model.controllerURL)
+                    Button("Apply") { settings.controllerURL = url }.disabled(url == settings.controllerURL)
                 }
-                LabeledContent("Connection", value: model.online ? "Online" : "Offline: \(model.offlineReason ?? "")")
-                LabeledContent("This Mac", value: model.exitUse.label)
+                LabeledContent("Connection", value: app.connection.online ? "Online" : "Offline: \(app.connection.offlineReason ?? "")")
+                LabeledContent("This Mac", value: app.exitNode.use.label)
                 Text("Whether this Mac routes through the exit node is chosen in the Tailscale app; ExitControl chooses which VPN server the exit node uses, for every device routed through it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("exitctl (provider actions)") {
-                TextField("Path", text: $model.exitctlPath, prompt: Text("~/.local/bin, Homebrew or /usr/local/bin"))
-                LabeledContent("Found", value: model.exitctl?.executable.path ?? "not found: uv tool install ./helper")
+                TextField("Path", text: $settings.exitctlPath, prompt: Text("~/.local/bin, Homebrew or /usr/local/bin"))
+                LabeledContent("Found", value: settings.exitctl?.executable.path ?? "not found: uv tool install ./helper")
             }
             Section("App") {
-                Toggle("Show the exit country's flag in the menu bar", isOn: $model.showFlag)
-                Toggle("Notifications (failover, degraded, key expiry)", isOn: $model.notify)
-                Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                Toggle("Show the exit country's flag in the menu bar", isOn: $settings.showFlag)
+                Toggle("Notifications (failover, degraded, key expiry)", isOn: $settings.notify)
+                Toggle("Launch at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.setLaunchAtLogin($0) }))
                 Toggle("Check for updates automatically", isOn: Binding(
-                    get: { Updater.shared.automaticChecks }, set: { Updater.shared.automaticChecks = $0 }))
-                LabeledContent("Version", value: Updater.shared.version)
+                    get: { app.updater.automaticChecks }, set: { app.updater.setAutomaticChecks($0) }))
+                LabeledContent("Version", value: app.updater.version)
+                if let e = app.agentError { Text(e).foregroundStyle(.red).font(.caption) }
             }
         }
         .formStyle(.grouped)
-        .onAppear { url = model.controllerURL }
+        .onAppear { url = settings.controllerURL }
     }
 }
 
 /// Pinned regions in priority order: failover and "New Server, Pinned Regions" walk them.
 struct RegionsTab: View {
-    let model: AppModel
+    let app: AppContainer
     @State private var regions: [Region] = []
     @State private var country = ""
     @State private var city = ""
     @State private var selection: Region.ID?
 
-    var cities: [String] { Array(Set(model.servers.filter { $0.country == country && !$0.secureCore }.map(\.city))).sorted() }
-    var changed: Bool { regions != (model.status?.prefs.regions ?? []) }
+    var saved: [Region] { app.connection.status?.prefs.regions ?? [] }
+    var changed: Bool { regions != saved }
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -69,7 +71,7 @@ struct RegionsTab: View {
                 .font(.caption).foregroundStyle(.secondary)
             List(selection: $selection) {
                 ForEach(regions) { r in
-                    Text("\(flag(model.codes[r.country])) \(r.label)").tag(r.id)
+                    Text("\(flag(app.catalog.codes[r.country])) \(r.label)").tag(r.id)
                 }
                 .onMove { regions.move(fromOffsets: $0, toOffset: $1) }
                 .onDelete { regions.remove(atOffsets: $0) }
@@ -78,11 +80,11 @@ struct RegionsTab: View {
             HStack {
                 Picker("Country", selection: $country) {
                     Text("Choose…").tag("")
-                    ForEach(model.countries, id: \.self) { Text("\(flag(model.codes[$0])) \($0)").tag($0) }
+                    ForEach(app.catalog.countries, id: \.self) { Text("\(flag(app.catalog.codes[$0])) \($0)").tag($0) }
                 }
                 Picker("City", selection: $city) {
                     Text("Any city").tag("")
-                    ForEach(cities, id: \.self) { Text($0).tag($0) }
+                    ForEach(app.catalog.cities(in: country), id: \.self) { Text($0).tag($0) }
                 }
                 .disabled(country.isEmpty)
                 Button("Add") {
@@ -94,37 +96,41 @@ struct RegionsTab: View {
             HStack {
                 Button("Remove") { regions.removeAll { $0.id == selection } }.disabled(selection == nil || regions.count < 2)
                 Spacer()
-                Button("Revert") { regions = model.status?.prefs.regions ?? [] }.disabled(!changed)
-                Button("Save") { model.setRegions(regions) }.keyboardShortcut(.defaultAction)
-                    .disabled(!changed || regions.isEmpty || model.busy != nil)
+                Button("Revert") { regions = saved }.disabled(!changed)
+                Button("Save") { app.run(.regions(regions)) }.keyboardShortcut(.defaultAction)
+                    .disabled(!changed || regions.isEmpty || !app.ready)
             }
-            if let e = model.lastError { Text(e).foregroundStyle(.red).font(.caption) }
+            if let e = app.runner.lastError { Text(e).foregroundStyle(.red).font(.caption) }
         }
         .padding()
-        .onAppear { regions = model.status?.prefs.regions ?? [] }
-        .onChange(of: model.status?.prefs.regions ?? []) { _, new in if !changed { regions = new } }
+        .onAppear { regions = saved }
+        .onChange(of: saved) { _, new in if !changed { regions = new } }
         .onChange(of: country) { city = "" }
     }
 }
 
-/// Provider levers (Proton: NetShield, VPN Accelerator, Moderate NAT, NAT-PMP). They are
-/// bound to the key (D17), so applying them makes a new key for the exit slot.
+/// What every server must have, and the provider's levers (Proton: NetShield, VPN
+/// Accelerator, Moderate NAT, NAT-PMP). Levers are bound to the key (D17), so applying them
+/// makes a new key for the exit slot.
 struct ConnectionTab: View {
-    let model: AppModel
+    let app: AppContainer
     @State private var values: [String: String] = [:]
 
+    var current: [String: String] { app.provider.levers(slot: "a") }
+
     var body: some View {
+        let required = Set(app.connection.status?.prefs.require ?? [])
         Form {
             Section {
-                ForEach(["port_forward", "stream", "ipv6"], id: \.self) { f in
-                    Toggle(featureName(f), isOn: Binding(
-                        get: { model.status?.prefs.require.contains(f) ?? false },
+                ForEach(Feature.allCases, id: \.self) { f in
+                    Toggle(f.name, isOn: Binding(
+                        get: { required.contains(f.rawValue) },
                         set: { on in
-                            var r = (model.status?.prefs.require ?? []).filter { $0 != f }
+                            var r = Feature.allCases.filter { required.contains($0.rawValue) && $0 != f }
                             if on { r.append(f) }
-                            model.setRequire(r)
+                            app.run(.require(r))
                         }))
-                    .disabled(!model.online || model.busy != nil)
+                    .disabled(!app.ready)
                 }
             } header: {
                 Text("Every server must have")
@@ -133,9 +139,9 @@ struct ConnectionTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                ForEach(model.options) { o in
-                    if o.kind == "bool" {
-                        Toggle(o.label, isOn: Binding(get: { values[o.key] == "on" || values[o.key] == "true" },
+                ForEach(app.provider.options) { o in
+                    if o.isToggle {
+                        Toggle(o.label, isOn: Binding(get: { values[o.key] == "on" },
                                                       set: { values[o.key] = $0 ? "on" : "off" }))
                     } else {
                         Picker(o.label, selection: Binding(get: { values[o.key] ?? "" }, set: { values[o.key] = $0 })) {
@@ -145,51 +151,48 @@ struct ConnectionTab: View {
                     if !o.help.isEmpty { Text(o.help).font(.caption).foregroundStyle(.secondary) }
                 }
             } header: {
-                Text("\(model.provider.capitalized) options for the exit")
+                Text("\(app.provider.provider.capitalized) options for the exit")
             } footer: {
                 Text("Applying makes a new key with these options and swaps it in (about 10 s; traffic pauses ~1–2 s). The controller keeps the old key if the new one does not work.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                if let b = model.busy { ProgressView().controlSize(.small); Text(b) }
-                if let e = model.providerError { Text(e).foregroundStyle(.red).font(.caption) }
+                if let b = app.runner.busy { ProgressView().controlSize(.small); Text(b) }
+                if let e = app.runner.lastError ?? app.provider.error { Text(e).foregroundStyle(.red).font(.caption) }
                 Spacer()
-                Button("Revert") { values = model.currentOptions() }.disabled(values == model.currentOptions())
-                Button("Apply") {
-                    let v = values
-                    model.provider("New key with options") { x, p in try await x.rotate(p, slot: "a", options: v) }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(values == model.currentOptions() || model.busy != nil || model.account?.isLoggedIn != true)
+                Button("Revert") { values = current }.disabled(values == current)
+                Button("Apply") { app.run(.rotateKey(slot: "a", options: values)) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(values == current || !app.runner.isIdle || !app.provider.isLoggedIn)
             }
-            if model.account?.isLoggedIn != true { Text("Log in under Account first.").font(.caption) }
+            if !app.provider.isLoggedIn { Text("Log in under Account first.").font(.caption) }
         }
         .formStyle(.grouped)
-        .onAppear { values = model.currentOptions() }
-        .onChange(of: model.keys) { values = model.currentOptions() }
-        .onChange(of: model.options) { values = model.currentOptions() }
+        .onAppear { values = current }
+        .onChange(of: current) { values = current }
     }
 }
 
 struct AccountTab: View {
-    let model: AppModel
+    let app: AppContainer
     @State private var showLogin = false
 
     var body: some View {
+        let p = app.provider
         Form {
-            Section("\(model.provider.capitalized) account") {
-                if let a = model.account, a.isLoggedIn {
+            Section("\(p.provider.capitalized) account") {
+                if let a = p.account, a.isLoggedIn {
                     LabeledContent("Logged in as", value: a.account ?? "?")
-                    Button("Log Out") { model.provider("Log out") { x, p in try await x.logout(p) } }
+                    Button("Log Out") { app.run(.logout) }
                 } else {
-                    Text(model.account?.needs2fa == true ? "Login waiting for a 2FA code" : "Not logged in")
+                    Text(p.account?.needs2fa == true ? "Login waiting for a 2FA code" : "Not logged in")
                     Button("Log In…") { showLogin = true }
                 }
                 Text("The session stays in this Mac's Keychain; it never goes to the exit node.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Keys on the exit node") {
-                ForEach(model.keys) { k in
+                ForEach(p.keys) { k in
                     HStack {
                         VStack(alignment: .leading) {
                             Text("Slot \(k.slot) (\(k.role)): \(k.deviceName ?? k.source)")
@@ -199,16 +202,14 @@ struct AccountTab: View {
                         Spacer()
                         Text(k.expiresInDays.map { "expires in \(Int($0)) days" } ?? "expiry unknown")
                             .foregroundStyle((k.expiresInDays ?? 99) < 14 ? .red : .secondary)
-                        Button("Renew") { model.provider("Renew slot \(k.slot)") { x, p in try await x.renew(p, slot: k.slot) } }
-                        Button("New Key") {
-                            model.provider("New key, slot \(k.slot)") { x, p in try await x.rotate(p, slot: k.slot, options: [:]) }
-                        }
+                        Button("Renew") { app.run(.renewKey(slot: k.slot)) }
+                        Button("New Key") { app.run(.rotateKey(slot: k.slot, options: [:])) }
                     }
-                    .disabled(model.busy != nil || model.account?.isLoggedIn != true)
+                    .disabled(!app.runner.isIdle || !p.isLoggedIn)
                 }
             }
             Section("Certificates on the account") {
-                ForEach(model.certificates, id: \.stableID) { c in
+                ForEach(p.certificates, id: \.stableID) { c in
                     HStack {
                         Text(c.deviceName.isEmpty ? "(unnamed)" : c.deviceName)
                         if let s = c.slot { Text("slot \(s)").foregroundStyle(.green) }
@@ -216,38 +217,38 @@ struct AccountTab: View {
                         Spacer()
                         if let e = c.expiresAt { Text(Date(timeIntervalSince1970: e), style: .date).foregroundStyle(.secondary) }
                         if c.slot == nil, let id = c.id {
-                            Button("Delete") { model.provider("Delete certificate") { x, p in try await x.delete(p, id: id) } }
-                                .disabled(model.busy != nil)
+                            Button("Delete") { app.run(.deleteCertificate(id: id)) }.disabled(!app.runner.isIdle)
                         }
                     }
                 }
             }
             Section("Server list") {
-                if let cat = model.status?.catalog {
-                    LabeledContent("Source", value: cat.pushed ? "live from \(model.provider.capitalized)" : "pinned fallback")
+                if let cat = app.connection.status?.catalog {
+                    LabeledContent("Source", value: cat.pushed ? "live from \(p.provider.capitalized)" : "pinned fallback")
                     LabeledContent("Updated", value: Date(timeIntervalSince1970: cat.fetchedAt).formatted(.relative(presentation: .named)))
                     LabeledContent("Servers", value: "\(cat.enabled ?? cat.servers) of \(cat.servers) up")
                 }
                 HStack {
-                    Button("Push Now") { model.provider("Push server list") { x, p in try await x.pushServers(p) } }
-                    Button("Revert to Pinned") { model.provider("Revert server list") { x, p in try await x.revertServers(p) } }
+                    Button("Push Now") { app.run(.pushServers) }
+                    Button("Revert to Pinned") { app.run(.revertServers) }
                 }
-                .disabled(model.busy != nil)
+                .disabled(!app.runner.isIdle)
                 Toggle("Push hourly in the background (launchd agent)", isOn: Binding(
-                    get: { model.agentInstalled }, set: { model.setAgent($0) }))
+                    get: { app.agentInstalled }, set: { app.setAgent($0) }))
+                if let e = app.agentError { Text(e).foregroundStyle(.red).font(.caption) }
             }
-            if let b = model.busy { HStack { ProgressView().controlSize(.small); Text(b) } }
-            if let e = model.providerError { Text(e).foregroundStyle(.red) }
+            if let b = app.runner.busy { HStack { ProgressView().controlSize(.small); Text(b) } }
+            if let e = app.runner.lastError ?? p.error { Text(e).foregroundStyle(.red) }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showLogin) { LoginSheet(model: model) }
+        .sheet(isPresented: $showLogin) { LoginSheet(app: app) }
     }
 }
 
 struct LogTab: View {
-    let model: AppModel
+    let app: AppContainer
     var body: some View {
-        List(model.log.reversed(), id: \.self) { e in
+        List(app.connection.log.reversed(), id: \.self) { e in
             HStack(alignment: .top) {
                 Text(Date(timeIntervalSince1970: e.ts), format: .dateTime.month().day().hour().minute().second())
                     .monospacedDigit().foregroundStyle(.secondary)

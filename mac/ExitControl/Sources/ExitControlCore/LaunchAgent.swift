@@ -19,39 +19,41 @@ public struct LaunchAgent: Sendable {
             "ProgramArguments": [exitctl.path, provider, "servers", "--push", "--json", "--url", controllerURL],
             "StartInterval": interval,
             "RunAtLoad": true,
-            "EnvironmentVariables": ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"],
+            "EnvironmentVariables": ["PATH": ProcessRunner.guiPATH],
             "StandardOutPath": logs,
             "StandardErrorPath": logs,
             "ProcessType": "Background",
         ]
     }
 
-    public func install(exitctl: URL, provider: String, controllerURL: String) throws {
-        try? uninstall()
+    public struct Failure: Error, LocalizedError, Sendable {
+        public var message: String
+        public var errorDescription: String? { message }
+    }
+
+    /// Writes the plist and loads it (it runs once at load, then hourly). Installing again
+    /// replaces it (e.g. after the controller URL changed).
+    public func install(exitctl: URL, provider: String, controllerURL: String) async throws {
+        try? await uninstall()
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist(exitctl: exitctl, provider: provider, controllerURL: controllerURL),
             format: .xml, options: 0)
         try FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: plistURL)
-        try launchctl(["bootstrap", "gui/\(getuid())", plistURL.path])
+        try await launchctl(["bootstrap", "gui/\(getuid())", plistURL.path])
     }
 
-    public func uninstall() throws {
+    public func uninstall() async throws {
         if installed {
-            try? launchctl(["bootout", "gui/\(getuid())/\(Self.label)"])
+            try? await launchctl(["bootout", "gui/\(getuid())/\(Self.label)"])
             try FileManager.default.removeItem(at: plistURL)
         }
     }
 
-    func launchctl(_ args: [String]) throws {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        p.arguments = args
-        p.standardOutput = Pipe(); p.standardError = Pipe()
-        try p.run()
-        p.waitUntilExit()
-        if p.terminationStatus != 0 {
-            throw ExitctlError.failed(code: p.terminationStatus, message: "launchctl \(args[0]) failed (\(p.terminationStatus))")
+    func launchctl(_ args: [String]) async throws {
+        let r = try await ProcessRunner(timeout: 20).run(URL(fileURLWithPath: "/bin/launchctl"), args)
+        if r.code != 0 {
+            throw Failure(message: "launchctl \(args[0]) failed (\(r.code))" + (r.lastErrorLine.map { ": \($0)" } ?? ""))
         }
     }
 }

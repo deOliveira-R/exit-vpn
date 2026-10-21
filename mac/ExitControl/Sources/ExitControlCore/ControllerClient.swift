@@ -6,9 +6,9 @@ public struct APIError: Error, LocalizedError, Sendable {
     public var errorDescription: String? { status == 0 ? detail : "\(detail) (HTTP \(status))" }
 }
 
-/// The controller's HTTP API. Auth is Tailscale identity (whois on the node), so there
-/// are no credentials here.
-public struct ControllerClient: Sendable {
+/// The controller's HTTP API (contracts/controller/). Auth is Tailscale identity (whois on
+/// the node), so there are no credentials here.
+public struct ControllerClient: ControllerAPI {
     public var baseURL: URL
     let session: URLSession
 
@@ -70,50 +70,46 @@ public struct ControllerClient: Sendable {
     public func findJob(_ id: String) async throws -> FindJob {
         try await get(FindJob.self, "GET", "v1/find/\(id)")
     }
+    public func find(url: String, countries: [String], max: Int = 10, mode: FindMode = .auto,
+                     js: Bool = false) async throws -> FindJob {
+        try await get(FindJob.self, "POST", "v1/find",
+                      body: Find(url: url, countries: countries, maxCandidates: max, mode: mode.rawValue, js: js))
+    }
 
-    // Actions (a switch waits for the new server to pass health checks: long timeouts)
+    // Changes (a switch waits for the new server to pass health checks: long timeouts)
     struct Scope: Encodable { var scope: String }
     struct Select: Encodable { var server: String?; var ip: String?; var country: String?; var city: String? }
-    public struct PrefsPatch: Encodable, Sendable {
-        public var regions: [Region]?
-        public var autoFailover: Bool?
-        public var secureCore: Bool?
-        public var allowFree: Bool?
-        public var require: [String]?
-        public var favorites: [String]?
-        public init(regions: [Region]? = nil, autoFailover: Bool? = nil, secureCore: Bool? = nil,
-                    allowFree: Bool? = nil, require: [String]? = nil, favorites: [String]? = nil) {
-            self.regions = regions; self.autoFailover = autoFailover; self.secureCore = secureCore
-            self.allowFree = allowFree; self.require = require; self.favorites = favorites
-        }
+    struct PrefsPatch: Encodable {
+        var regions: [Region]?
+        var autoFailover: Bool?
+        var secureCore: Bool?
+        var require: [String]?
+        var favorites: [String]?
     }
     struct Find: Encodable { var url: String; var countries: [String]; var maxCandidates: Int; var mode: String; var js: Bool }
     struct Apply: Encodable { var server: String; var ip: String? }
 
-    @discardableResult
-    public func rotate(_ scope: String) async throws -> Status {
-        try await get(Status.self, "POST", "v1/rotate", body: Scope(scope: scope), timeout: 180)
-    }
-    @discardableResult
-    public func select(server: String, ip: String?) async throws -> Status {
-        try await get(Status.self, "POST", "v1/select", body: Select(server: server, ip: ip), timeout: 180)
-    }
-    @discardableResult
-    public func select(region: Region) async throws -> Status {
-        try await get(Status.self, "POST", "v1/select",
-                      body: Select(country: region.country, city: region.city), timeout: 180)
-    }
-    @discardableResult
-    public func setPrefs(_ patch: PrefsPatch) async throws -> Prefs {
-        try await get(Prefs.self, "PUT", "v1/prefs", body: patch, timeout: 180)
-    }
-    public func find(url: String, countries: [String], max: Int = 10, mode: String = "auto",
-                     js: Bool = false) async throws -> FindJob {
-        try await get(FindJob.self, "POST", "v1/find",
-                      body: Find(url: url, countries: countries, maxCandidates: max, mode: mode, js: js))
-    }
-    @discardableResult
-    public func applyFind(job: String, server: String, ip: String?) async throws -> Status {
-        try await get(Status.self, "POST", "v1/find/\(job)/apply", body: Apply(server: server, ip: ip), timeout: 180)
+    public func perform(_ command: ControllerCommand) async throws {
+        let long: TimeInterval = 180
+        switch command {
+        case .rotate(let scope):
+            _ = try await request("POST", "v1/rotate", body: Scope(scope: scope.rawValue), timeout: long)
+        case .connect(let r):
+            _ = try await request("POST", "v1/select", body: Select(country: r.country, city: r.city), timeout: long)
+        case .connectServer(let name, let ip):
+            _ = try await request("POST", "v1/select", body: Select(server: name, ip: ip), timeout: long)
+        case .secureCore(let on):
+            _ = try await request("PUT", "v1/prefs", body: PrefsPatch(secureCore: on), timeout: long)
+        case .autoFailover(let on):
+            _ = try await request("PUT", "v1/prefs", body: PrefsPatch(autoFailover: on))
+        case .regions(let r):
+            _ = try await request("PUT", "v1/prefs", body: PrefsPatch(regions: r))
+        case .require(let f):
+            _ = try await request("PUT", "v1/prefs", body: PrefsPatch(require: f.map(\.rawValue)))
+        case .favorites(let f):
+            _ = try await request("PUT", "v1/prefs", body: PrefsPatch(favorites: f))
+        case .applyFind(let job, let server, let ip):
+            _ = try await request("POST", "v1/find/\(job)/apply", body: Apply(server: server, ip: ip), timeout: long)
+        }
     }
 }

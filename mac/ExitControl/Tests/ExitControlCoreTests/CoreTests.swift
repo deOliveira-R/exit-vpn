@@ -16,7 +16,7 @@ let statusJSON = """
 
 @Test func decodesStatus() throws {
     let st = try ControllerClient.decoder.decode(Status.self, from: Data(statusJSON.utf8))
-    #expect(st.server == "CH#697" && st.health_ == .failing_over && st.endpointIP == "89.222.96.158")
+    #expect(st.server == "CH#697" && st.health == .failingOver && st.endpointIP == "89.222.96.158")
     #expect(st.prefs.regions[1] == Region(country: "United States", city: "New York"))
     #expect(st.catalog.pushed && st.keyOptions?["NetShield"] == "0")
     let ev = try #require(st.events?.first)
@@ -89,23 +89,34 @@ let statusJSON = """
     }
     let opts = try await x.options("proton")
     #expect(opts.first?.sortedChoices.map(\.value) == ["0", "1", "2"])
-    await #expect(throws: ExitctlError.self) { try await x.renew("proton", slot: "a") }
+    await #expect(throws: ExitctlError.self) { try await x.perform("proton", .renewKey(slot: "a")) }
 }
 
 @Test func exitURLs() {
     func p(_ s: String) -> ExitURL? { ExitURL(URL(string: s)!) }
-    #expect(p("exitvpn://servers") == .window("servers", tab: nil))
-    #expect(p("exitvpn://settings/account") == .window("settings", tab: "account"))
-    #expect(p("exitvpn://rotate?scope=city") == .rotate("city"))
-    #expect(p("exitvpn://rotate") == .rotate("any"))
+    #expect(p("exitvpn://servers") == .open(.servers))
+    #expect(p("exitvpn://settings/account") == .open(.settings(.account)))
+    #expect(p("exitvpn://settings/nonsense") == .open(.settings(.general)))
+    #expect(p("exitvpn://rotate?scope=city") == .run(.rotate(.city)))
+    #expect(p("exitvpn://rotate") == .run(.rotate(.any)))
     #expect(p("exitvpn://rotate?scope=moon") == nil)
     #expect(p("exitvpn://connect?country=United%20States&city=New%20York")
-            == .connect(Region(country: "United States", city: "New York")))
-    #expect(p("exitvpn://connect?country=Switzerland") == .connect(Region(country: "Switzerland", city: nil)))
-    #expect(p("exitvpn://connect?server=CH%23821") == .connectServer("CH#821"))
+            == .run(.connect(Region(country: "United States", city: "New York"))))
+    #expect(p("exitvpn://connect?country=Switzerland") == .run(.connect(Region(country: "Switzerland"))))
+    #expect(p("exitvpn://connect?server=CH%23821") == .run(.connectServer(name: "CH#821", ip: nil)))
     #expect(p("exitvpn://connect") == nil)
-    #expect(p("exitvpn://securecore?on=1") == .secureCore(true))
-    #expect(p("exitvpn://securecore?on=off") == .secureCore(false))
+    #expect(p("exitvpn://securecore?on=1") == .run(.secureCore(true)))
+    #expect(p("exitvpn://securecore?on=off") == .run(.secureCore(false)))
     #expect(p("exitvpn://securecore") == nil)
+    #expect(p("exitvpn://refresh") == .refresh)
     #expect(p("https://rotate") == nil && p("exitvpn://launch-missiles") == nil)
+}
+
+@Test func vocabularyMatchesTheWire() throws {
+    #expect(Health(wire: "failing_over") == .failingOver && Health(wire: "new_state") == .unknown("new_state"))
+    #expect(Feature.allCases.map(\.rawValue) == ["port_forward", "stream", "ipv6"])
+    #expect(RotationScope.allCases.map(\.rawValue) == ["city", "country", "any"])
+    #expect(FindOutcome(wire: "challenge") == .challenge && FindOutcome(wire: "x").icon == "❔")
+    #expect(ProviderCommand.rotateKey(slot: "a", options: ["netshield": "2", "moderate_nat": "on"]).arguments
+            == ["rotate", "--slot", "a", "--moderate-nat", "on", "--netshield", "2"])
 }

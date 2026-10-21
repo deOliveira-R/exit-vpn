@@ -37,13 +37,6 @@ public struct SSEParser: Sendable {
     }
 }
 
-public enum StreamUpdate: Sendable {
-    case connected
-    case status(Status)
-    case event(Event)
-    case disconnected(String)
-}
-
 extension ControllerClient {
     /// Live updates, reconnecting with backoff forever (until the task is cancelled).
     /// The first message after each connect is a full status.
@@ -72,8 +65,12 @@ extension ControllerClient {
                             if line.hasSuffix("\r") { line.removeLast() }
                             guard let msg = parser.feed(line) else { continue }
                             let data = Data(msg.data.utf8)
-                            if msg.event == "status", let st = try? Self.decoder.decode(Status.self, from: data) {
-                                cont.yield(.status(st))
+                            if msg.event == "status" {
+                                do {
+                                    cont.yield(.status(try Self.decoder.decode(Status.self, from: data)))
+                                } catch {   // not silence: the app would show stale state as current
+                                    cont.yield(.incompatible("unreadable status from the controller: \(error)"))
+                                }
                             } else if let ev = try? Self.decoder.decode(Event.self, from: data) {
                                 cont.yield(.event(ev))
                             }
