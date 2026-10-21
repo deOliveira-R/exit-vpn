@@ -29,14 +29,14 @@ case "$out" in *"dev wg0"*) ok "the route to the VPN's resolver is via wg0";; *)
 # IPv6: the tunnel's own sockets always via wg0; forwarded IPv6 via wg0 only while the gate is open
 src6=$(x sh -c '. /usr/local/lib/exit-vpn/common.sh; load_conf; echo $VPN_SRC6')
 t6=$(x curl -6 -s --max-time 4 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-[ -z "$t6" ] && ok "no IPv6 via the underlay (the main table has no IPv6 route)" || bad "IPv6 via the underlay: $t6"
+[ -z "$t6" ] && ok "unbound IPv6 does not leave (the main table has no IPv6 route, wg0 no IPv6 address)" || bad "unbound IPv6 left: $t6"
 gate6() { x test -e /run/exit-vpn/ipv6 && echo open || echo closed; }
 route6() { x ip -6 route show table 100 | grep -q '^default dev wg0' && echo open || echo closed; }
 if [ -z "$src6" ]; then
   info "the exit key's config has no IPv6 address (or EXIT_IPV6=off): the exit is IPv4-only"
   [ "$(route6)" = closed ] && ok "without IPv6, forwarded IPv6 is never routed via wg0" || bad "an IPv6 route via wg0 without an IPv6 address"
 else
-  t=$(ctrace -6 --interface wg0)
+  t=$(ctrace -6 --interface "$src6")
   if [ -n "$t" ]; then ok "the tunnel's own IPv6 leaves via the VPN: $t"
   else info "this server carries no IPv6 (the tunnel's IPv6 trace failed)"; fi
   g=$(gate6); r=$(route6)
@@ -55,7 +55,7 @@ if [ -z "$t" ] && [ "$code" = 000 ] && [ -z "$a" ]; then ok "with wg0 down, tunn
 else bad "with wg0 down: trace '$t', HTTP $code, DNS '$a'"; fi
 if [ -n "$src6" ]; then
   sleep 2   # one route-keeper pass
-  t=$(ctrace -6 --interface wg0)
+  t=$(ctrace -6 --interface "$src6")
   if [ -z "$t" ] && [ "$(route6)" = closed ]; then ok "with wg0 down, IPv6 fails closed too (no IPv6 route via wg0)"
   else bad "with wg0 down: IPv6 trace '$t', forwarded IPv6 route $(route6)"; fi
 fi

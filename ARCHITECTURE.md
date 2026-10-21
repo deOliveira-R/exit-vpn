@@ -43,9 +43,12 @@ s6-overlay services, in order (`exit/rootfs/etc/s6-overlay/s6-rc.d`):
    nftables (`killswitch.nft`): exit traffic may leave only through wg0, and the underlay
    carries only WireGuard and Tailscale's own packets.
 3. `init-wg`: wg0 from the slot-a config (uploaded key, else the bootstrap file), with its
-   IPv4 and, if the config has one (and `EXIT_IPV6` is not off), IPv6 address, on the last good
-   peer from `peer.env` if there is one; table 100's IPv4 default and table 101's IPv6 default
-   via wg0.
+   IPv4 address, on the last good peer from `peer.env` if there is one; table 100's IPv4
+   default and table 101's IPv6 default via wg0. The config's IPv6 address (unless
+   `EXIT_IPV6=off`) becomes a local route on `lo`, not an address of wg0: an interface address
+   would become the source of every unbound IPv6 socket in the container and pull tailscaled's
+   own traffic into the tunnel. The health probe binds to it (`ip_nonlocal_bind`), forwarded
+   IPv6 is SNATed to it.
 4. `route-keeper`, `tailscaled`, `tailscale-up`: route-keeper owns the routes via wg0. The
    kernel drops them when wg0 bounces, and route-keeper restores them. It keeps table 100's
    IPv6 default via wg0 only while the **IPv6 gate** is open (the file `/run/exit-vpn/ipv6`,

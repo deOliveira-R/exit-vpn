@@ -99,7 +99,11 @@ ip -6 rule add priority 100 iif tailscale0          lookup 100  # v6 via wg0 onl
 ip    rule add priority 110 from 10.2.0.2           lookup 100  # health probes bound to wg0
 ip    rule add priority 120 to 10.2.0.1             lookup 100  # Proton DNS only via tunnel
 
-# IPv6 (Phase V6): table 101 = the tunnel's own v6 sockets, always via wg0
+# IPv6 (Phase V6): the tunnel's v6 address is a local route, not on wg0 (an interface address
+# would become the source of every unbound v6 socket); sysctl net.ipv6.ip_nonlocal_bind=1 lets
+# the health probe bind to it; nat_exit SNATs forwarded v6 to it
+ip -6 route add local 2a07:b944::2:2/128 dev lo table local
+# table 101 = sockets bound to it, always via wg0
 ip -6 route add unreachable default metric 1000 table 101
 ip -6 route add default dev wg0 metric 1 table 101   # metric 1: v6 routes default to 1024
 ip -6 rule add priority 105 oif wg0                   lookup 101
@@ -123,8 +127,10 @@ table inet killswitch {
     ip daddr 10.2.0.1 oifname != "wg0" drop      # Proton DNS must never leave via eth0
   }
 }
-table inet nat_exit {   # inet since Phase V6: IPv6 sources become the tunnel's v6 address
-  chain post { type nat hook postrouting priority 100; oifname "wg0" masquerade; }
+table inet nat_exit {   # inet since Phase V6
+  chain post { type nat hook postrouting priority 100;
+    oifname "wg0" meta nfproto ipv4 masquerade
+    oifname "wg0" meta nfproto ipv6 snat ip6 to 2a07:b944::2:2 }   # added by init-killswitch
 }
 table inet mss {
   chain fwd { type filter hook forward priority 0; oifname "wg0" tcp flags syn tcp option maxseg size set rt mtu; }

@@ -11,6 +11,10 @@ define WG_IF = "$WG_IF"
 define VPN_DNS = $VPN_DNS
 NFT
 nft -f /etc/exit-vpn/killswitch.nft
+# IPv6 exit traffic leaves from the tunnel's address (not on wg0, so not masquerade)
+if [ -n "$VPN_SRC6" ]; then
+  nft add rule inet nat_exit postrouting oifname "$WG_IF" meta nfproto ipv6 snat ip6 to "$VPN_SRC6"
+fi
 
 # Routing: the exit table falls back to unreachable; the wg0 default is added by init-wg.
 ip route replace unreachable default metric 1000 table "$EXIT_TABLE"

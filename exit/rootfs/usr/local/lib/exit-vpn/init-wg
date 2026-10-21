@@ -18,7 +18,12 @@ conf_value Interface PrivateKey | wg set "$WG_IF" private-key /dev/stdin
 wg set "$WG_IF" peer "$peer_pubkey" endpoint "$peer_endpoint" \
   allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
 ip addr add "$VPN_ADDR" dev "$WG_IF"
-if [ -n "$VPN_ADDR6" ]; then ip -6 addr add "$VPN_ADDR6" dev "$WG_IF" nodad; fi
+# The tunnel's IPv6 address is local (a route on lo), not an address of wg0: an interface
+# address would be picked as the source of every unbound IPv6 socket here (tailscaled's own
+# traffic included), which rule 110 would then send through the tunnel. Bound sockets (the
+# health probe; net.ipv6.ip_nonlocal_bind) and forwarded traffic (SNAT) use it; it also
+# survives wg0 going down, which flushes interface IPv6 addresses.
+if [ -n "$VPN_ADDR6" ]; then ip -6 route replace local "$VPN_SRC6/128" dev lo table local; fi
 ip link set "$WG_IF" mtu "${WG_MTU:-1420}" up
 ip route replace default dev "$WG_IF" table "$EXIT_TABLE"
 # Forwarded IPv6 waits for the gate (route-keeper); the tunnel's own IPv6 sockets need not

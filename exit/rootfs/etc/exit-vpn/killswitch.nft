@@ -18,13 +18,14 @@ table inet killswitch {
   }
 }
 
-# Both families: clients' tailnet sources become the tunnel's addresses
+# Clients' tailnet sources become the tunnel's addresses: IPv4 here, IPv6 (snat to the
+# tunnel's IPv6 address) added by init-killswitch when the config has one
 table inet nat_exit
 delete table inet nat_exit
 table inet nat_exit {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
-    oifname $WG_IF masquerade
+    oifname $WG_IF meta nfproto ipv4 masquerade
   }
 }
 

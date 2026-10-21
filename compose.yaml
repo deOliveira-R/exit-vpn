@@ -50,6 +50,9 @@ services:
       # IPv6 leaves only via the tunnel, and only while the IPv6 gate is open; otherwise it
       # hits the unreachable route (fast ICMP error, clients fall back to IPv4).
       net.ipv6.conf.all.forwarding: "1"
+      # The health probe binds to the tunnel's IPv6 address, which is a local route, not an
+      # interface address (init-wg says why)
+      net.ipv6.ip_nonlocal_bind: "1"
     # Docker's embedded resolver forwards to the VPN's DNS, which is only reachable
     # through the tunnel (ip rule 120 + nftables), so DNS fails closed without it.
     dns:
