@@ -12,6 +12,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .countries import ISO_NAMES
 from .state import FEATURES, atomic_write
 
 MIN_SERVERS = 50  # a smaller list means a broken or truncated download
@@ -163,15 +164,16 @@ class Catalog:
 
     def country_for_code(self, code: str) -> str | None:
         """Catalog country name for an ISO code (e.g. Cloudflare's loc=US), voted from
-        hostnames like us-ca-01 / node-ch-03 (Proton's scheme; None if unknown)."""
+        hostnames like us-ca-01 / node-ch-03 (Proton's scheme), else the ISO name; None if
+        unknown. A "name" that is just the code (an older push) does not count."""
         if self._codes is None:
             votes: dict[str, Counter] = {}
             for srv in self.servers:
                 m = _CODE.match(srv.hostname)
-                if m and not srv.secure_core:
+                if m and not srv.secure_core and srv.country.lower() != m.group(1):
                     votes.setdefault(m.group(1), Counter())[srv.country] += 1
             self._codes = {k: v.most_common(1)[0][0] for k, v in votes.items()}
-        return self._codes.get(code.lower())
+        return self._codes.get(code.lower()) or ISO_NAMES.get(code.upper())
 
     def code_for_country(self, country: str) -> str:
         """Inverse of country_for_code ("" if unknown)."""
@@ -179,7 +181,7 @@ class Catalog:
         for code, name in (self._codes or {}).items():
             if name.lower() == country.lower():
                 return code.upper()
-        return ""
+        return next((c for c, n in ISO_NAMES.items() if n.lower() == country.lower()), "")
 
     def countries(self) -> list[str]:
         return sorted({s.country for s in self.servers})

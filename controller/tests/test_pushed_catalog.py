@@ -91,3 +91,14 @@ async def test_api_push_and_revert(env):  # noqa: F811
         r = c.delete("/v1/catalog")
         assert r.status_code == 200 and not r.json()["pushed"]
         assert ctl.catalog.servers == snapshot
+
+
+def test_country_names_fall_back_to_iso():
+    # an older push stored the bare code as the name: it must not win the vote
+    cn = Server("CN#11", "CN", "Beijing", "node-cn-01.protonvpn.net", "192.0.2.9", key())
+    us = Server("US-NY#1", "United States", "New York", "node-us-01.protonvpn.net", "192.0.2.1", key())
+    cat = Catalog([cn, us])
+    assert cat.country_for_code("CN") == "China" and cat.country_for_code("us") == "United States"
+    assert cat.country_for_code("ZZ") is None and cat.code_for_country("china") == "CN"
+    s = parse_pushed(rows(60, country_code="CN"), ".protonvpn.net", cat.country_for_code)
+    assert s[0].country == "China"

@@ -11,7 +11,7 @@ struct ServerBrowser: View {
     @State private var ipv6 = false
     @State private var hideDisabled = true
     @State private var selection: Server.ID?
-    @State private var sort = [KeyPathComparator(\Row.loadSort)]
+    @State private var sort = [KeyPathComparator(\Row.country)]
 
     struct Row: Identifiable {
         let s: Server
@@ -33,7 +33,28 @@ struct ServerBrowser: View {
                 && (!hideDisabled || s.isEnabled)
                 && (q.isEmpty || s.name.lowercased().contains(q) || s.city.lowercased().contains(q)
                     || s.country.lowercased().contains(q) || s.ip.contains(q))
-        }.map(Row.init).sorted(using: sort)
+        }.map(Row.init).sorted { a, b in
+            for c in sort {
+                switch c.compare(a, b) {
+                case .orderedAscending: return true
+                case .orderedDescending: return false
+                case .orderedSame: continue
+                }
+            }
+            return Self.nearestFirst(a, b)
+        }
+    }
+
+    /// Ties go by proximity, then load: country, city, load, name, IP. A total order, so
+    /// rows never swap places when the table redraws.
+    static func nearestFirst(_ a: Row, _ b: Row) -> Bool {
+        let ka = (a.country, a.city, a.loadSort), kb = (b.country, b.city, b.loadSort)
+        if ka != kb { return ka < kb }
+        switch a.name.localizedStandardCompare(b.name) {
+        case .orderedAscending: return true
+        case .orderedDescending: return false
+        case .orderedSame: return a.s.ip < b.s.ip
+        }
     }
 
     var body: some View {
@@ -56,7 +77,6 @@ struct ServerBrowser: View {
             .padding(10)
             let shown = rows
             Table(shown, selection: $selection, sortOrder: $sort) {
-                TableColumn("") { r in Text(model.isCurrent(r.s) ? "●" : "") }.width(14)
                 TableColumn("★") { r in
                     Button { model.toggleFavorite(r.s.name) } label: {
                         Image(systemName: model.isFavorite(r.s.name) ? "star.fill" : "star")
@@ -65,10 +85,12 @@ struct ServerBrowser: View {
                     .buttonStyle(.plain).help("Favourites are tried first in their city, country or region")
                 }.width(18)
                 TableColumn("Server", value: \.name) { r in
-                    Text("\(flag(countryCode(r.s))) \(r.s.name)")
+                    Text("\(flag(countryCode(r.s))) \(r.s.name)" + (model.isCurrent(r.s) ? "  ●" : ""))
+                        .fontWeight(model.isCurrent(r.s) ? .semibold : .regular)
+                        .help(model.isCurrent(r.s) ? "The exit's current server" : "")
                 }
-                TableColumn("City", value: \.city)
                 TableColumn("Country", value: \.country)
+                TableColumn("City", value: \.city)
                 TableColumn("Load", value: \.loadSort) { r in
                     if let l = r.s.load {
                         HStack { ProgressView(value: Double(l), total: 100).tint(l < 60 ? .green : l < 85 ? .orange : .red); Text("\(l)%").monospacedDigit() }
