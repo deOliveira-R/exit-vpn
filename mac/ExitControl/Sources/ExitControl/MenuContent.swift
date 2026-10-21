@@ -93,8 +93,15 @@ struct MenuContent: View {
             if model.countries.isEmpty {
                 Button("Load Countries") { Task { await model.loadServers() } }
             }
-            ForEach(model.countries, id: \.self) { c in
-                Button("\(flag(code(c))) \(c)") { model.select(Region(country: c)) }.disabled(!ready)
+            let byContinent = Dictionary(grouping: model.countries) { continent(code($0)) }
+            ForEach(continents + ["Other"], id: \.self) { name in
+                if let cs = byContinent[name] {
+                    Menu(name) {
+                        ForEach(cs, id: \.self) { c in
+                            Button("\(flag(code(c))) \(c)") { model.select(Region(country: c)) }.disabled(!ready)
+                        }
+                    }
+                }
             }
         }
     }

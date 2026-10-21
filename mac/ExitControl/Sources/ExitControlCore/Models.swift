@@ -211,8 +211,9 @@ public struct KeysResponse: Codable, Sendable { public var slots: [KeySlot] }
 
 /// Country flag from an ISO code ("US" → 🇺🇸).
 public func flag(_ code: String?) -> String {
-    guard let code, code.count == 2 else { return "🌐" }
-    return code.uppercased().unicodeScalars.compactMap {
+    guard var code = code?.uppercased(), code.count == 2, code != "XK" else { return "🌐" }  // XK: no emoji
+    if code == "UK" { code = "GB" }   // Proton (and gluetun) use UK; the flag is ISO's GB
+    return code.unicodeScalars.compactMap {
         UnicodeScalar(127397 + $0.value).map(String.init)
     }.joined()
 }
@@ -233,4 +234,27 @@ public func countryCode(hostname: String) -> String? {
     let first = parts.first == "node" ? parts.dropFirst().first : parts.first
     guard let f = first, f.count == 2, f.allSatisfy(\.isLetter) else { return nil }
     return f.uppercased()
+}
+
+/// Continents for the "More Countries" menu. Proton's locations as of 2026; an unlisted code
+/// lands in "Other". The Middle East is its own group (a long list in Asia otherwise).
+public let continents = ["Africa", "Asia", "Europe", "Middle East", "North America", "Oceania", "South America"]
+
+private let continentCodes: [String: String] = {
+    let groups = [
+        "Africa": "AO CD CI CM DZ EG ER ET GA GH GN KE KM LY MA MR MU MZ NG RW SD SN SO SS TD TG TN TZ UG ZA ZW",
+        "Asia": "AF AM AZ BD BN BT CN GE HK ID IN JP KG KH KR KZ LA LK MM MN MO MY NP PH PK SG TH TJ TM TW UZ VN",
+        "Europe": "AD AL AT BA BE BG BY CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SK TR UA UK XK",
+        "Middle East": "AE BH IL IQ IR JO KW LB OM PS QA SA SY YE",
+        "North America": "BS CA CR CU DO GL GT HN HT JM MX NI PA PR SV US",
+        "Oceania": "AU FJ NZ PG",
+        "South America": "AR BO BR CL CO EC PE PY UY VE",
+    ]
+    var m: [String: String] = [:]
+    for (c, codes) in groups { for code in codes.split(separator: " ") { m[String(code)] = c } }
+    return m
+}()
+
+public func continent(_ code: String?) -> String {
+    code.flatMap { continentCodes[$0.uppercased()] } ?? "Other"
 }

@@ -55,7 +55,8 @@ let statusJSON = """
     #expect(s.badges == ["SC CH", "Streaming", "IPv6"])
     #expect(countryCode(hostname: s.hostname) == "US" && countryCode(hostname: "ch-03.x") == "CH")
     #expect(countryCode(s) == "US")
-    #expect(flag("ch") == "🇨🇭" && flag(nil) == "🌐")
+    #expect(flag("ch") == "🇨🇭" && flag(nil) == "🌐" && flag("UK") == "🇬🇧")
+    #expect(continent("UK") == "Europe" && continent("br") == "South America" && continent("ZZ") == "Other")
 }
 
 @Test func tailscaleExitNodeUse() {
