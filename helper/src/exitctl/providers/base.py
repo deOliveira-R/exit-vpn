@@ -1,137 +1,95 @@
 """The provider adapter interface (PLAN D20).
 
-An adapter knows one VPN service: its levers (options bound to a key), how to log in,
-and how to create, renew, list and delete keys. The CLI and, later, the menu-bar app
-are generic over adapters; nothing outside `providers/` knows a provider's API.
+An adapter knows one VPN service: its levers (options bound to a key), how to log in, and how
+to create, renew, list and delete keys, and optionally its live server list. Everything else
+(`keyservice`, `cli`, the app) is generic over adapters; nothing outside `providers/` knows a
+provider's API. `capabilities` says which of the methods below an adapter implements; the
+CLI offers only those commands.
+
+Adding a provider: a module (or package) here with a `Provider` subclass, registered in
+`providers/__init__.py`. Its keys must be standard wg-quick configs whose Address/DNS match
+the exit node's (`tunnel_address`, `tunnel_dns`, D16); `create_key` returns the `KeyMeta` the
+controller records; `servers()` returns rows in the controller's push schema (`ServerRow`).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Protocol
+from dataclasses import dataclass
 
+from ..model import Account, Certificate, ExitctlError, KeyMeta, Lever, NewKey, ProviderError
 from ..wgkeys import Peer
 
 # Capabilities an adapter may declare
 LOGIN, CREATE, RENEW, LIST, DELETE, IMPORT = "login", "create", "renew", "list", "delete", "import"
 SERVERS = "servers"   # a live server catalog (PLAN 3b.2)
 
-
-class ProviderError(RuntimeError):
-    pass
-
-
-class NeedInput(ProviderError):
-    """Login needs something only the user can give (a 2FA code, a CAPTCHA). `info`
-    says what, so a non-interactive caller (the app) can ask and call again."""
-
-    def __init__(self, what: str, message: str, **info):
-        super().__init__(message)
-        self.what, self.info = what, info
-
-
-_TRUE, _FALSE = {"on", "true", "yes", "1"}, {"off", "false", "no", "0"}
+# A pushed server row (the controller's PUT /v1/catalog): name, country_code, city, hostname,
+# ip, pubkey, secure_core, tor, free, stream, port_forward, ipv6, load (0-100 or None), enabled
+ServerRow = dict
 
 
 @dataclass(frozen=True)
-class Option:
-    key: str                  # CLI flag / JSON key, e.g. "netshield"
-    label: str                # human name
-    conf_label: str           # the option comment in the .conf the exit node reports
-    kind: str                 # "bool" | "choice"
-    default: bool | int
-    choices: dict[int, str] = field(default_factory=dict)   # for "choice": value -> meaning
-    help: str = ""
+class Credentials:
+    """What a login step may carry. A step that lacks something raises NeedInput."""
+    username: str = ""
+    password: str = ""
+    totp: str = ""
+    hv_token: str = ""          # after human verification (a CAPTCHA solved in the browser)
+    hv_type: str = "captcha"
 
-    def parse(self, text: str | bool | int) -> bool | int:
-        if self.kind == "bool":
-            if isinstance(text, bool):
-                return text
-            t = str(text).strip().lower()
-            if t in _TRUE or t in _FALSE:
-                return t in _TRUE
-            raise ProviderError(f"{self.key}: expected on/off, got {text!r}")
-        try:
-            v = int(text)
-        except (TypeError, ValueError):
-            raise ProviderError(f"{self.key}: expected one of {sorted(self.choices)}") from None
-        if v not in self.choices:
-            raise ProviderError(f"{self.key}: expected one of {sorted(self.choices)}")
-        return v
+    def __repr__(self) -> str:   # never print the password
+        return f"Credentials(username={self.username!r})"
 
-    def format(self, value: bool | int) -> str:
-        return ("on" if value else "off") if self.kind == "bool" else str(value)
-
-    def to_dict(self) -> dict:
-        return {"key": self.key, "label": self.label, "conf_label": self.conf_label, "kind": self.kind,
-                "default": self.default, "choices": {str(k): v for k, v in self.choices.items()},
-                "help": self.help}
-
-
-@dataclass(frozen=True)
-class NewKey:
-    conf: str          # the full wg-quick config, including the private key
-    meta: dict         # public facts for the controller (cert id, expiry, options)
-
-    def __repr__(self) -> str:
-        return f"NewKey(meta={self.meta})"
-
-
-class Prompt(Protocol):
-    def ask(self, label: str, secret: bool = False) -> str: ...
-    def info(self, message: str) -> None: ...
+    @classmethod
+    def from_json(cls, d: dict) -> Credentials:
+        return cls(**{k: str(d[k]) for k in ("username", "password", "totp", "hv_token", "hv_type")
+                      if d.get(k)})
 
 
 class Provider:
     name = ""
     title = ""
     capabilities: frozenset[str] = frozenset()
-    tunnel_address = ""        # D16: the address/DNS the provider assigns inside the tunnel
+    tunnel_address = ""
     tunnel_dns = ""
 
-    def options(self) -> list[Option]:
+    def levers(self) -> list[Lever]:
         return []
 
-    def option(self, key: str) -> Option:
-        for o in self.options():
-            if o.key == key:
-                return o
-        raise ProviderError(f"{self.name} has no option {key!r}")
+    def lever(self, key: str) -> Lever:
+        for lv in self.levers():
+            if lv.key == key:
+                return lv
+        raise ExitctlError(f"{self.name} has no option {key!r}")
 
-    def values_from_conf_options(self, conf_options: dict[str, str]) -> dict:
-        """The exit node reports a key's options as its .conf comments; map them back."""
-        out = {}
-        for o in self.options():
-            if o.conf_label in conf_options:
-                try:
-                    out[o.key] = o.parse(conf_options[o.conf_label])
-                except ProviderError:
-                    pass
-        return out
+    def _unsupported(self, what: str):
+        return ProviderError(f"{self.name} cannot {what}")
 
-    async def whoami(self) -> dict | None:
-        return None
+    async def account(self) -> Account:
+        raise self._unsupported("log in")
 
-    async def login(self, prompt: Prompt | None, creds: dict) -> dict:
-        raise ProviderError(f"{self.name} has no login")
+    async def login(self, creds: Credentials) -> Account:
+        """One login step; raises NeedInput when the user has to give more."""
+        raise self._unsupported("log in")
 
     async def logout(self) -> None:
-        return None
+        raise self._unsupported("log in")
 
     async def create_key(self, device_name: str, values: dict, peer: Peer) -> NewKey:
-        raise ProviderError(f"{self.name} cannot create keys")
+        raise self._unsupported("create keys")
 
-    async def renew_key(self, meta: dict) -> dict:
-        raise ProviderError(f"{self.name} cannot renew keys")
+    async def renew_key(self, meta: KeyMeta) -> KeyMeta:
+        raise self._unsupported("renew keys")
 
-    async def list_keys(self) -> list[dict]:
-        raise ProviderError(f"{self.name} cannot list keys")
+    def renewal_meta(self, cert: Certificate) -> KeyMeta:
+        """The facts needed to renew a key this provider made elsewhere (its dashboard)."""
+        raise self._unsupported("renew keys made elsewhere")
 
-    async def delete_key(self, key_id: str) -> None:
-        raise ProviderError(f"{self.name} cannot delete keys")
+    async def certificates(self) -> list[Certificate]:
+        raise self._unsupported("list keys")
 
-    async def servers(self) -> list[dict]:
-        """Provider-neutral rows for the controller's PUT /v1/catalog: name, country_code,
-        city, hostname, ip, pubkey, secure_core, tor, free, stream, port_forward, load
-        (0-100 or None), enabled."""
-        raise ProviderError(f"{self.name} has no live server list")
+    async def delete_certificate(self, cert_id: str) -> None:
+        raise self._unsupported("delete keys")
+
+    async def servers(self) -> list[ServerRow]:
+        raise self._unsupported("list its servers")

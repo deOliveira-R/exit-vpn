@@ -877,6 +877,22 @@ certificates with orphan flags, import, push catalog: the use cases now in cli.p
 commands from capabilities and prints through JSON/human presenters. JSON output unchanged;
 contract changes (one account shape, `count` for pushed servers) only together with the app.
 
+*R4 done (2026-10-21):* exitctl is `model` (Lever, `resolve_levers`, KeyMeta, NewKey,
+Certificate, Account, and the errors ExitctlError/ProviderError/NeedInput/NodeError),
+`sessions` (SessionStore: Keychain, memory), `exitnode.ExitNode` (typed errors; a missing slot
+is an error, not StopIteration), `keyservice` (KeyService: rotate, renew, certificates,
+import, servers; DeviceNaming), `providers/base` (the interface, `Credentials`,
+`renewal_meta`), `providers/proton/` (adapter, `session.ProtonSession` with the login steps,
+`crypto`, `levers`, `catalog`), generic `wgkeys`, and `cli` (commands by capability, one
+`Output`, an exit-code table, the interactive login loop). JSON output unchanged (the contract
+tests pass as before). Fixes: unexpected errors (bad --stdin JSON, a missing slot) are JSON
+errors with exit 1 instead of tracebacks; `--json`/`--url` before a subcommand were reset by
+it (`exitctl --json keys` printed text; the app always passed them last); `list` no longer
+calls every exit-node certificate an orphan when the node is unreachable. 21 unit tests (14
+before). Real account: keys, list, whoami, servers read correctly; phase3b 10/10, phase3b2 7/7,
+the app's live tests 5/5. The installed tool needs `uv tool install --force --reinstall` after
+a change (uv caches the build by version).
+
 **R5 — App:** core gets protocols over the controller client and exitctl, typed vocabulary
 (`RotationScope`, `Feature`, `Health`, `FindMode`, `FindOutcome`, `SettingsTab`, `AppRoute`),
 `ControllerCommand`/`ProviderCommand` with labels, one `ActionRunner` (menu clicks refuse while

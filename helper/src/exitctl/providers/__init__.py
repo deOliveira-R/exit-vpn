@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from ..model import ExitctlError
 from .base import Provider
+
+NAMES = ("proton", "manual")
 
 
 def get(name: str) -> Provider:
@@ -12,7 +15,4 @@ def get(name: str) -> Provider:
     if name == "manual":
         from .manual import ManualProvider
         return ManualProvider()
-    raise KeyError(name)
-
-
-NAMES = ("proton", "manual")
+    raise ExitctlError(f"unknown provider {name!r} (known: {', '.join(NAMES)})")

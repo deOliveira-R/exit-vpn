@@ -11,8 +11,9 @@ import pytest
 
 from exitctl import cli, providers
 from exitctl.providers.proton import ProtonProvider, catalog_rows
+from exitctl.sessions import MemoryStore
 
-from test_helper import FakeController, FakeSession, memory_keychain  # noqa: F401  (fixture)
+from test_helper import FakeController, FakeSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "contracts"))
 import shape  # noqa: E402
@@ -38,10 +39,10 @@ class Runner:
 
     def __init__(self, monkeypatch):
         self.mp, self.sess, self.node = monkeypatch, FakeSession(), Node()
-        self.proton = ProtonProvider(session_factory=lambda: self.sess)
+        self.proton = ProtonProvider(store=MemoryStore(), session_factory=lambda: self.sess)
         real_get = providers.get
         monkeypatch.setattr(providers, "get", lambda n: self.proton if n == "proton" else real_get(n))
-        monkeypatch.setattr(cli, "Controller", lambda url=None: self.node)
+        monkeypatch.setattr(cli, "ExitNode", lambda url=None: self.node)
 
         async def servers():
             return catalog_rows(LOGICALS)
@@ -132,3 +133,24 @@ def test_errors(run):
     code, out = run(["proton", "rotate", "--slot", "a"])
     assert code == 2
     shape.check("exitctl/error", out)
+
+
+def test_unexpected_failures_are_json_errors(run, monkeypatch):
+    """They used to escape as tracebacks with nothing on stdout (the app showed a stderr line)."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{not json"))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["proton", "login", "--stdin", "--json"])
+    assert e.value.code == 1
+    shape.check("exitctl/error", json.loads(out.getvalue()))
+
+    from exitctl.exitnode import ExitNode
+
+    async def no_slots():
+        return []
+    run.node.keys = no_slots                  # the node has no such slot (ExitNode.key used to
+    run.node.key = lambda slot: ExitNode.key(run.node, slot)   # raise StopIteration here)
+    run(["proton", "login", "--stdin"], {"username": "u", "password": "pw"})
+    code, out = run(["proton", "renew", "--slot", "a"])
+    assert code == 1 and "no slot" in out["error"]

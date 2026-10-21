@@ -1,8 +1,10 @@
-"""exitctl: `exitctl <provider> <command>` and `exitctl keys`.
+"""exitctl: `exitctl <provider> <command>` and `exitctl keys` / `exitctl providers`.
 
-Every command takes --json (machine output on stdout; the Phase 5 app drives exitctl
-this way). Human messages and prompts go to stderr, so stdout stays parseable.
-Private keys are never printed, in either mode.
+Every command takes --json: machine output on stdout (the app drives exitctl this way;
+contracts/exitctl/ and its README list the shapes and exit codes). Human messages and prompts
+go to stderr, so stdout stays parseable; errors in --json mode are JSON on stdout too.
+Private keys are never printed, in either mode. The work is `keyservice.KeyService` and the
+provider adapters; this module only parses, asks and prints.
 """
 
 from __future__ import annotations
@@ -11,19 +13,21 @@ import argparse
 import asyncio
 import getpass
 import json
-import os
 import sys
-import time
-from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from . import providers
-from .controller import Controller, ControllerError
-from .providers.base import IMPORT, SERVERS, NeedInput, Provider, ProviderError
-from .wgkeys import Peer
+from .exitnode import ExitNode
+from .keyservice import KeyService, fmt_time
+from .model import SLOTS, ExitctlError, NeedInput, NodeError
+from .providers.base import (CREATE, DELETE, IMPORT, LIST, LOGIN, RENEW, SERVERS, Credentials,
+                             Provider)
+
+# Exit codes (contracts/README.md): 0 done, 1 error, 2 the exit node refused, 3 input needed
+OK, ERROR, REFUSED, NEED_INPUT = 0, 1, 2, 3
 
 
+# Asking the user (interactive login) ---------------------------------------------------
 class TtyPrompt:
     def ask(self, label: str, secret: bool = False) -> str:
         if secret:
@@ -35,119 +39,30 @@ class TtyPrompt:
         print(message, file=sys.stderr)
 
 
-def node_name(ctl: Controller) -> str:
-    host = urlsplit(ctl.base_url).hostname or "exit"
-    return os.environ.get("EXITCTL_NODE") or host.split(".")[0]
-
-
-def device_name(ctl: Controller, slot: str) -> str:
-    return f"{node_name(ctl)}-{slot}-{datetime.now(UTC):%Y%m%d}"
-
-
-# Flows ----------------------------------------------------------------------------
-async def slot_values(p: Provider, key_view: dict) -> dict:
-    """The slot's current lever values: recorded options if this provider made the key,
-    else what its .conf comments say (a dashboard-made key)."""
-    vals = p.values_from_conf_options(key_view.get("options") or {})
-    meta = key_view.get("meta") or {}
-    if meta.get("provider") == p.name:
-        vals |= meta.get("options") or {}
-    return vals
-
-
-async def find_cert(p: Provider, wg_public: str) -> dict | None:
-    if not wg_public:
-        return None
-    return next((c for c in await p.list_keys() if c.get("wg_public_key") == wg_public), None)
-
-
-async def rotate(p: Provider, ctl: Controller, slot: str, overrides: dict,
-                 keep_old: bool = False, say=lambda _m: None) -> dict:
-    status, cur = await ctl.status(), await ctl.key(slot)
-    vals = {o.key: o.default for o in p.options()} | await slot_values(p, cur) | overrides
-    old = await find_cert(p, cur.get("public_key") or "")
-    if not (status.get("pubkey") and status.get("endpoint")):
-        raise ProviderError("the controller reports no current server")
-    peer = Peer(status.get("server") or "server", status["pubkey"], status["endpoint"])
-    name = device_name(ctl, slot)
-    say(f"creating {p.name} key {name} ({', '.join(f'{k}={v}' for k, v in vals.items())})")
-    new = await p.create_key(name, vals, peer)
-    say(f"uploading to slot {slot}; the controller tests it (up to a minute)")
-    try:
-        view = await ctl.put_key(slot, new.conf, new.meta)
-    except ControllerError:
-        say("the controller kept the previous key; deleting the new certificate")
+async def interactive_login(p: Provider, creds: Credentials, prompt: TtyPrompt):
+    """Run login steps, asking for what each NeedInput names, until it is done."""
+    while True:
         try:
-            await p.delete_key(new.meta["cert_id"])
-        except ProviderError as e:
-            say(f"could not delete it: {e}")
-        raise
-    deleted = None
-    if old and not keep_old and old["id"] != new.meta.get("cert_id"):
-        try:
-            await p.delete_key(old["id"])
-            deleted = old["id"]
-        except ProviderError as e:
-            say(f"new key is live, but the old certificate could not be deleted: {e}")
-    return {"slot": slot, "key": view, "deleted_old": deleted}
+            return await p.login(creds)
+        except NeedInput as need:
+            if need.kind == "password":
+                creds = Credentials(username=creds.username or prompt.ask(f"{p.title} username"),
+                                    password=prompt.ask(f"{p.title} password", secret=True))
+            elif need.kind == "totp":
+                creds = Credentials(totp=prompt.ask("2FA code"))
+            elif need.kind == "human_verification":
+                prompt.info(f"{p.title} asks for a CAPTCHA. Open this URL in your browser and "
+                            f"solve it:\n  {need.info['url']}")
+                prompt.ask("Then press Enter here")
+                creds = Credentials(creds.username, creds.password, hv_token=need.info["token"],
+                                    hv_type="captcha")
+            else:
+                raise
 
 
-async def renew(p: Provider, ctl: Controller, slot: str, say=lambda _m: None) -> dict:
-    cur = await ctl.key(slot)
-    meta = cur.get("meta") or {}
-    if meta.get("provider") != p.name or not meta.get("client_public_key"):
-        cert = await find_cert(p, cur.get("public_key") or "")
-        if not cert:
-            raise ProviderError(f"slot {slot}'s key is not a {p.name} certificate on this account")
-        meta = {"provider": p.name, "cert_id": cert["id"], "device_name": cert["device_name"],
-                "options": cert["options"], "client_public_key": cert["client_public_key"]}
-    before = meta.get("expires_at")
-    meta = await p.renew_key(meta)
-    meta["wg_public_key"] = cur.get("public_key")
-    view = await ctl.put_meta(slot, meta)
-    say(f"slot {slot}: expiry {fmt_time(before)} → {fmt_time(meta.get('expires_at'))}")
-    return {"slot": slot, "key": view}
-
-
-async def list_certs(p: Provider, ctl: Controller | None) -> list[dict]:
-    certs = await p.list_keys()
-    slots = {}
-    if ctl:
-        try:
-            slots = {k["public_key"]: k["slot"] for k in await ctl.keys() if k.get("public_key")}
-        except ControllerError:
-            pass
-    prefix = f"{node_name(ctl)}-" if ctl else None
-    for c in certs:
-        c["slot"] = slots.get(c.get("wg_public_key"))
-        c["orphan"] = bool(prefix and c["device_name"].startswith(prefix) and not c["slot"])
-    return certs
-
-
-async def import_conf(ctl: Controller, slot: str, path: Path, provider: str) -> dict:
-    meta = {"provider": provider, "device_name": path.stem, "created_at": int(time.time())}
-    return {"slot": slot, "key": await ctl.put_key(slot, path.read_text(), meta)}
-
-
-# Output ---------------------------------------------------------------------------
-def fmt_time(ts) -> str:
-    return datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%d") if ts else "-"
-
-
-def human(obj) -> str:
-    if isinstance(obj, dict) and "slots" in obj:
-        return "\n".join(human_slot(k) for k in obj["slots"])
-    if isinstance(obj, dict) and "key" in obj:
-        out = human_slot(obj["key"])
-        if obj.get("deleted_old"):
-            out += f"\n  deleted old certificate {obj['deleted_old']}"
-        return out
-    if isinstance(obj, list):
-        return "\n".join(
-            f"{c['device_name'] or '(unnamed)':32} {c['id'] or '?':20} expires {fmt_time(c['expires_at'])}"
-            f"  {opts(c['options'])}" + (f"  [slot {c['slot']}]" if c.get("slot") else "")
-            + ("  [orphan]" if c.get("orphan") else "") for c in obj) or "(none)"
-    return json.dumps(obj, indent=1)
+# Printing ------------------------------------------------------------------------------
+def opts(d: dict) -> str:
+    return ", ".join(f"{k}={v}" for k, v in d.items()) or "-"
 
 
 def human_slot(k: dict) -> str:
@@ -158,26 +73,58 @@ def human_slot(k: dict) -> str:
             f"  options {opts(k.get('options') or {})}\n  certificate expires in {exp}")
 
 
-def opts(d: dict) -> str:
-    return ", ".join(f"{k}={v}" for k, v in d.items()) or "-"
+def human_certs(certs: list[dict]) -> str:
+    return "\n".join(
+        f"{c['device_name'] or '(unnamed)':32} {c['id'] or '?':20} expires {fmt_time(c['expires_at'])}"
+        f"  {opts(c['options'])}" + (f"  [slot {c['slot']}]" if c.get("slot") else "")
+        + ("  [orphan]" if c.get("orphan") else "") for c in certs) or "(none)"
 
 
-def emit(args, obj) -> None:
-    print(json.dumps(obj, indent=1) if args.json else human(obj))
+def human_key_result(r: dict) -> str:
+    out = human_slot(r["key"])
+    if r.get("deleted_old"):
+        out += f"\n  deleted old certificate {r['deleted_old']}"
+    return out
 
 
-# Parser ---------------------------------------------------------------------------
-def add_option_flags(sp: argparse.ArgumentParser, p: Provider) -> None:
-    for o in p.options():
-        meta = "on|off" if o.kind == "bool" else "|".join(str(c) for c in o.choices)
-        sp.add_argument(f"--{o.key.replace('_', '-')}", dest=f"opt_{o.key}", metavar=meta,
-                        help=f"{o.label}: {o.help}" if o.help else o.label)
+class Output:
+    """One result per command: JSON on stdout (--json), or a human rendering."""
+
+    def __init__(self, json_mode: bool):
+        self.json = json_mode
+
+    def say(self, message: str) -> None:   # progress, humans only
+        if not self.json:
+            print(message, file=sys.stderr)
+
+    def result(self, obj, human=None) -> None:
+        if self.json:
+            print(json.dumps(obj, indent=1))
+        else:
+            print(human(obj) if human else json.dumps(obj, indent=1))
+
+    def error(self, e: Exception) -> None:
+        if self.json:
+            print(json.dumps(e.to_json() if isinstance(e, NeedInput) else {"error": str(e)}))
+        else:
+            print(f"exitctl: {e}", file=sys.stderr)
+
+
+# Parser --------------------------------------------------------------------------------
+def add_lever_flags(sp: argparse.ArgumentParser, p: Provider) -> None:
+    for lv in p.levers():
+        meta = "on|off" if lv.kind == "bool" else "|".join(str(c) for c in lv.choices)
+        sp.add_argument(f"--{lv.key.replace('_', '-')}", dest=f"opt_{lv.key}", metavar=meta,
+                        help=f"{lv.label}: {lv.help}" if lv.help else lv.label)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # SUPPRESS: a subcommand's copy of these flags must not reset one given before it
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--json", action="store_true", help="machine-readable output")
-    common.add_argument("--url", help="controller URL (default $EXITCTL_URL or http://exit-proton:8080)")
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                        help="machine-readable output")
+    common.add_argument("--url", default=argparse.SUPPRESS,
+                        help="controller URL (default $EXITCTL_URL or http://exit-proton:8080)")
     ap = argparse.ArgumentParser(prog="exitctl", parents=[common],
                                  description="VPN provider keys for the exit node (PLAN Phase 3b)")
     sub = ap.add_subparsers(dest="target", required=True)
@@ -185,32 +132,36 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("providers", parents=[common], help="available provider adapters")
     for name in providers.NAMES:
         p = providers.get(name)
-        pp = sub.add_parser(name, parents=[common], help=p.title)
-        cmds = pp.add_subparsers(dest="cmd", required=True)
-        if IMPORT in p.capabilities:
+        caps = p.capabilities
+        cmds = sub.add_parser(name, parents=[common], help=p.title).add_subparsers(dest="cmd", required=True)
+        if IMPORT in caps:
             c = cmds.add_parser("import", parents=[common], help="upload a .conf into a slot")
-            c.add_argument("--slot", required=True, choices=["a", "b"])
+            c.add_argument("--slot", required=True, choices=SLOTS)
             c.add_argument("--provider-name", default="manual", help="recorded as the key's provider")
             c.add_argument("file", type=Path)
-            continue
-        cmds.add_parser("options", parents=[common], help="the levers keys can carry")
-        lg = cmds.add_parser("login", parents=[common], help="log in (Keychain)")
-        lg.add_argument("--stdin", action="store_true",
-                        help="read {username,password,totp,hv_token,hv_type} as JSON from stdin")
-        lg.add_argument("--totp", help="2FA code (to finish a login that stopped at 2FA)")
-        cmds.add_parser("logout", parents=[common])
-        cmds.add_parser("whoami", parents=[common])
-        cmds.add_parser("list", parents=[common], help="certificates on the account")
-        d = cmds.add_parser("delete", parents=[common], help="delete a certificate")
-        d.add_argument("id")
-        r = cmds.add_parser("rotate", parents=[common],
-                            help="new key for a slot (levers: given, else the slot's current)")
-        r.add_argument("--slot", required=True, choices=["a", "b"])
-        r.add_argument("--keep-old", action="store_true", help="don't delete the old certificate")
-        add_option_flags(r, p)
-        n = cmds.add_parser("renew", parents=[common], help="extend a slot's certificate, same key")
-        n.add_argument("--slot", required=True, choices=["a", "b"])
-        if SERVERS in p.capabilities:
+        if CREATE in caps:
+            cmds.add_parser("options", parents=[common], help="the levers keys can carry")
+        if LOGIN in caps:
+            lg = cmds.add_parser("login", parents=[common], help="log in (Keychain)")
+            lg.add_argument("--stdin", action="store_true",
+                            help="read {username,password,totp,hv_token,hv_type} as JSON from stdin")
+            lg.add_argument("--totp", help="2FA code (to finish a login that stopped at 2FA)")
+            cmds.add_parser("logout", parents=[common])
+            cmds.add_parser("whoami", parents=[common])
+        if LIST in caps:
+            cmds.add_parser("list", parents=[common], help="certificates on the account")
+        if DELETE in caps:
+            cmds.add_parser("delete", parents=[common], help="delete a certificate").add_argument("id")
+        if CREATE in caps:
+            r = cmds.add_parser("rotate", parents=[common],
+                                help="new key for a slot (levers: given, else the slot's current)")
+            r.add_argument("--slot", required=True, choices=SLOTS)
+            r.add_argument("--keep-old", action="store_true", help="don't delete the old certificate")
+            add_lever_flags(r, p)
+        if RENEW in caps:
+            n = cmds.add_parser("renew", parents=[common], help="extend a slot's certificate, same key")
+            n.add_argument("--slot", required=True, choices=SLOTS)
+        if SERVERS in caps:
             sv = cmds.add_parser("servers", parents=[common],
                                  help="the provider's live server list (--push: to the exit node)")
             sv.add_argument("--push", action="store_true")
@@ -219,68 +170,75 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-async def run(args) -> int:
-    ctl = Controller(args.url)
-    say = (lambda _m: None) if args.json else (lambda m: print(m, file=sys.stderr))
+# Commands ------------------------------------------------------------------------------
+async def run(args, out: Output) -> int:
+    node = ExitNode(getattr(args, "url", None))
     if args.target == "keys":
-        emit(args, {"slots": await ctl.keys()})
-        return 0
+        out.result({"slots": await node.keys()}, lambda o: "\n".join(human_slot(k) for k in o["slots"]))
+        return OK
     if args.target == "providers":
-        emit(args, [{"name": n, "title": providers.get(n).title,
-                     "capabilities": sorted(providers.get(n).capabilities)} for n in providers.NAMES]
-             if args.json else {"providers": list(providers.NAMES)})
-        return 0
+        rows = [{"name": n, "title": providers.get(n).title,
+                 "capabilities": sorted(providers.get(n).capabilities)} for n in providers.NAMES]
+        out.result(rows, lambda rs: "\n".join(f"{r['name']:8} {r['title']}" for r in rs))
+        return OK
     p = providers.get(args.target)
-    if args.cmd == "import":
-        emit(args, await import_conf(ctl, args.slot, args.file, args.provider_name))
-    elif args.cmd == "options":
-        emit(args, [o.to_dict() for o in p.options()])
-    elif args.cmd == "login":
-        creds = json.loads(sys.stdin.read()) if args.stdin else {}
+    keys = KeyService(p, node, out.say)
+    cmd = args.cmd
+    if cmd == "import":
+        out.result(await keys.import_conf(args.slot, args.file, args.provider_name), human_key_result)
+    elif cmd == "options":
+        out.result([lv.to_json() for lv in p.levers()])
+    elif cmd == "login":
+        creds = Credentials.from_json(json.loads(sys.stdin.read() or "{}")) if args.stdin else Credentials()
         if args.totp:
-            creds["totp"] = args.totp
-        prompt = None if (args.stdin or args.json) else TtyPrompt()
-        emit(args, await p.login(prompt, creds))
-    elif args.cmd == "logout":
+            creds = Credentials(creds.username, creds.password, args.totp, creds.hv_token, creds.hv_type)
+        if args.stdin or args.json:
+            account = await p.login(creds)       # one step; NeedInput says what comes next
+        else:
+            account = await interactive_login(p, creds, TtyPrompt())
+        out.result(account.login_json(), lambda a: f"logged in as {a['account']}")
+    elif cmd == "logout":
         await p.logout()
-        emit(args, {"logged_in": False})
-    elif args.cmd == "whoami":
-        emit(args, await p.whoami() or {"logged_in": False})
-    elif args.cmd == "list":
-        emit(args, await list_certs(p, ctl))
-    elif args.cmd == "delete":
-        await p.delete_key(args.id)
-        emit(args, {"deleted": args.id})
-    elif args.cmd == "rotate":
-        overrides = {o.key: o.parse(getattr(args, f"opt_{o.key}")) for o in p.options()
-                     if getattr(args, f"opt_{o.key}") is not None}
-        emit(args, await rotate(p, ctl, args.slot, overrides, args.keep_old, say))
-    elif args.cmd == "renew":
-        emit(args, await renew(p, ctl, args.slot, say))
-    elif args.cmd == "servers":
+        out.result({"logged_in": False}, lambda _a: "logged out")
+    elif cmd == "whoami":
+        out.result((await p.account()).whoami_json())
+    elif cmd == "list":
+        out.result(await keys.certificates(), human_certs)
+    elif cmd == "delete":
+        await p.delete_certificate(args.id)
+        out.result({"deleted": args.id})
+    elif cmd == "rotate":
+        overrides = {lv.key: lv.parse(getattr(args, f"opt_{lv.key}")) for lv in p.levers()
+                     if getattr(args, f"opt_{lv.key}") is not None}
+        out.result(await keys.rotate(args.slot, overrides, args.keep_old), human_key_result)
+    elif cmd == "renew":
+        out.result(await keys.renew(args.slot), human_key_result)
+    elif cmd == "servers":
         if args.revert:
-            emit(args, {"catalog": await ctl.delete_catalog()})
-            return 0
-        rows = await p.servers()
-        out = {"servers": len(rows), "enabled": sum(r["enabled"] for r in rows),
-               "countries": len({r["country_code"] for r in rows})}
-        if args.push:
-            say(f"pushing {len(rows)} servers to {ctl.base_url}")
-            out["catalog"] = await ctl.put_catalog(p.name, rows)
-        emit(args, out)
-    return 0
+            out.result({"catalog": await node.delete_catalog()})
+        else:
+            out.result(await keys.servers(args.push))
+    return OK
+
+
+def exit_code(e: Exception) -> int:
+    if isinstance(e, NeedInput):
+        return NEED_INPUT
+    if isinstance(e, NodeError) and e.refused:
+        return REFUSED
+    return ERROR
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    args.json = getattr(args, "json", False)
+    out = Output(args.json)
     try:
-        code = asyncio.run(run(args))
-    except NeedInput as e:
-        out = {"error": str(e), "need": e.what, **e.info}
-        print(json.dumps(out) if args.json else f"exitctl: {e}", file=sys.stdout if args.json else sys.stderr)
-        code = 3
-    except (ProviderError, ControllerError) as e:
-        print(json.dumps({"error": str(e)}) if args.json else f"exitctl: {e}",
-              file=sys.stdout if args.json else sys.stderr)
-        code = 2 if isinstance(e, ControllerError) and getattr(e, "status", 0) == 409 else 1
+        code = asyncio.run(run(args, out))
+    except ExitctlError as e:
+        out.error(e)
+        code = exit_code(e)
+    except (OSError, ValueError) as e:   # unreadable file, bad --stdin JSON, keyring trouble
+        out.error(ExitctlError(f"{type(e).__name__}: {e}"))
+        code = ERROR
     sys.exit(code)

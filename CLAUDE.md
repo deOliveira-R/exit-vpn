@@ -77,7 +77,8 @@ prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident
   `ci.yml` on pushes to main and PRs (`gh run list`).
 - App: `mac/ExitControl` (SwiftPM core + XcodeGen app; `swift test`, `./build-app.sh`; see its README). `open exitvpn://servers|find|settings/<tab>`
   opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/ExitControl.app` logs actions and updates. exitctl for
-  the app: `uv tool install --python <Homebrew python3.13> ./helper` (uv's standalone Python aborts on libssl).
+  the app: `uv tool install --force --reinstall --python <Homebrew python3.13> ./helper` (uv's standalone
+  Python aborts on libssl; `--reinstall`, else uv reuses a cached build of the same version).
 - Unit tests (Mac): `controller/.venv/bin/pytest -q controller`,
   `prober/.venv/bin/pytest -q prober`, `(cd helper && .venv/bin/pytest -q)` (venvs via `uv venv -p 3.13` + `uv pip install -e '.[test]'`).
 - Acceptance: on the VPS `sudo bash tests/acceptance/phase1.sh`, `phase2-node.sh`; from the

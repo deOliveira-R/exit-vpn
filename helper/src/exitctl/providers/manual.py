@@ -1,4 +1,5 @@
-"""For providers without an API: import a .conf downloaded from their dashboard."""
+"""For providers without an API: import a .conf downloaded from their dashboard
+(`exitctl manual import --slot a file.conf`; the work is `KeyService.import_conf`)."""
 
 from __future__ import annotations
 

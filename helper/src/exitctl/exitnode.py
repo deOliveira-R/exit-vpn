@@ -1,5 +1,5 @@
-"""Client for the exit node's controller API. Authentication is the Mac's tailnet
-identity (the controller asks tailscaled who is calling), so there are no tokens."""
+"""Client of the exit node's controller API. Authentication is this Mac's tailnet identity
+(the controller asks tailscaled who is calling), so there are no tokens."""
 
 from __future__ import annotations
 
@@ -7,16 +7,12 @@ import os
 
 import httpx
 
+from .model import NodeError
+
 DEFAULT_URL = "http://exit-proton:8080"
 
 
-class ControllerError(RuntimeError):
-    def __init__(self, status: int, detail: str):
-        super().__init__(f"controller: HTTP {status}: {detail}")
-        self.status, self.detail = status, detail
-
-
-class Controller:
+class ExitNode:
     def __init__(self, base_url: str | None = None, timeout: float = 15.0):
         self.base_url = (base_url or os.environ.get("EXITCTL_URL") or DEFAULT_URL).rstrip("/")
         self.timeout = timeout
@@ -26,13 +22,13 @@ class Controller:
             async with httpx.AsyncClient(timeout=timeout or self.timeout) as c:
                 r = await c.request(method, f"{self.base_url}{path}", **kw)
         except httpx.HTTPError as e:
-            raise ControllerError(0, f"{self.base_url} unreachable: {e!r}") from None
+            raise NodeError(0, f"{self.base_url} unreachable: {e!r}") from None
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail", r.text)
             except ValueError:
                 detail = r.text
-            raise ControllerError(r.status_code, str(detail))
+            raise NodeError(r.status_code, str(detail))
         return r.json()
 
     async def status(self) -> dict:
@@ -42,7 +38,10 @@ class Controller:
         return (await self._req("GET", "/v1/keys"))["slots"]
 
     async def key(self, slot: str) -> dict:
-        return next(k for k in await self.keys() if k["slot"] == slot)
+        for k in await self.keys():
+            if k["slot"] == slot:
+                return k
+        raise NodeError(404, f"the exit node has no slot {slot!r}")
 
     async def put_key(self, slot: str, conf: str, meta: dict) -> dict:
         # The controller tries the key (up to ~45 s) and may roll back (~20 s more)
@@ -60,3 +59,10 @@ class Controller:
 
     async def delete_catalog(self) -> dict:
         return await self._req("DELETE", "/v1/catalog", timeout=60.0)
+
+    @property
+    def node_name(self) -> str:
+        """The exit node's tailnet name (`exit-proton`), which prefixes its keys' names."""
+        from urllib.parse import urlsplit
+        host = urlsplit(self.base_url).hostname or "exit"
+        return os.environ.get("EXITCTL_NODE") or host.split(".")[0]
