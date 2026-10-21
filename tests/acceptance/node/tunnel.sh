@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The exit container's tunnel: its traffic and DNS leave via wg0, its own underlay via the
-# host, IPv6 only via wg0 and forwarded only while the IPv6 gate is open, everything fails
+# host, IPv6 only via wg0 and forwarded only while the IPv6 gate is open (refused otherwise), everything fails
 # closed while wg0 is down and recovers when it is back, the prober has no IPv6 route, and the
 # host's own egress and services are untouched. On the VPS, from the deploy dir, as a sudoer:
 #   sudo bash tests/acceptance/node/tunnel.sh
@@ -31,17 +31,18 @@ src6=$(x sh -c '. /usr/local/lib/exit-vpn/common.sh; load_conf; echo $VPN_SRC6')
 t6=$(x curl -6 -s --max-time 4 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
 [ -z "$t6" ] && ok "unbound IPv6 does not leave (the main table has no IPv6 route, wg0 no IPv6 address)" || bad "unbound IPv6 left: $t6"
 gate6() { x test -e /run/exit-vpn/ipv6 && echo open || echo closed; }
-route6() { x ip -6 route show table 100 | grep -q '^default dev wg0' && echo open || echo closed; }
+inset6() { x nft get element inet killswitch ipv6_gate '{ wg0 }' >/dev/null 2>&1 && echo open || echo closed; }
+route6() { x ip -6 route show table 100 | grep -q '^default dev wg0' && echo yes || echo no; }
 if [ -z "$src6" ]; then
   info "the exit key's config has no IPv6 address (or EXIT_IPV6=off): the exit is IPv4-only"
-  [ "$(route6)" = closed ] && ok "without IPv6, forwarded IPv6 is never routed via wg0" || bad "an IPv6 route via wg0 without an IPv6 address"
+  [ "$(route6)" = no ] && [ "$(inset6)" = closed ] && ok "without IPv6, forwarded IPv6 is never routed via wg0" || bad "IPv6 via wg0 without an IPv6 address"
 else
   t=$(ctrace -6 --interface "$src6")
   if [ -n "$t" ]; then ok "the tunnel's own IPv6 leaves via the VPN: $t"
   else info "this server carries no IPv6 (the tunnel's IPv6 trace failed)"; fi
-  g=$(gate6); r=$(route6)
-  if [ "$g" = "$r" ]; then ok "forwarded IPv6 is routed via wg0 exactly while the IPv6 gate is open (now $g)"
-  else bad "IPv6 gate $g but the table-100 IPv6 route is $r"; fi
+  g=$(gate6); r=$(inset6)
+  if [ "$g" = "$r" ]; then ok "forwarded IPv6 passes the kill switch exactly while the IPv6 gate is open (now $g)"
+  else bad "IPv6 gate file $g but the kill switch's ipv6_gate is $r"; fi
 fi
 out=$(docker exec "$NODE-prober" ip -6 route get 2606:4700::1111 2>&1 | head -1)
 case "$out" in *unreachable*|*"Network is unreachable"*|*"No route"*) ok "the prober has no IPv6 route";;
@@ -56,7 +57,7 @@ else bad "with wg0 down: trace '$t', HTTP $code, DNS '$a'"; fi
 if [ -n "$src6" ]; then
   sleep 2   # one route-keeper pass
   t=$(ctrace -6 --interface "$src6")
-  if [ -z "$t" ] && [ "$(route6)" = closed ]; then ok "with wg0 down, IPv6 fails closed too (no IPv6 route via wg0)"
+  if [ -z "$t" ] && [ "$(route6)" = no ]; then ok "with wg0 down, IPv6 fails closed too (no IPv6 route via wg0)"
   else bad "with wg0 down: IPv6 trace '$t', forwarded IPv6 route $(route6)"; fi
 fi
 x ip link set wg0 up

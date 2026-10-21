@@ -58,7 +58,7 @@ class Settings:
     )
     dns_probe_name: str = "www.cloudflare.com"
     # IPv6 through the exit (EXIT_IPV6=off: never). Probed over the tunnel's IPv6 address;
-    # the gate file tells route-keeper (common.sh's IPV6_GATE) to route forwarded IPv6 via wg0.
+    # the gate file tells route-keeper (common.sh's IPV6_GATE) to let forwarded IPv6 through.
     ipv6: bool = True
     probe6_url: str = "https://www.cloudflare.com/cdn-cgi/trace"
     ipv6_gate_file: Path = Path("/run/exit-vpn/ipv6")

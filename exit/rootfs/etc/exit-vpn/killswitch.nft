@@ -5,11 +5,17 @@ include "/run/exit-vpn/defines.nft"
 table inet killswitch
 delete table inet killswitch
 table inet killswitch {
+  # The IPv6 gate: route-keeper puts wg0 here while the controller has proven IPv6 on this
+  # server. Otherwise forwarded IPv6 is refused at once, TCP with a reset (an ICMP error alone
+  # is dropped by Tailscale clients, whose connections then stall), so clients use IPv4.
+  set ipv6_gate { type ifname; }
   chain forward {
     type filter hook forward priority -10; policy accept;
     # Exit traffic may only leave through the tunnel. A drop here is final, whatever
     # tailscaled's own ts-forward chains accept.
     iifname "tailscale0" oifname != $WG_IF drop
+    iifname "tailscale0" meta nfproto ipv6 oifname != @ipv6_gate meta l4proto tcp reject with tcp reset
+    iifname "tailscale0" meta nfproto ipv6 oifname != @ipv6_gate reject with icmpx admin-prohibited
   }
   chain output {
     type filter hook output priority -10; policy accept;

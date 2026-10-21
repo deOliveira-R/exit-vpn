@@ -40,8 +40,9 @@ s6-overlay services, in order (`exit/rootfs/etc/s6-overlay/s6-rc.d`):
 1. `init-sysctl`: forwarding and reverse-path settings inside the container.
 2. `init-killswitch`: two layers. Routing: forwarded traffic uses table 100, whose fallback
    route is *unreachable* (IPv4 and IPv6); the tunnel's own IPv6 sockets use table 101.
-   nftables (`killswitch.nft`): exit traffic may leave only through wg0, and the underlay
-   carries only WireGuard and Tailscale's own packets.
+   nftables (`killswitch.nft`): exit traffic may leave only through wg0, forwarded IPv6 only
+   while wg0 is in the `ipv6_gate` set, and the underlay carries only WireGuard and
+   Tailscale's own packets.
 3. `init-wg`: wg0 from the slot-a config (uploaded key, else the bootstrap file), with its
    IPv4 address, on the last good peer from `peer.env` if there is one; table 100's IPv4
    default and table 101's IPv6 default via wg0. The config's IPv6 address (unless
@@ -50,10 +51,11 @@ s6-overlay services, in order (`exit/rootfs/etc/s6-overlay/s6-rc.d`):
    own traffic into the tunnel. The health probe binds to it (`ip_nonlocal_bind`), forwarded
    IPv6 is SNATed to it.
 4. `route-keeper`, `tailscaled`, `tailscale-up`: route-keeper owns the routes via wg0. The
-   kernel drops them when wg0 bounces, and route-keeper restores them. It keeps table 100's
-   IPv6 default via wg0 only while the **IPv6 gate** is open (the file `/run/exit-vpn/ipv6`,
-   written by the controller): otherwise forwarded IPv6 meets the unreachable route, a fast
-   error after which clients use IPv4. tailscaled advertises the exit node (`0.0.0.0/0`, `::/0`).
+   kernel drops them when wg0 bounces, and route-keeper restores them. It also applies the
+   **IPv6 gate** (the file `/run/exit-vpn/ipv6`, written by the controller): while it exists,
+   wg0 is in the kill switch's `ipv6_gate` set; otherwise forwarded IPv6 is refused at once
+   (TCP reset, else ICMP) and clients use IPv4. An unreachable route would not do: Tailscale
+   clients drop its ICMP error and stall. tailscaled advertises the exit node (`0.0.0.0/0`, `::/0`).
 5. `controller`: `python -m exit_vpn`.
 
 Shared between the shell scripts and Python, and tested on both sides:
@@ -116,7 +118,7 @@ Rules worth knowing:
 - **Secure Core is a mode.** Turning it on or off switches servers at once. If nothing in the new mode works, nothing changes; `PUT /v1/prefs` is all-or-nothing.
 - **The blacklist is per public key.** A failed server is avoided under all its entry IPs.
 - **IPv6 is open only while proven.** A server without IPv6 drops it silently, which stalls
-  clients; the gate keeps the fast unreachable error instead. IPv6 never causes a failover.
+  clients; the closed gate refuses it at once instead. IPv6 never causes a failover.
 
 ## Prober (`prober/src/prober`)
 

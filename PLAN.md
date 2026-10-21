@@ -108,8 +108,9 @@ ip -6 route add unreachable default metric 1000 table 101
 ip -6 route add default dev wg0 metric 1 table 101   # metric 1: v6 routes default to 1024
 ip -6 rule add priority 105 oif wg0                   lookup 101
 ip -6 rule add priority 110 from 2a07:b944::2:2       lookup 101
-# route-keeper: `ip -6 route replace default dev wg0 metric 1 table 100` while
-# /run/exit-vpn/ipv6 exists (the controller's IPv6 gate), deleted otherwise
+ip -6 route add default dev wg0 metric 1 table 100   # forwarded v6: then the gate (nftables)
+# route-keeper: wg0 in `inet killswitch` set ipv6_gate while /run/exit-vpn/ipv6 exists (the
+# controller's IPv6 gate); otherwise forwarded v6 is rejected (TCP reset, else ICMP)
 ```
 
 Everything else (tailscaled's own control/DERP/peer traffic, catalog downloads) uses the main table → `eth0` → Oracle IP.

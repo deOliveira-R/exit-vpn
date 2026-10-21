@@ -27,7 +27,7 @@ rule() { # family priority selector...
 rule -4 90  to 100.64.0.0/10       lookup 52            # tailnet destinations → Tailscale's table
 rule -6 90  to fd7a:115c:a1e0::/48 lookup 52
 rule -4 100 iif tailscale0         lookup "$EXIT_TABLE"  # forwarded exit traffic → VPN
-rule -6 100 iif tailscale0         lookup "$EXIT_TABLE"  # (IPv6 via wg0 only while the gate is open)
+rule -6 100 iif tailscale0         lookup "$EXIT_TABLE"  # (then the IPv6 gate, in nftables)
 rule -4 105 oif "$WG_IF"           lookup "$EXIT_TABLE"  # sockets bound to wg0
 rule -4 110 from "$VPN_SRC"        lookup "$EXIT_TABLE"  # sockets bound to the tunnel address
 rule -4 120 to "$VPN_DNS"          lookup "$EXIT_TABLE"  # VPN DNS only via the tunnel

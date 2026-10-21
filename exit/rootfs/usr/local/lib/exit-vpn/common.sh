@@ -8,10 +8,11 @@ set -eu
 KEY_DIR_A=${KEY_DIR_A:-/keys/a}
 if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
 WG_IF=${WG_IF:-wg0}
-EXIT_TABLE=${EXIT_TABLE:-100}      # forwarded exit traffic; its IPv6 default only while the gate is open
+EXIT_TABLE=${EXIT_TABLE:-100}      # forwarded exit traffic
 TUNNEL6_TABLE=${TUNNEL6_TABLE:-101} # the tunnel's own IPv6 sockets (health probe): always via wg0
 # The IPv6 gate: written by the controller while IPv6 through the tunnel is proven to work;
-# route-keeper routes forwarded IPv6 via wg0 only while it exists. /run starts empty.
+# route-keeper lets forwarded IPv6 through (killswitch.nft's ipv6_gate) only while it exists.
+# /run starts empty.
 IPV6_GATE=${IPV6_GATE:-/run/exit-vpn/ipv6}
 EXIT_IPV6=${EXIT_IPV6:-on}         # off: no IPv6 through the exit at all (.env)
 STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}   # peer.env: written by persistence.StateStore

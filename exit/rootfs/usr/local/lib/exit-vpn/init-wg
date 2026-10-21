@@ -26,7 +26,10 @@ ip addr add "$VPN_ADDR" dev "$WG_IF"
 if [ -n "$VPN_ADDR6" ]; then ip -6 route replace local "$VPN_SRC6/128" dev lo table local; fi
 ip link set "$WG_IF" mtu "${WG_MTU:-1420}" up
 ip route replace default dev "$WG_IF" table "$EXIT_TABLE"
-# Forwarded IPv6 waits for the gate (route-keeper); the tunnel's own IPv6 sockets need not
-# (metric 1: IPv6 routes default to 1024, which would lose to the unreachable route's 1000)
-if [ -n "$VPN_ADDR6" ]; then ip -6 route replace default dev "$WG_IF" metric 1 table "$TUNNEL6_TABLE"; fi
+# IPv6 too (forwarded IPv6 then waits for the gate in nftables). Metric 1: IPv6 routes
+# default to 1024, which would lose to the unreachable routes' 1000.
+if [ -n "$VPN_ADDR6" ]; then
+  ip -6 route replace default dev "$WG_IF" metric 1 table "$EXIT_TABLE"
+  ip -6 route replace default dev "$WG_IF" metric 1 table "$TUNNEL6_TABLE"
+fi
 log "tunnel up: peer ${PEER_NAME:-from-config} $peer_endpoint, address $VPN_ADDR ${VPN_ADDR6:-(no IPv6)}"

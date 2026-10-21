@@ -47,8 +47,8 @@ services:
       net.ipv4.conf.default.rp_filter: "2"
       # tailscaled's connmark-based rp_filter workaround
       net.ipv4.conf.all.src_valid_mark: "1"
-      # IPv6 leaves only via the tunnel, and only while the IPv6 gate is open; otherwise it
-      # hits the unreachable route (fast ICMP error, clients fall back to IPv4).
+      # IPv6 leaves only via the tunnel, and only while the IPv6 gate is open; otherwise the
+      # kill switch refuses it at once (TCP reset), and clients fall back to IPv4.
       net.ipv6.conf.all.forwarding: "1"
       # The health probe binds to the tunnel's IPv6 address, which is a local route, not an
       # interface address (init-wg says why)

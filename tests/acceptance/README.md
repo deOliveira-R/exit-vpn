@@ -39,7 +39,7 @@ From the deploy dir, as a sudoer: `sudo bash tests/acceptance/node/<suite>.sh`.
 
 | Suite | Proves | Changes | Was |
 |---|---|---|---|
-| `tunnel` | the exit container's traffic and DNS leave via wg0, its underlay via the host; no IPv6 via the underlay; the tunnel's IPv6 via wg0; forwarded IPv6 routed via wg0 exactly while the IPv6 gate is open; the prober has no IPv6 route; it fails closed (IPv6 too) while wg0 is down and recovers; the host's egress and services are untouched | wg0 down for a moment | P1 |
+| `tunnel` | the exit container's traffic and DNS leave via wg0, its underlay via the host; no IPv6 via the underlay; the tunnel's IPv6 via wg0; forwarded IPv6 passes the kill switch exactly while the IPv6 gate is open; the prober has no IPv6 route; it fails closed (IPv6 too) while wg0 is down and recovers; the host's egress and services are untouched | wg0 down for a moment | P1 |
 | `tailnet` | the node is logged in, named, tagged, an approved exit node, not taking over DNS; our rules and kill switch coexist with tailscaled's; forwarded traffic goes to wg0; the host's own Tailscale node and services are untouched | nothing | N1–N12 |
 | `provider-ipv6` | (without the stack) per server given on stdin: does IPv6 pass through the tunnel, with which address and speed; a server without IPv6 drops it silently or fails fast. Prints what it saw; no verdict | a throwaway container on key b | |
 | `provider-keys` | (before or without the stack) one provider key works against different servers by swapping the peer; two keys work concurrently. Prints what it saw; no verdict | throwaway containers | V1, V2 |
