@@ -783,6 +783,105 @@ the app; T37 an installed older build offers the newer release, updates and rela
   Shortcuts to any registered copy, so dev builds are no longer registered.
 - Host-level changes: none.
 
+### Phase R — Architecture pass (before Phase 6)
+
+Goal: for each component, one can say "these are the important concepts, they are represented
+by these objects and connected this way", and the code and docs say it too. Behaviour stays the
+same except for the bugs listed; every step leaves unit tests and the acceptance suites green.
+Based on four read-only reviews (2026-10-21) of the controller, prober, exitctl and the app.
+
+**Bugs found by the reviews (fixed in the step that touches them):**
+- Controller: `PUT /v1/prefs` with a Secure Core change can fail (409) after regions,
+  favourites and flags were already saved (half-applied). Fix: validate all, switch, then commit.
+- Controller: the degraded-recovery cycle exists twice (`health_step` and `run`); production uses
+  the untested copy. Fix: one `step()`, tested with a fake clock.
+- Controller: some events (`health`, `recovered`, `catalog`, `key_meta`) are lost on restart
+  (saved only when something else saves). Fix: the event log gets its own persistence.
+- Prober: if Chromium fails while opening a page context, the probe returns 500 and the tunnel
+  peer is not cleared (the kill switch still holds). Fix: tunnel session with cleanup in `finally`.
+- exitctl: unexpected errors (bad stdin JSON, missing slot, keyring) escape as tracebacks with no
+  JSON on stdout; the app shows a stderr line. Fix: one error→exit-code table.
+- App: reading exitctl's stdout before stderr can deadlock on a large stderr; no timeout or
+  cancel. A status that no longer decodes is silently ignored (stays "online" with stale data).
+
+**R1 — Contracts first.** The wire formats between components are untyped dicts checked
+nowhere. Add golden JSON fixtures in `contracts/` (controller status, servers, keys, every event
+kind; prober request/response; exitctl output per command, error object and exit codes) that the
+producer's tests must emit and the consumer's tests must parse (pytest on both Python sides,
+swift-testing in the app). Write `contracts/README.md`: each format, required fields,
+compatibility rules (unknown fields ignored, unknown enum values tolerated).
+
+**R2 — Controller** (target concepts):
+- Domain (pure): `Server`/`ServerId`, `Feature` (one vocabulary, hard vs soft), `Region`,
+  `Catalog` (lookups, canonical names/regions, no file I/O), `Prefs` (`updated(...)` validates
+  and canonicalises), `ActiveServer` (refers to a `Server`), `Blacklist`, selection functions
+  (`selection.py`, renamed from failover: failover, rotate, select, exact, find), `HealthTracker`.
+- Services: `ExitService` (the lock, active server, prefs, catalog; `step()`/`run()`, rotate,
+  select, select_exact, apply_find, update_prefs, replace_catalog, replace_exit_key, snapshot),
+  `Tunnel` (the only object touching wg0: try a server, try a key, check), `EventBus` (publish,
+  subscribe, recent; the only way to emit), `KeySlots`, `FindService`, `CatalogSource`.
+- Adapters: `wg`, `HealthProbe` (renamed from probes.Prober), `ProberClient`, `auth`,
+  `persistence` (state.json, peer.env for init-wg, catalog cache, key files), `api` (input shapes
+  and error→HTTP only). `__main__` is the composition root.
+- Steps: EventBus and no private access → rules out of api.py (atomic prefs) → one degraded
+  cycle (failover drill on the VPS outside the blackout windows) → key wiring without
+  monkey-patched callbacks → value types (state.json stays readable) → Tunnel → CatalogSource
+  and composition root, dead code out → shell/Python contract (peer.env, slot-a precedence) tested.
+
+**R3 — Prober:** `Prober` service (one probe, start to finish, with the lock), `ProbeTunnel`
+with a session context, `ExitCheck` (no engine import), `Engine` interface (`HttpEngine`,
+`BrowserEngine`, `Persona`), `Classifier` with explicit rule precedence, `Outcome` enum (same
+strings), `needs_browser` policy, `KeyFile`; `api.py` maps typed request/response models.
+Controller side: `ProberClient` in its own module with keyword arguments, `Finder` builds a
+typed `FindResult`. Re-run phase4 and phase5a suites.
+
+**R4 — exitctl:** typed model (`Lever`, `Account`, `Certificate`, `KeyMeta`, `NewKey`,
+`ServerRow`, `SlotId`), ports (`Provider`, `SessionStore` with Keychain and memory
+implementations, `ExitNode` controller client with typed errors), `KeyService` (rotate, renew,
+certificates with orphan flags, import, push catalog: the use cases now in cli.py),
+`DeviceNaming`; Proton adapter split (API, explicit login state machine, crypto); the CLI builds
+commands from capabilities and prints through JSON/human presenters. JSON output unchanged;
+contract changes (one account shape, `count` for pushed servers) only together with the app.
+
+**R5 — App:** core gets protocols over the controller client and exitctl, typed vocabulary
+(`RotationScope`, `Feature`, `Health`, `FindMode`, `FindOutcome`, `SettingsTab`, `AppRoute`),
+`ControllerCommand`/`ProviderCommand` with labels, one `ActionRunner` (menu clicks refuse while
+busy, URLs and Shortcuts queue in order; awaits instead of polling), stores (`ConnectionStore`,
+`CatalogStore`, `ProviderStore`, `ExitNodeMonitor`, `AppSettings`), small state machines
+(`FindSession`, `LoginFlow`), pure helpers (`ServerQuery`, `Geography`, `StatusText`), a
+hardened `ProcessRunner`. The app target keeps views, `AppContainer` (composition root),
+`Router`, Intents, Updater. Unchanged: UserDefaults keys, bundle id, LaunchAgent label,
+`exitvpn://` grammar, Intent names and parameters. Release only after T27–T34 by hand.
+
+**R6 — Documentation:** `ARCHITECTURE.md` (the system, then one concept map per component:
+concepts, objects, connections, locks, files on disk, startup order), component READMEs
+(`controller/`, `prober/`, `helper/` with "adding a provider"), module/class docstrings stating
+invariants, the event catalogue and status schema (from R1), and PLAN corrections where the code
+has moved on (Phase 3b interface, Phase 4 response shape).
+
+**Acceptance:** each component's unit tests (with the new contract tests) and the acceptance
+suites green after each step; a failover drill after R2's degraded-cycle step; the owner reads
+ARCHITECTURE.md and the code and agrees the concepts are clear.
+
+### Phase D — Published node images (deployable without a checkout)
+
+- **Images**: a tag builds `exit` and `prober` for amd64 and arm64 in GitHub Actions and pushes
+  them to GHCR (`ghcr.io/deoliveira-r/exit-vpn-exit`, `…-prober`), public like the repo, with
+  build provenance (`actions/attest-build-provenance`) and an SBOM; deploys check them with
+  `gh attestation verify`.
+- **Deploy kit**: `compose.yaml` uses the published images by version and digest (the `build:`
+  sections move to a dev override file); `install.sh` creates `secrets/` (0700) and `.env` (0600),
+  takes the Tailscale auth key and WireGuard configs (or points to exitctl), pulls and verifies
+  the images, and starts the stack. The README lists the tailnet policy entries it needs.
+- **Updates**: change the version in `.env`, pull, restart. The controller reports its version
+  in `/v1/status`; the app can later show "exit node update available".
+- **Migration**: the VPS moves from the git checkout to the kit after a test run there.
+- **Open (owner)**: one version for the repo or separate tag series (app `v0.x`, node
+  `node-v1.x`); confirm the VPS architecture; public images.
+- **Acceptance**: T38 a node tag publishes both images (both architectures) with verifiable
+  provenance; T39 a fresh directory with the kit, `.env` and secrets brings up a working exit;
+  T40 the VPS runs the published images and the Phase 3/5a suites pass.
+
 ### Phase 6 — Home allow-list (residential exit via app connector)
 
 **Home node**: a custom TrueNAS app (compose) `home-gw`: `tailscale/tailscale` image, kernel mode, `TS_EXTRA_ARGS=--advertise-connector --advertise-exit-node --advertise-tags=tag:connector-home --hostname=home-gw`, `TS_USERSPACE=false`, `net.ipv4.ip_forward=1`. Separate node from the NAS's existing Tailscale subnet router (do not modify that one).
@@ -874,6 +973,8 @@ Accepted risk: host-root compromise of the VPS compromises both fin-intel and th
 | T23–T30 | 5 | exact select; equivalent-server failover; Secure Core on/off; pinned regions; app actions, SSE, offline state; levers and catalog agent from the app |
 | T31–T34 | 5b | requirements; favourites; action URLs; Shortcuts |
 | T35–T37 | 5c | CI; tagged release; in-app update |
+| R | R1–R6 | contracts pinned; unit + acceptance suites green after each step; failover drill; owner review |
+| T38–T40 | D | published images with provenance; fresh deploy from the kit; VPS on published images |
 | T13–T15 | 6 | per-domain residential routing over the exit node; safe policy edits; fail-closed |
 
 ---
