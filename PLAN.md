@@ -1390,25 +1390,51 @@ standby (acceptance), the uplink-down case causes no switch, a degraded active i
 standby only at a quiet moment, and a week of monitoring shows fewer and shorter drops than
 the Phase M baseline.
 
-**Q-1 progress (2026-10-22, 08:30 UTC):** node-v1.2.3 deployed (1.2.0 → 1.2.3 the same morning),
-app v0.6.0; the standby is ready on a second Zurich server with the slot c key. Findings:
-- Every slot c key was rejected ("5 servers in a row carried no traffic"), yet wg1's DNS
-  probe passed and curl through wg1 worked. Cause: httpx applies `socket_options`
-  (SO_BINDTODEVICE) *after* the TCP connect, so the HTTPS probe's SYN followed rule 110 into the
-  active tunnel, then broke when the socket was bound to wg1. Every check of the standby failed
-  (its search, its health, the second opinion). The wg0 probe only passed because wg0 was
-  active. Fixed in 1.2.3: the probe opens its own socket (device, bind, connect, TLS). 1.2.2
-  added each failed standby candidate's errors to the events, which showed it.
-- The 90 s warm-up for a first standby key (1.2.1) was a wrong guess; it stays (harmless).
-- Sparkle downloaded app 0.6.0 but never installed it; `mac/ExitControl/update-app.sh` now
-  installs a release from the CLI with the same signature checks.
-- Rollouts ran with the Mac switched to direct (`exitvpn://direct`, then `exitvpn://exitnode`),
-  so the owner's sessions kept working.
-- Acceptance: `tailnet` 12/12. Pending, with the owner present (they cut or reset the Mac's
-  connections): client `handover` (T47, T48), `egress`, `ipv6`, `failover`; VPS `tunnel`.
-- Host changes: `.env` `EXIT_IPV6=off`; image digests via rollout; the `keys-c` volume (from
-  compose); the checkout at `/opt/exit-node` pulled to the deployed commit.
+**Q-1 results (2026-10-22, 18:15 UTC): done.** node-v1.2.7 (1.2.0 → 1.2.7 the same day), app
+v0.6.0; the standby runs on the slot c key. Acceptance on 1.2.7: client `handover` 7/7 (T47:
+handed over 13–18 s after the drop, no failover search, no leak, the open connection reset
+5 s after the handover, the standby rebuilt; T48: both tunnels down → `uplink_suspect`, no
+switch, nothing blacklisted, the exit stays on its server when the fault ends), `egress` 9/9,
+`ipv6` 4/4 (one earlier run failed its IPv4 trace right after both tunnels bounced; not
+reproduced), `failover` 2/2; VPS `tunnel` 14/14, `tailnet` 12/12. Not yet: "hands over in
+under a second" counts the route switch only (0.01 s); detection still takes 13–18 s (three
+failed cycles), which Q-2/Q-4 address.
 
+Bugs found by the acceptance runs, all in the second tunnel's checks:
+- **The standby's HTTPS probe went out the active tunnel.** httpx applies `socket_options`
+  (SO_BINDTODEVICE) *after* connect, so the SYN followed rule 110 into the active tunnel. Every
+  slot c key was rejected ("5 servers carried no traffic"); the 90 s first-key warm-up (1.2.1)
+  was a wrong guess, harmless. 1.2.2 logged each failed candidate's errors (DNS passed, HTTPS
+  ConnectError), which showed it. Fixed in 1.2.3: the probe opens its own socket.
+- **The standby's probe resolved names through the active tunnel.** Docker's resolver forwards
+  to 10.2.0.1, which rule 120 routes through the active tunnel, so when the active failed the
+  standby "failed" too, and the second opinion held as for an uplink outage (T47). 1.2.4: each
+  probe resolves through its own tunnel's DNS.
+- **Idle clients never met the reset.** The mismatch rule resets a connection only when the
+  client sends; a client waiting for data (a streamed reply) sends nothing. 1.2.5 nudges each
+  of the old tunnel's client connections (conntrack, by mark) with a bare ACK from the server;
+  the client's answer meets the reset. 1.2.6: the nudges are untracked (tracked, NAT rewrote
+  their source port). A capture on the exit showed nudge → client ACK → reset within 80 ms.
+  The test's own client buffered ~250 KB (curl --limit-rate) and saw the reset only ~95 s
+  later; it now reads with a 4 KB buffer, like a streaming client (1.2.7).
+- **A standby that no longer fits took over.** Right after an exact P2P pick the former server
+  is still the standby; a failure then handed over to it and lost P2P. 1.2.5: the second
+  opinion hands over only to a standby that fits.
+- **The end of an uplink outage handed over.** The standby could pass a moment before the
+  active tunnel handshook again. 1.2.7: the active tunnel gets 10 s to come back first.
+
+Other findings:
+- With a narrow profile (an exact P2P pick) and many servers blacklisted by the tests' drops,
+  Zurich ran out of standby candidates (`none_found`, tried 0) until blacklists expired. The
+  suites restore the server by exact pick, which leaves that profile; restored by region after.
+- Sparkle downloaded app 0.6.0 but never installed it; `mac/ExitControl/update-app.sh`
+  installs a release from the CLI with the same signature checks.
+- Rollouts ran with the Mac switched to direct (`exitvpn://direct`, then `exitvpn://exitnode`);
+  the acceptance suites ran with the owner present (they reset the Mac's connections).
+
+Host changes: `.env` `EXIT_IPV6=off`; image digests via rollout; the `keys-c` volume (from
+compose); the checkout at `/opt/exit-node` pulled to the deployed commit. Proton: one new
+certificate (slot c); test certificates deleted.
 ---
 
 ## 7. Security model

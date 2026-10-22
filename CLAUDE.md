@@ -8,9 +8,9 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 ## Status (2026-10-22)
 
 Phases 0–5d (incl. 3b, 3b.2, 5a, 5b), R (architecture pass), D (published node images; the VPS runs
-node-v1.2.3 from GHCR), RT (tests by concept) and V6 (IPv6 through the exit, behind the IPv6 gate)
-done and deployed; all acceptance suites green. Phase Q-1 (standby tunnel wg1, handover) is
-deployed; its client acceptance is pending (PLAN, "Q-1 progress"). IPv6 is off (`EXIT_IPV6=off`). The exit runs on a
+node-v1.2.7 from GHCR), RT (tests by concept) and V6 (IPv6 through the exit, behind the IPv6 gate)
+done and deployed; all acceptance suites green. Phase Q-1 (standby tunnel wg1, handover with
+reset of the old connections) is done; next Q-2 (quality measurement). IPv6 is off (`EXIT_IPV6=off`). The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
 `org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
 prober tier). Optional: stop Chromium when the prober is idle (~410 MiB resident now).
@@ -119,6 +119,10 @@ formats between them (samples checked by both sides' tests).
   hosts through its own tunnel's DNS (else the standby fails whenever the active does). Table 100
   follows the active one; a single-tunnel kill-switch test must take both down, else the
   controller rightly hands over.
+- A kill-switch reset reaches only a client that sends; an idle one (a streamed reply) is
+  nudged at a handover (`flows.py`: a bare ACK from the server, untracked, else NAT rewrites
+  its port). To test it, read like a stream (small receive buffer): `curl --limit-rate`
+  buffers hundreds of KB and sees the reset minutes late.
 - Proton completes WireGuard handshakes even for unregistered keys; only traffic proves
   health. Fresh sessions drop TCP for 4–14 s (warm-up).
 - A Proton public key is not unique (Secure Core entries reuse the exit's key): identify
