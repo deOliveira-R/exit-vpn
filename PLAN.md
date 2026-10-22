@@ -1390,6 +1390,25 @@ standby (acceptance), the uplink-down case causes no switch, a degraded active i
 standby only at a quiet moment, and a week of monitoring shows fewer and shorter drops than
 the Phase M baseline.
 
+**Q-1 progress (2026-10-22, 08:30 UTC):** node-v1.2.3 deployed (1.2.0 → 1.2.3 the same morning),
+app v0.6.0; the standby is ready on a second Zurich server with the slot c key. Findings:
+- Every slot c key was rejected ("5 servers in a row carried no traffic"), yet wg1's DNS
+  probe passed and curl through wg1 worked. Cause: httpx applies `socket_options`
+  (SO_BINDTODEVICE) *after* the TCP connect, so the HTTPS probe's SYN followed rule 110 into the
+  active tunnel, then broke when the socket was bound to wg1. Every check of the standby failed
+  (its search, its health, the second opinion). The wg0 probe only passed because wg0 was
+  active. Fixed in 1.2.3: the probe opens its own socket (device, bind, connect, TLS). 1.2.2
+  added each failed standby candidate's errors to the events, which showed it.
+- The 90 s warm-up for a first standby key (1.2.1) was a wrong guess; it stays (harmless).
+- Sparkle downloaded app 0.6.0 but never installed it; `mac/ExitControl/update-app.sh` now
+  installs a release from the CLI with the same signature checks.
+- Rollouts ran with the Mac switched to direct (`exitvpn://direct`, then `exitvpn://exitnode`),
+  so the owner's sessions kept working.
+- Acceptance: `tailnet` 12/12. Pending, with the owner present (they cut or reset the Mac's
+  connections): client `handover` (T47, T48), `egress`, `ipv6`, `failover`; VPS `tunnel`.
+- Host changes: `.env` `EXIT_IPV6=off`; image digests via rollout; the `keys-c` volume (from
+  compose); the checkout at `/opt/exit-node` pulled to the deployed commit.
+
 ---
 
 ## 7. Security model
