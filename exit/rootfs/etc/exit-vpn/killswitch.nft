@@ -24,7 +24,8 @@ table inet killswitch {
     # conntrack mark; tailscaled's bits are kept). After a handover its packets are routed
     # into the other tunnel, where the server would see a different source and ignore them:
     # the client would stall until it times out. Refuse them instead, TCP with a reset, so
-    # clients reconnect at once.
+    # clients reconnect at once. An idle client sends nothing to refuse: the controller nudges
+    # it into sending (flows.py).
     iifname "tailscale0" oifname "wg0" ct state new ct mark set ct mark and 0xffffff00 or 0x00000001
     iifname "tailscale0" oifname "wg1" ct state new ct mark set ct mark and 0xffffff00 or 0x00000002
     iifname "tailscale0" oifname "wg0" ct mark and 0x000000ff == 0x00000002 meta l4proto tcp reject with tcp reset

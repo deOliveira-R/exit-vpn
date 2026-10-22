@@ -286,6 +286,8 @@ class ExitService:
         try:
             if self.state.standby is None:
                 return False
+            if not self._fits(self._server_of(self.state.standby)):
+                return False   # e.g. an exact P2P pick, its standby not yet moved: search
             res = await self.standby.check()
             now = self.clock()
             self.standby.tracker.feed(res.ok, now)
@@ -316,6 +318,8 @@ class ExitService:
                                     error=str(e))
                 old_t.make_active(self.gate_file)
                 return False
+        secs = round(self.clock() - t0, 2)
+        ended = await self.route.end_flows(old_t.ifname) if self.route else 0
         self.tunnel, self.standby = new_t, old_t
         self.state.active, self.state.standby = new_srv, old_srv
         new_t.make_active(self.gate_file)
@@ -327,7 +331,7 @@ class ExitService:
         self._save()
         self.events.publish("handover", old=old_srv.name if old_srv else None,
                             new=new_srv.name if new_srv else None, reason=reason,
-                            exit_ip=self._exit_ip(), seconds=round(self.clock() - t0, 2))
+                            exit_ip=self._exit_ip(), seconds=secs, ended=ended)
         return True
 
     async def standby_step(self) -> None:

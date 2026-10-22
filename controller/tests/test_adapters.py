@@ -6,7 +6,7 @@ import socket
 import struct
 
 from exit_vpn.auth import decide
-from exit_vpn import probes
+from exit_vpn import flows, probes
 from exit_vpn.probes import HealthProbe, dns_answer_ok, dns_query, parse_trace
 from exit_vpn.routes import GateFile
 from exit_vpn.wg import parse_dump
@@ -268,3 +268,33 @@ async def test_a_probes_hosts_are_resolved_through_its_own_tunnel(monkeypatch):
     monkeypatch.setattr(probes, "https_probe", https)
     await p.cycle(1000, now=1001)
     assert calls and all(kw["resolver"] == p.resolve and kw["device"] == "wg1" for kw in calls)
+
+
+# Ending the old tunnel's connections at a handover --------------------------------------
+CONNTRACK = """\
+tcp      6 431999 ESTABLISHED src=100.107.12.88 dst=104.16.1.1 sport=50000 dport=443 src=104.16.1.1 dst=10.2.0.2 sport=443 dport=50000 [ASSURED] mark=1 use=1
+tcp      6 431999 ESTABLISHED src=100.107.12.88 dst=104.16.1.2 sport=50001 dport=443 src=104.16.1.2 dst=10.2.0.2 sport=443 dport=50001 [ASSURED] mark=524290 use=1
+tcp      6 431999 ESTABLISHED src=100.107.12.88 dst=104.16.1.3 sport=50002 dport=443 src=104.16.1.3 dst=10.2.0.2 sport=443 dport=50002 [ASSURED] mark=2 use=1
+tcp      6 118 TIME_WAIT src=100.107.12.88 dst=104.16.1.4 sport=50003 dport=443 src=104.16.1.4 dst=10.2.0.2 sport=443 dport=50003 [ASSURED] mark=2 use=1
+tcp      6 431999 ESTABLISHED src=10.2.0.2 dst=104.16.1.5 sport=40000 dport=443 src=104.16.1.5 dst=10.2.0.2 sport=443 dport=40000 [ASSURED] mark=2 use=1
+"""
+
+
+def test_the_old_tunnels_client_connections_are_found_by_their_mark():
+    """The mark's low byte names the tunnel (tailscaled's bits above it are ignored); only
+    established connections of tailnet clients, not the controller's own probes."""
+    found = flows.parse_conntrack(CONNTRACK, 2)
+    assert found == [flows.Flow("100.107.12.88", 50001, "104.16.1.2", 443),
+                     flows.Flow("100.107.12.88", 50002, "104.16.1.3", 443)]
+    assert flows.parse_conntrack(CONNTRACK, 1) == [flows.Flow("100.107.12.88", 50000, "104.16.1.1", 443)]
+
+
+def test_a_nudge_is_a_bare_ack_from_the_server_to_the_client():
+    f = flows.Flow("100.107.12.88", 50001, "104.16.1.2", 443)
+    pkt = flows.nudge_packet(f, 12345)
+    assert len(pkt) == 40 and pkt[9] == socket.IPPROTO_TCP
+    assert socket.inet_ntoa(pkt[12:16]) == "104.16.1.2" and socket.inet_ntoa(pkt[16:20]) == "100.107.12.88"
+    sport, dport, seq, _, _, tcp_flags = struct.unpack("!HHIIBB", pkt[20:34])
+    assert (sport, dport, seq, tcp_flags) == (443, 50001, 12345, 0x10)
+    pseudo = pkt[12:20] + struct.pack("!BBH", 0, socket.IPPROTO_TCP, 20)
+    assert flows._checksum(pseudo + pkt[20:]) == 0, "a valid TCP checksum"

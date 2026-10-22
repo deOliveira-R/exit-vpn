@@ -50,7 +50,8 @@
     "new": "US-NY#5",
     "reason": "health checks failed: https: timeout",
     "exit_ip": "9.9.9.9",
-    "seconds": 0.01
+    "seconds": 0.01,
+    "ended": 3
   },
   "handover_error": {
     "ts": 1000034.0,

@@ -91,6 +91,8 @@ async def test_a_dead_active_server_is_handed_over_to_the_standby_in_one_route_c
     ev = [e for e in two.node.events.recent() if e["kind"] == "handover"][-1]
     assert ev["old"] == two.start.name and ev["new"] == sb.name
     assert "failover_start" not in two.kinds()
+    assert two.route.ended == ["wg0"] and ev["ended"] == 2, \
+        "the clients' connections through wg0 are ended, not left to stall"
 
 
 async def test_after_a_handover_the_former_active_tunnel_finds_a_new_standby(two):
@@ -117,6 +119,20 @@ async def test_when_both_tunnels_fail_the_exit_holds_instead_of_switching(two):
     two.world.uplink_down = False
     await two.svc.step()
     assert two.svc.health == Health.HEALTHY and not two.route.sets
+
+
+async def test_a_failing_active_is_never_handed_to_a_standby_that_no_longer_fits(two):
+    """An exact P2P pick leaves the former server as the standby until the standby loop moves
+    it; a failure meanwhile must keep P2P (a failover search), not hand over."""
+    await ready(two)
+    target = next(s for s in two.catalog.filter("United States", "Chicago") if s.port_forward)
+    await two.svc.select_server(target.name, target.ip, "test")
+    assert standby_srv(two).pubkey == two.start.pubkey and not two.start.port_forward
+    two.world.dead_peers.add(target.pubkey)
+    await strikes(two)
+    new = two.svc.current_server()
+    assert new.pubkey != target.pubkey and new.port_forward
+    assert "failover_done" in two.kinds()
 
 
 async def test_after_the_uplink_hold_the_exit_fails_over_after_all(two):

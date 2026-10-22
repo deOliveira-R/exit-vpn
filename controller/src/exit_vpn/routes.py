@@ -7,7 +7,8 @@
   A handover replaces it in one netlink message (`ip route replace`), so packets routed
   before it use the old tunnel and packets after it the new one, with nothing in between.
   The interface is also written to `ACTIVE_FILE`, for route-keeper to restore the route
-  after the kernel drops it (a tunnel bouncing).
+  after the kernel drops it (a tunnel bouncing). Then the clients' connections through the
+  old tunnel are ended (`flows`), so none waits for data that can no longer arrive.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from . import flows
 from .persistence import atomic_write
 
 log = logging.getLogger("exit_vpn")
@@ -62,6 +64,10 @@ class ActiveRoute:
         await _ip("-4", "route", "replace", "default", "dev", ifname, "table", str(self.table))
         await _ip("-6", "route", "replace", "default", "dev", ifname, "metric", "1",
                   "table", str(self.table))
+
+    async def end_flows(self, old_ifname: str) -> int:
+        """End the clients' connections still bound to `old_ifname`; returns how many."""
+        return await flows.end_flows(old_ifname)
 
 
 async def _ip(*args: str) -> None:

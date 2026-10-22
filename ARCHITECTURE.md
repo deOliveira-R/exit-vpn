@@ -112,7 +112,10 @@ Shared between the shell scripts and Python, and tested on both sides:
   longer timeout and runs across cycles, so a slow first IPv6 connection neither fails it nor
   delays the IPv4 checks).
 - `routes.GateFile`: the IPv6 gate file route-keeper reads. `routes.ActiveRoute`: the handover
-  (table 100's default, and the active tunnel file route-keeper reads).
+  (table 100's default, and the active tunnel file route-keeper reads), then `flows`: the
+  clients' connections through the old tunnel (listed with `conntrack` by their mark) each get
+  a bare ACK as if from the server, so even an idle client answers and meets the kill switch's
+  reset at once, instead of waiting for data that can no longer arrive.
 - `prober_client`: the prober's HTTP API.
 - `auth`: whois.
 - `persistence`: `state.json`, `peer.env`, `standby.env`, `events.json`, `catalog.json`.

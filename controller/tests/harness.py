@@ -93,7 +93,7 @@ class FakeRoute:
     """The handover's route switch: records which tunnel table 100 points at."""
 
     def __init__(self):
-        self.active, self.sets = None, []
+        self.active, self.sets, self.ended = None, [], []
 
     def current(self):
         return self.active
@@ -101,6 +101,10 @@ class FakeRoute:
     async def set(self, ifname):
         self.active = ifname
         self.sets.append(ifname)
+
+    async def end_flows(self, old_ifname):
+        self.ended.append(old_ifname)
+        return 2
 
 
 class FakeProberClient:

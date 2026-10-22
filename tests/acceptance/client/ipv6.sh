@@ -3,8 +3,9 @@
 # (never with an address of its own network); a closing gate refuses new IPv6 connections but
 # never resets open ones; while the tunnel is down there is no IPv6 egress at all, and it
 # comes back; on a server without IPv6 it fails at once (an error, not a
-# stall) while IPv4 works. The active server is put back at the end. From a Mac with no other
-# VPN app connected.
+# stall) while IPv4 works. With IPv6 off at the exit (EXIT_IPV6=off, or a key without an IPv6
+# address) the gate never opens, even on an IPv6 server, and IPv6 fails at once. The active
+# server is put back at the end. From a Mac with no other VPN app connected.
 . "$(dirname "$0")/../lib.sh"
 vps_connect
 st=$(status)
@@ -27,12 +28,21 @@ wait_ipv6() { # want (True|False) seconds → the status once ipv6 is `want`, el
   local s; for _ in $(seq "$2"); do s=$(status); [ "$(echo "$s" | j 'd["ipv6"]')" = "$1" ] && { echo "$s"; return; }; sleep 1; done
 }
 
+# Whether the exit uses IPv6 at all: the tunnel's IPv6 address (empty with EXIT_IPV6=off)
+src6=$(vps "sudo docker exec $NODE sh -c '. /usr/local/lib/exit-vpn/common.sh; load_conf; echo \$VPN_SRC6'")
+
 # A server that carries IPv6
 read -r name ip <<<"$(servers 's["ipv6"]' | head -1)"
 [ -n "$name" ] || die "no IPv6 server in $country"
 [ "$(select_server "$name" "$ip")" = "$name" ] || die "cannot select $name"
-s=$(wait_ipv6 True 30)
-if [ -n "$s" ]; then
+if [ -z "$src6" ]; then
+  info "IPv6 is off at the exit (EXIT_IPV6=off, or a key without an IPv6 address)"
+  s=$(wait_ipv6 True 15)
+  t0=$SECONDS; t=$(trace6 8); dt=$((SECONDS-t0))
+  [ -z "$s" ] && [ -z "$t" ] && [ "$dt" -le 2 ] \
+    && ok "with IPv6 off, on $name (an IPv6 server) the gate stays closed and IPv6 fails at once" \
+    || bad "with IPv6 off, on $name: gate $(status | j 'd["ipv6"]'), IPv6 '$t' after ${dt}s"
+elif s=$(wait_ipv6 True 30); [ -n "$s" ]; then
   e6=$(echo "$s" | j 'd["exit_ip6"]'); loc=$(echo "$s" | j 'd["exit_loc"]')
   ok "on $name the IPv6 gate opens: the exit's IPv6 address is $e6"
   # The first IPv6 flows to a destination sometimes stall for 4-8 s upstream at Proton (seen
@@ -72,8 +82,10 @@ vps "sudo docker exec -d $NODE sh -c 'for t in wg0 wg1; do ip link set \$t down;
 sleep 2; seen=""; end=$((SECONDS+10))
 while [ $SECONDS -lt $end ]; do t=$(trace6 2); [ -n "$t" ] && seen="$seen ${t%% *}"; sleep 0.5; done
 [ -z "$seen" ] && ok "kill switch: no IPv6 egress while the tunnel is down" || bad "IPv6 while the tunnel was down:$seen"
-s=$(wait_ipv6 True 60)
-[ -n "$s" ] && [ -n "$(trace6)" ] && ok "IPv6 comes back with the tunnel: $(trace6)" || bad "no IPv6 after the tunnel came back"
+if [ -n "$src6" ]; then
+  s=$(wait_ipv6 True 60)
+  [ -n "$s" ] && [ -n "$(trace6)" ] && ok "IPv6 comes back with the tunnel: $(trace6)" || bad "no IPv6 after the tunnel came back"
+fi
 
 # A server without IPv6 (the catalog's flag may be stale: try a few)
 found=""

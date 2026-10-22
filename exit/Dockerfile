@@ -14,7 +14,7 @@ ARG TS_SHA256_AMD64=512f613ed7d04fc7282f7dc5bd76aa105aae28168fbb9357eb749ebcbc29
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl xz-utils \
-      iproute2 nftables wireguard-tools iputils-ping bind9-dnsutils procps \
+      iproute2 nftables conntrack wireguard-tools iputils-ping bind9-dnsutils procps \
       python3 python3-venv \
  && rm -rf /var/lib/apt/lists/*
 

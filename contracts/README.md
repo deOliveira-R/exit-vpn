@@ -64,7 +64,7 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `failover_done` | `old`, `new`, `exit_ip`, `seconds` |
 | `failover_start` | `server`, `reason` |
 | `find_started` | `by`, `url`, `job`, `candidates` |
-| `handover` | `old`, `new`, `reason`, `exit_ip`, `seconds`: forwarded traffic moved to the standby tunnel in one route change |
+| `handover` | `old`, `new`, `reason`, `exit_ip`, `seconds`, `ended` (client connections through the old tunnel told to reset): forwarded traffic moved to the standby tunnel in one route change |
 | `handover_error` | `server`, `error`: the route could not be switched (nothing changed) |
 | `health` | `state`, `errors` |
 | `ipv6` | `open` (forwarded IPv6 now goes through the tunnel, or not), `server`, `exit_ip6`; `error` (what the IPv6 probe saw) when it closed |
