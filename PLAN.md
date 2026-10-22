@@ -1328,8 +1328,12 @@ or for a good server for the standby).
   | standby | stay ready | find searches; the standby moves when a good server is found | standby and find both search; the first good server becomes the standby |
 
   - A handover goes only to a Healthy standby (a degraded one for a degraded active only ends
-    connections). Active Critical while the standby is not ready: the current failover (try
-    servers on the active tunnel itself).
+    connections).
+  - Worst case, active Critical while the standby is not ready: the active joins the search, so
+    up to three searches run at once (active, standby, find), each on different candidates. The
+    first exit tunnel to reach a healthy server becomes the active, the next the standby. Find
+    cannot carry traffic (its tunnel is the prober's): a server it proves is taken up by
+    whichever exit tunnel is still searching.
   - Second opinion: if the standby fails at the same moment as the active, the fault is the
     uplink or the test site; the exit stays.
   - A quiet moment: no active forwarded flows (conntrack, tailscale0 counters), e.g. between
@@ -1364,7 +1368,7 @@ or for a good server for the standby).
 
 **Decided (owner, 2026-10-22):** three connections (active, standby, find); find serves both
 the standby's search and unblocking; no server history; tolerances calibrated from Q-2's
-measurements. **Open:** the maximum wait for a quiet moment.
+measurements. A quiet moment is waited for at most 2 minutes (to tune). The IPv6 refusal fix ships with Q-1.
 
 **Done when:** a killed active tunnel hands over in under a second with traffic flowing on the
 standby (acceptance), the uplink-down case causes no switch, a degraded active is left for the
