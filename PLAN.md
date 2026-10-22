@@ -1234,6 +1234,32 @@ Acceptance:
 - Mac app allow-list entries gain a target: `home-us` | `home-br`.
 - UniFi Site Magic is **not** used for this (it would hairpin through the US home); independent of this project.
 
+### Phase M — Connection drops: measure, fix, measure again
+
+**Why.** Since IPv6 went live (Phase V6) the owner's impression is that connections drop more
+often. Plan: about two days of baseline with the connection monitor (`monitor/`, on the Mac),
+then conclusions and a fix, then a week of monitoring with the same measure.
+
+**Measure** (records: `monitor/connection_monitor.py`): fresh IPv4/IPv6 requests every 10 s with
+timings; one long-lived trickle download per family, so resets of *established* connections
+are seen; DNS through the exit; the tailnet path to the exit (direct/DERP, online); the Mac's
+physical network and sleep gaps; every exit event (`/v1/events`) and its status each minute;
+owner notes (`monitor/mark.sh`). The exit's side: its container log for the same window.
+
+**Suspect before the baseline** (the exit's log, 2026-10-21/22, node-v1.1.3):
+- The IPv6 gate closed ~30 times in about 9 hours, on every server used (US-FL#292, US-CA#756,
+  US-CA#96), each time on `ConnectTimeout` of the 3 s IPv6 probe; damping then keeps it closed
+  ~2 min. Proton's first IPv6 connection to a destination stalls 4–8 s (Phase V6 results), longer
+  than the probe's timeout, so the gate likely closes on healthy servers.
+- A closed gate rejects *every* forwarded IPv6 packet, established flows included: each close
+  resets all the clients' open IPv6 TCP connections, which apps prefer over IPv4.
+- The monitor's first 35 s showed both: the Mac's first IPv6 connect took 5.2 s, then the gate
+  closed on a probe timeout.
+
+**Done when:** the baseline names the causes of the drops it saw (or shows there are none
+beyond the Mac's own network), a fix is deployed, and a week of monitoring shows the drops
+attributed to the exit gone or rare; results recorded here.
+
 ---
 
 ## 7. Security model

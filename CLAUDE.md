@@ -38,7 +38,8 @@ formats between them (samples checked by both sides' tests).
   Updater), built from `project.yml` (XcodeGen).
 - `compose.yaml` (project `exit-vpn`, services `exit` and `prober` from `EXIT_IMAGE`/`PROBER_IMAGE`,
   network `exitnet` 172.30.42.0/24: exit .2, prober .10), `compose.build.yaml` (build from source),
-  `.env.example`, `deploy/` (kit: `install.sh`, `rollout.sh`, README), `tests/acceptance/` (`client/`, `node/`, `lib.sh`).
+  `.env.example`, `deploy/` (kit: `install.sh`, `rollout.sh`, README), `tests/acceptance/` (`client/`, `node/`, `lib.sh`),
+  `monitor/` (the connection monitor: a launchd agent on the Mac logging what it sees of the exit).
 - Tailnet policy lives in the separate **private** repo `deOliveira-R/tailnet-policy`
   (local clone `~/git/tailnet-policy`), GitOps: PR → CI `test`, merge → CI `apply`
   (federated identity, no stored secrets). Policy `tests` need concrete users as `src`
