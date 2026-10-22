@@ -1285,9 +1285,83 @@ probe no longer closes the gate on it. Still the last Claude Code error before t
 "The response stopped arriving", gate open since 04:20:47) is not a gate close: watch for
 mid-stream stalls on IPv6 during the week (the monitor's IPv6 flow).
 
+IPv6 switched off (2026-10-22 ~05:05 UTC). With the gate open and nothing reset, the errors
+went on ("The response stopped arriving", 04:53:04). Most of the Mac's fresh IPv6 connections
+needed SYN retransmits (2-7 s) on every US server tried. A capture in the exit's netns on CH#293
+showed all 12 of the exit's own IPv6 SYNs leave via wg0 with no SYN-ACK: the loss is upstream.
+Owner-driven rotations (04:49-04:56) caused errors of their own (each switch ends every open
+connection). **Host-level change:** `EXIT_IPV6=off` in `/opt/exit-node/.env`, exit container
+recreated. The monitoring week runs IPv4-only and is the baseline for Phase Q. To do: with IPv6
+off, forwarded IPv6 meets the unreachable route (an ICMP error the Tailscale client drops), so
+it stalls until timeout instead of being refused; clients fall back to IPv4 (Happy Eyeballs),
+but the exit should refuse it with a TCP reset as the closed gate does (next node release, at
+a time the owner picks: it restarts the exit).
+
 **Done when:** the baseline names the causes of the drops it saw (or shows there are none
 beyond the Mac's own network), a fix is deployed, and a week of monitoring shows the drops
 attributed to the exit gone or rare; results recorded here.
+
+### Phase Q — Quality of service: measured rotation between an active and a standby tunnel
+
+**Why.** A failover today takes detection (3 failed cycles, ~15 s) plus a fresh session's
+warm-up (Proton drops TCP for 4-14 s; up to 20 s waited), and the next server is untested until
+then. The exit also cannot tell a dead server from a broken uplink or test site, and it learns
+that a server degrades only once it fails. No handover can save connections already open (the
+exit's public IP changes), so the aim is: switch rarely, switch to a connection already proven,
+switch in under a second, and switch before failing where possible.
+
+**Design (owner's sequence, 2026-10-22):** a proactive, measured rotation of two tunnels.
+- **Two tunnels, two roles, both always measured.** The exit holds `wg0` and `wg1` on keys of
+  slots a and c. Roles, not interfaces, are *active* (carries forwarded traffic) and *standby*.
+  - The active one is measured to decide whether to leave it: outright failure → immediate
+    handover; sustained degradation → planned handover.
+  - The standby is measured to stay ready: when its own quality drops it moves to another
+    server by itself, so a handover always lands on a proven connection.
+- **Handover = swap roles.** Table 100's default (and the kill switch's allowed interface,
+  masquerade) move to the standby's interface, in well under a second. The former active
+  becomes the standby and looks for a better server. Keys stay with their interfaces.
+- **The standby stays in the chosen region** (prefs: country/city and required features), so a
+  handover never moves the exit somewhere the owner did not pick.
+- **Second opinion.** Before a failover, the standby is asked whether the internet is reachable:
+  if it fails too, the fault is the uplink or the test site, and switching would end every open
+  connection for nothing, so the exit stays.
+- **Quality, measured live (no long-term history: past quality biases choice, D4 below).** On
+  both tunnels the same small probes, over a sliding window of a few minutes:
+  round-trip time and loss (a frequent, cheap probe through the tunnel, e.g. to the in-tunnel
+  resolver), HTTPS time to first byte, DNS time, jitter. One score per tunnel.
+- **Planned handover needs a margin and a quiet moment.** Each handover still ends every open
+  connection, so: only for real degradation (loss, stalls), never for slightly higher latency;
+  the standby must be clearly better for a sustained window (hysteresis); and the exit waits for
+  a moment with no active forwarded flows (conntrack, tailscale0 counters), e.g. between Claude
+  Code replies, up to a limit; then it switches anyway.
+- **Scouting by the prober (third connection, key b).** The prober already attaches to arbitrary
+  servers; while Find does not need it, it measures candidate servers in the region and reports
+  the best, and the standby moves there. Find always takes precedence. This gives the benefit of a
+  three-way rotation (scout, standby, active) with one standby kept ready: three Proton
+  connections in all, which the owner's plan allows (the exit node is the owner's only Proton
+  client).
+- **IPv6 later, as a measured attribute.** Off for now (Phase M). Per-server IPv6 quality can
+  join the score later, at the cost of more frequent rotation; its benefit to the owner is small.
+
+**Steps** (each deployable and measured with `monitor/` against the Phase M baseline):
+- Q-1 Standby tunnel: slot c key (`exitctl proton rotate --slot c`), `wg1`, routing, kill switch
+  and NAT for two interfaces; the standby kept warm and health-checked; failover = role swap;
+  the second opinion. Events and status gain the standby (`standby`, `handover`).
+- Q-2 Quality measurement on both tunnels; score in status and the app.
+- Q-3 Standby self-rotation on poor quality; prober scouting.
+- Q-4 Planned handover: margin, sustained window, quiet moment.
+- Later, experiment only: both tunnels active at once, flows split per destination (a failure
+  ends half the connections; sites may see two exit IPs).
+
+**Decisions to confirm:** D1 the prober scouts when idle (vs. a fourth connection);
+D2 maximum wait for a quiet moment before a planned handover; D3 thresholds for "clearly
+better" and the window (from the Phase M week's data); D4 only recent quality counts (a server
+that flapped within the blacklist TTL stays excluded; otherwise no memory).
+
+**Done when:** a killed active tunnel hands over in under a second with traffic flowing on the
+standby (acceptance), the uplink-down case causes no switch, a degraded active is left for the
+standby only at a quiet moment, and a week of monitoring shows fewer and shorter drops than
+the Phase M baseline.
 
 ---
 
