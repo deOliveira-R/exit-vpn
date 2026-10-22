@@ -17,6 +17,19 @@ public enum StatusText {
         return on ? "IPv6 \(st.exitIp6 ?? "—")" : "IPv6 off on this server"
     }
 
+    /// "Standby US-NY#5 ready", "Standby: searching for a server", ...; nil without a standby
+    /// tunnel.
+    public static func standby(_ st: Status) -> String? {
+        guard let sb = st.standby else { return nil }
+        switch sb.state {
+        case "ready": return "Standby \(sb.server ?? "—") ready"
+        case "searching": return "Standby: searching for a server"
+        case "off": return "Standby off: slot c has no key"
+        case "key_suspect": return "Standby stopped: its key carries no traffic"
+        default: return "Standby \(sb.server ?? "—"): \(sb.state.replacingOccurrences(of: "_", with: " "))"
+        }
+    }
+
     /// The menu-bar symbol (SF Symbols) for the state.
     public static func symbol(online: Bool, status: Status?, busy: Bool) -> String {
         guard online, let st = status else { return "shield.slash" }

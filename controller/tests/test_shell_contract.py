@@ -9,7 +9,7 @@ from exit_vpn.config import Settings
 from exit_vpn.keys import KeyStore
 from exit_vpn.persistence import StateStore
 from exit_vpn.prefs import Prefs
-from exit_vpn.state import ActiveServer, State
+from exit_vpn.state import TunnelServer, State
 from exit_vpn.wgconf import parse
 
 COMMON = Path(__file__).resolve().parents[2] / "exit/rootfs/usr/local/lib/exit-vpn/common.sh"
@@ -20,7 +20,7 @@ def test_peer_env_is_what_init_wg_sources(tmp_path):
     store = StateStore(tmp_path / "state.json", tmp_path / "peer.env", ["United States"])
     name = "it's US-NY#1 $(boom)"
     store.save(State(Prefs.default(["United States"]),
-                     ActiveServer(name, "pk+/=", "1.2.3.4:51820")))
+                     TunnelServer(name, "pk+/=", "1.2.3.4:51820")))
     out = subprocess.run(["sh", "-c", '. "$1"; printf "%s|%s|%s" "$PEER_NAME" "$PEER_PUBKEY" '
                           '"$PEER_ENDPOINT"', "sh", str(tmp_path / "peer.env")],
                          capture_output=True, text=True, check=True).stdout
@@ -79,3 +79,52 @@ def test_the_ipv6_gate_file_is_where_route_keeper_looks(tmp_path):
                          env={"EXIT_VPN_CONF": "/dev/null", "PATH": "/usr/bin:/bin"},
                          capture_output=True, text=True, check=True).stdout
     assert out == str(Settings(vpn_conf=Path("x")).ipv6_gate_file)
+
+
+def test_the_shell_scripts_pick_the_same_standby_key_as_the_controller(tmp_path):
+    """common.sh and KeyStore.path("c") agree: an uploaded key wins over the bootstrap, and
+    without either there is no standby key."""
+    boot, keydir = tmp_path / "c.conf", tmp_path / "keys-c"
+    keys = KeyStore({"a": tmp_path / "keys-a", "b": tmp_path / "keys-b", "c": keydir},
+                    {"a": None, "b": None, "c": boot})
+
+    def shell_choice():
+        out = subprocess.run(["sh", "-c", '. "$1"; [ -r "$STANDBY_VPN_CONF" ] && printf %s "$STANDBY_VPN_CONF"',
+                              "sh", str(COMMON)],
+                             env={"EXIT_VPN_CONF": "/dev/null", "STANDBY_VPN_CONF": str(boot),
+                                  "KEY_DIR_C": str(keydir), "PATH": "/usr/bin:/bin"},
+                             capture_output=True, text=True).stdout
+        return out or None
+    assert shell_choice() is None and keys.path("c") is None
+    boot.write_text("bootstrap")
+    assert shell_choice() == str(keys.path("c")) == str(boot)
+    keydir.mkdir()
+    (keydir / "wg.conf").write_text("uploaded")
+    assert shell_choice() == str(keys.path("c")) == str(keydir / "wg.conf")
+
+
+def test_standby_env_is_what_init_wg_sources_for_the_standby(tmp_path):
+    store = StateStore(tmp_path / "state.json", tmp_path / "peer.env", ["United States"],
+                       tmp_path / "standby.env")
+    store.save(State(Prefs.default(["United States"]), TunnelServer("A", "pa=", "1.2.3.4:51820"),
+                     standby=TunnelServer("B", "pb=", "5.6.7.8:51820")))
+    out = subprocess.run(["sh", "-c", '. "$1"; printf "%s|%s" "$PEER_NAME" "$PEER_ENDPOINT"',
+                          "sh", str(tmp_path / "standby.env")],
+                         capture_output=True, text=True, check=True).stdout
+    assert out == "B|5.6.7.8:51820"
+
+
+def test_the_active_tunnel_file_is_where_route_keeper_looks(tmp_path):
+    out = subprocess.run(["sh", "-c", '. "$1"; printf "%s %s" "$ACTIVE_FILE" "$(active_if)"', "sh",
+                          str(COMMON)],
+                         env={"EXIT_VPN_CONF": "/dev/null", "PATH": "/usr/bin:/bin",
+                              "ACTIVE_FILE": str(tmp_path / "active")},
+                         capture_output=True, text=True, check=True).stdout
+    assert out == f"{tmp_path / 'active'} wg0", "no file: wg0, as init-wg sets it up"
+    (tmp_path / "active").write_text("wg1\n")
+    out = subprocess.run(["sh", "-c", '. "$1"; printf %s "$(active_if)"', "sh", str(COMMON)],
+                         env={"EXIT_VPN_CONF": "/dev/null", "PATH": "/usr/bin:/bin",
+                              "ACTIVE_FILE": str(tmp_path / "active")},
+                         capture_output=True, text=True, check=True).stdout
+    assert out == "wg1"
+    assert Settings(vpn_conf=Path("x")).active_file == Path("/run/exit-vpn/active")

@@ -1,29 +1,41 @@
-# Kill switch layer 2. $WG_IF and $VPN_DNS come from defines.nft, written by
-# init-killswitch from the WireGuard config. Our tables are replaced atomically on reload.
+# Kill switch layer 2. $TUNNELS (both tunnel interfaces, active and standby) and $VPN_DNS come
+# from defines.nft, written by init-killswitch from the WireGuard config. Our tables are
+# replaced atomically on reload.
 include "/run/exit-vpn/defines.nft"
 
 table inet killswitch
 delete table inet killswitch
 table inet killswitch {
-  # The IPv6 gate: route-keeper puts wg0 here while the controller has proven IPv6 on this
-  # server. Otherwise new forwarded IPv6 connections are refused at once, TCP with a reset (an
-  # ICMP error alone is dropped by Tailscale clients, whose connections then stall), so clients
-  # use IPv4. Connections already open carry on: a close never resets them (a client's API
-  # stream cut mid-response is a failed request), and on a server whose IPv6 really broke they
-  # stall and time out like IPv4 ones would.
+  # The IPv6 gate: route-keeper puts the active tunnel here while the controller has proven
+  # IPv6 on its server. Otherwise new forwarded IPv6 connections are refused at once, TCP with
+  # a reset (an ICMP error alone is dropped by Tailscale clients, whose connections then
+  # stall), so clients use IPv4. Connections already open carry on: a close never resets
+  # them (a client's API stream cut mid-response is a failed request), and on a server whose
+  # IPv6 really broke they stall and time out like IPv4 ones would.
   set ipv6_gate { type ifname; }
   chain forward {
     type filter hook forward priority -10; policy accept;
-    # Exit traffic may only leave through the tunnel. A drop here is final, whatever
+    # Exit traffic may only leave through a tunnel. A drop here is final, whatever
     # tailscaled's own ts-forward chains accept.
-    iifname "tailscale0" oifname != $WG_IF drop
+    iifname "tailscale0" oifname != $TUNNELS drop
     iifname "tailscale0" meta nfproto ipv6 oifname != @ipv6_gate ct state new meta l4proto tcp reject with tcp reset
     iifname "tailscale0" meta nfproto ipv6 oifname != @ipv6_gate ct state new reject with icmpx admin-prohibited
+    # Each connection remembers the tunnel it was opened through (the low byte of its
+    # conntrack mark; tailscaled's bits are kept). After a handover its packets are routed
+    # into the other tunnel, where the server would see a different source and ignore them:
+    # the client would stall until it times out. Refuse them instead, TCP with a reset, so
+    # clients reconnect at once.
+    iifname "tailscale0" oifname "wg0" ct state new ct mark set ct mark and 0xffffff00 or 0x00000001
+    iifname "tailscale0" oifname "wg1" ct state new ct mark set ct mark and 0xffffff00 or 0x00000002
+    iifname "tailscale0" oifname "wg0" ct mark and 0x000000ff == 0x00000002 meta l4proto tcp reject with tcp reset
+    iifname "tailscale0" oifname "wg1" ct mark and 0x000000ff == 0x00000001 meta l4proto tcp reject with tcp reset
+    iifname "tailscale0" oifname "wg0" ct mark and 0x000000ff == 0x00000002 drop
+    iifname "tailscale0" oifname "wg1" ct mark and 0x000000ff == 0x00000001 drop
   }
   chain output {
     type filter hook output priority -10; policy accept;
     # The VPN's DNS server must never be asked over the underlay.
-    ip daddr $VPN_DNS oifname != $WG_IF drop
+    ip daddr $VPN_DNS oifname != $TUNNELS drop
   }
 }
 
@@ -34,7 +46,7 @@ delete table inet nat_exit
 table inet nat_exit {
   chain postrouting {
     type nat hook postrouting priority 100; policy accept;
-    oifname $WG_IF meta nfproto ipv4 masquerade
+    oifname $TUNNELS meta nfproto ipv4 masquerade
   }
 }
 
@@ -43,6 +55,6 @@ delete table inet mss
 table inet mss {
   chain forward {
     type filter hook forward priority 0; policy accept;
-    oifname $WG_IF tcp flags syn tcp option maxseg size set rt mtu
+    oifname $TUNNELS tcp flags syn tcp option maxseg size set rt mtu
   }
 }

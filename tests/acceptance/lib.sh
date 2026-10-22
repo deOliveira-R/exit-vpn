@@ -7,7 +7,7 @@
 #   egress            trace [timeout] → "ip loc" of this machine's internet egress; egress_ip
 #   VPS (from a Mac)  vps <command> over the tailnet; VPS_EGRESS: the VPS's own IP (a leak)
 #   samples           sample_start <file> / sample_stop: egress IP every 0.5 s; leaked <file>
-#   faults            drop_endpoint <ip> <tag> / clear_drops <tag>: silently drop wg0 traffic
+#   faults            drop_endpoint <ip> <tag> / clear_drops <tag>: silently drop a tunnel's traffic to a server
 #   exit node         use_exit_node: select it for this run, restore the previous one at exit
 #
 # Settings (environment): EXIT_NODE_NAME (exit-proton), API_PORT (8080), VPS_SSH (the VPS's ssh

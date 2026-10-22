@@ -1,31 +1,38 @@
 #!/command/with-contenv sh
-# Longrun, the owner of the routes via wg0 and of the IPv6 gate. The kernel deletes routes via
-# wg0 when the link goes down, so put them back whenever wg0 is up again; while wg0 is down,
-# the unreachable routes hold and exit traffic fails closed. Forwarded IPv6 passes only while
-# the gate file (written by the controller) exists: route-keeper then puts wg0 in nftables'
-# ipv6_gate set; otherwise the kill switch refuses new IPv6 connections at once (clients use
-# IPv4) and lets open ones carry on.
+# Longrun, the owner of the routes via the tunnels and of the IPv6 gate. The kernel deletes
+# routes via a tunnel when its link goes down, so put them back whenever it is up again;
+# while a tunnel is down, the unreachable routes hold and its traffic fails closed.
+# - Each tunnel's own table (its bound sockets: the health probes) has a default via it.
+# - Table 100 (forwarded traffic) has its default via the active tunnel, as the controller
+#   last wrote it (ACTIVE_FILE; it changes the route itself at a handover, in one step).
+# - Forwarded IPv6 passes only while the gate file (written by the controller) exists:
+#   route-keeper then puts the active tunnel in nftables' ipv6_gate set; otherwise the kill
+#   switch refuses new IPv6 connections at once (clients use IPv4), open ones carry on.
 . /usr/local/lib/exit-vpn/common.sh
 load_conf
 set +e   # a failed command is retried on the next pass, never the end of the keeper
-has_default() { ip "$1" route show table "$2" | grep -q "^default dev $WG_IF"; }
-gate_open() { nft get element inet killswitch ipv6_gate "{ $WG_IF }" >/dev/null 2>&1; }
+is_up() { ip link show "$1" up 2>/dev/null | grep -q 'state UP\|state UNKNOWN'; }
+has_default() { ip "$1" route show table "$2" | grep -q "^default dev $3 "; }
+ensure() { # ifname table
+  has_default -4 "$2" "$1" || { ip route replace default dev "$1" table "$2" && log "restored default dev $1 in table $2"; }
+  # metric 1: below the unreachable routes' 1000 (IPv6 routes default to 1024)
+  has_default -6 "$2" "$1" || ip -6 route replace default dev "$1" metric 1 table "$2"
+}
+gate_now() { nft list set inet killswitch ipv6_gate 2>/dev/null | sed -n 's/.*elements = { \(.*\) }.*/\1/p' | tr -d '"'; }
 while :; do
-  if ip link show "$WG_IF" up 2>/dev/null | grep -q 'state UP\|state UNKNOWN'; then
-    if ! has_default -4 "$EXIT_TABLE"; then
-      ip route replace default dev "$WG_IF" table "$EXIT_TABLE" && log "restored default dev $WG_IF in table $EXIT_TABLE"
+  for t in $TUNNELS; do is_up "$t" && ensure "$t" "$(tunnel_table "$t")"; done
+  active=$(active_if)
+  is_up "$active" && ensure "$active" "$EXIT_TABLE"
+  want=""
+  [ -n "$VPN_ADDR6" ] && [ -e "$IPV6_GATE" ] && want=$active
+  have=$(gate_now)
+  if [ "$have" != "$want" ]; then
+    nft flush set inet killswitch ipv6_gate
+    if [ -n "$want" ]; then
+      nft add element inet killswitch ipv6_gate "{ $want }" && log "IPv6 gate open: forwarded IPv6 via $want"
+    else
+      log "IPv6 gate closed: new forwarded IPv6 refused"
     fi
-    if [ -n "$VPN_ADDR6" ]; then
-      # metric 1: below the unreachable routes' 1000 (IPv6 routes default to 1024)
-      for t in "$EXIT_TABLE" "$TUNNEL6_TABLE"; do
-        has_default -6 "$t" || ip -6 route replace default dev "$WG_IF" metric 1 table "$t"
-      done
-    fi
-  fi
-  if [ -n "$VPN_ADDR6" ] && [ -e "$IPV6_GATE" ]; then
-    gate_open || { nft add element inet killswitch ipv6_gate "{ $WG_IF }" && log "IPv6 gate open: forwarded IPv6 via $WG_IF"; }
-  elif gate_open; then
-    nft delete element inet killswitch ipv6_gate "{ $WG_IF }" && log "IPv6 gate closed: new forwarded IPv6 refused"
   fi
   sleep 1
 done

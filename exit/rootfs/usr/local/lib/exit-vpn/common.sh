@@ -7,9 +7,23 @@ set -eu
 # Must match the controller's KeyStore.path("a") (controller/src/exit_vpn/keys.py).
 KEY_DIR_A=${KEY_DIR_A:-/keys/a}
 if [ -r "$KEY_DIR_A/wg.conf" ]; then EXIT_VPN_CONF=$KEY_DIR_A/wg.conf; fi
+# The standby tunnel's key (slot c): uploaded, else the bootstrap config if there is one.
+# Must match the controller's KeyStore.path("c").
+KEY_DIR_C=${KEY_DIR_C:-/keys/c}
+STANDBY_VPN_CONF=${STANDBY_VPN_CONF:-}
+if [ -r "$KEY_DIR_C/wg.conf" ]; then STANDBY_VPN_CONF=$KEY_DIR_C/wg.conf; fi
+# Two tunnels, two roles: the *active* one carries forwarded traffic (table 100's default),
+# the *standby* one is kept ready for a handover. Keys stay with interfaces (wg0: slot a,
+# wg1: slot c); the roles move. At start wg0 is active.
 WG_IF=${WG_IF:-wg0}
-EXIT_TABLE=${EXIT_TABLE:-100}      # forwarded exit traffic
-TUNNEL6_TABLE=${TUNNEL6_TABLE:-101} # the tunnel's own IPv6 sockets (health probe): always via wg0
+STANDBY_IF=${STANDBY_IF:-wg1}
+TUNNELS="$WG_IF $STANDBY_IF"
+EXIT_TABLE=${EXIT_TABLE:-100}      # forwarded exit traffic: default via the active tunnel
+# Each tunnel's own sockets (bound to the interface: the health probes): via that tunnel only
+tunnel_table() { if [ "$1" = "$WG_IF" ]; then echo 102; else echo 103; fi; }
+# The active tunnel, written by the controller at each handover (absent: wg0)
+ACTIVE_FILE=${ACTIVE_FILE:-/run/exit-vpn/active}
+active_if() { a=$(cat "$ACTIVE_FILE" 2>/dev/null || true); echo "${a:-$WG_IF}"; }
 # The IPv6 gate: written by the controller while IPv6 through the tunnel is proven to work;
 # route-keeper lets forwarded IPv6 through (killswitch.nft's ipv6_gate) only while it exists.
 # /run starts empty.
@@ -20,7 +34,8 @@ STATE_DIR=${STATE_DIR:-/var/lib/exit-vpn}   # peer.env: written by persistence.S
 log() { echo "exit-vpn[$(basename "$0")]: $*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
 
-# conf_value <section> <key>: first value of key in [section], comments stripped.
+# conf_value <section> <key>: first value of key in [section] of $CONF_FILE (default: the exit
+# key's config), comments stripped.
 conf_value() {
   awk -v sec="$1" -v key="$2" '
     /^[[:space:]]*\[/ { cur = $0; gsub(/[][[:space:]]/, "", cur); next }
@@ -29,7 +44,7 @@ conf_value() {
       split(line, kv, "=")
       k = kv[1]; gsub(/[[:space:]]/, "", k)
       if (k == key) { v = substr(line, index(line, "=") + 1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); print v; exit }
-    }' "$EXIT_VPN_CONF"
+    }' "${CONF_FILE:-$EXIT_VPN_CONF}"
 }
 
 # first_ipv4 / first_ipv6 "<comma list>": the first entry of that family.

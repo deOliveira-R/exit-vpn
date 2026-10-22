@@ -58,16 +58,19 @@ async def amain() -> None:
     s = Settings.from_env()
     if not s.owners:
         raise SystemExit("EXIT_OWNERS is empty: nobody could use the API")
-    keys = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf})
+    keys = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf, "c": s.standby_conf})
     conf = parse_conf(keys.path("a") or s.vpn_conf)   # init-wg used the same file
     catalog = await CatalogSource(s, CatalogCache(s.catalog_file)).load_at_startup()
     # IPv6 is probed only where init-wg gave wg0 an IPv6 address (the same config and switch)
-    probe = HealthProbe(conf.address, conf.dns, s.probe_urls, s.dns_probe_name,
-                        s.probe_timeout, s.dns_timeout, s.handshake_max_age,
-                        source6=conf.address6 if s.ipv6 else "", url6=s.probe6_url,
-                        timeout6=s.probe6_timeout)
+    def probe_for(ifname: str) -> HealthProbe:   # both tunnels carry the same addresses
+        return HealthProbe(conf.address, conf.dns, s.probe_urls, s.dns_probe_name,
+                           s.probe_timeout, s.dns_timeout, s.handshake_max_age,
+                           source6=conf.address6 if s.ipv6 else "", url6=s.probe6_url,
+                           timeout6=s.probe6_timeout, device=ifname)
     underlay: list[str] = []
-    node = build(s, exit_conf=conf, wg=WireGuard(s.wg_if), probe=probe, catalog=catalog,
+    node = build(s, exit_conf=conf, wg=WireGuard(s.wg_if), probe=probe_for(s.wg_if),
+                 standby_wg=WireGuard(s.standby_if), standby_probe=probe_for(s.standby_if),
+                 catalog=catalog,
                  keys=keys, prober=ProberClient(s.prober_url) if s.prober_url else None,
                  forbid_ips=lambda: list(underlay))
     await node.service.start()

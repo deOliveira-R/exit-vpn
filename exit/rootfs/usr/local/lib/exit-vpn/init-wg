@@ -1,35 +1,55 @@
 #!/command/with-contenv sh
-# Bring up the tunnel. The interface is created once and kept; server
-# changes are peer swaps. Peer: last-good from state, else the config's own peer.
+# Bring up both tunnels. Interfaces are created once and kept; server changes are peer
+# swaps, handovers are route changes. wg0 (slot a) starts as the active tunnel on the
+# last-good server (peer.env, else its config's peer); wg1 (slot c) as the standby, on the
+# last standby server (standby.env, else its config's peer). Without a slot c key wg1 still
+# exists, keyless and without a peer, until the controller is given one.
 . /usr/local/lib/exit-vpn/common.sh
 load_conf
 
-peer_pubkey=$CONF_PEER_PUBKEY; peer_endpoint=$CONF_PEER_ENDPOINT
-if [ -r "$STATE_DIR/peer.env" ]; then
-  # shellcheck disable=SC1091
-  . "$STATE_DIR/peer.env"   # PEER_PUBKEY, PEER_ENDPOINT, PEER_NAME
-  peer_pubkey=${PEER_PUBKEY:-$peer_pubkey}; peer_endpoint=${PEER_ENDPOINT:-$peer_endpoint}
-fi
+# tunnel_up <ifname> <config or empty> <peer env file>
+tunnel_up() {
+  ifname=$1; CONF_FILE=$2; env=$3; table=$(tunnel_table "$ifname")
+  ip link del "$ifname" 2>/dev/null || true
+  ip link add "$ifname" type wireguard
+  ip addr add "$VPN_ADDR" dev "$ifname"
+  ip link set "$ifname" mtu "${WG_MTU:-1420}" up
+  ip route replace default dev "$ifname" table "$table"
+  # IPv6 too, always (metric 1: IPv6 routes default to 1024, which would lose to the
+  # unreachable routes' 1000). Forwarded IPv6 then meets the kill switch, which refuses it
+  # unless the IPv6 gate is open; with IPv6 off it never opens.
+  ip -6 route replace default dev "$ifname" metric 1 table "$table"
+  if [ -z "$CONF_FILE" ]; then
+    log "$ifname up without a key (no slot c config): no standby until one is uploaded"
+    return
+  fi
+  peer_pubkey=$(conf_value Peer PublicKey); peer_endpoint=$(conf_value Peer Endpoint)
+  PEER_NAME=""; PEER_PUBKEY=""; PEER_ENDPOINT=""
+  if [ -r "$env" ]; then
+    # shellcheck disable=SC1090
+    . "$env"   # PEER_PUBKEY, PEER_ENDPOINT, PEER_NAME
+    peer_pubkey=${PEER_PUBKEY:-$peer_pubkey}; peer_endpoint=${PEER_ENDPOINT:-$peer_endpoint}
+  fi
+  # The private key goes to wg via a pipe, never via argv or a file outside /secrets.
+  conf_value Interface PrivateKey | wg set "$ifname" private-key /dev/stdin
+  wg set "$ifname" peer "$peer_pubkey" endpoint "$peer_endpoint" \
+    allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+  log "$ifname up: peer ${PEER_NAME:-from-config} $peer_endpoint"
+}
 
-ip link del "$WG_IF" 2>/dev/null || true
-ip link add "$WG_IF" type wireguard
-# The private key goes to wg via a pipe, never via argv or a file outside /secrets.
-conf_value Interface PrivateKey | wg set "$WG_IF" private-key /dev/stdin
-wg set "$WG_IF" peer "$peer_pubkey" endpoint "$peer_endpoint" \
-  allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
-ip addr add "$VPN_ADDR" dev "$WG_IF"
-# The tunnel's IPv6 address is local (a route on lo), not an address of wg0: an interface
-# address would be picked as the source of every unbound IPv6 socket here (tailscaled's own
-# traffic included), which rule 110 would then send through the tunnel. Bound sockets (the
-# health probe; net.ipv6.ip_nonlocal_bind) and forwarded traffic (SNAT) use it; it also
-# survives wg0 going down, which flushes interface IPv6 addresses.
+tunnel_up "$WG_IF" "$EXIT_VPN_CONF" "$STATE_DIR/peer.env"
+standby_conf=""
+[ -n "$STANDBY_VPN_CONF" ] && [ -r "$STANDBY_VPN_CONF" ] && standby_conf=$STANDBY_VPN_CONF
+tunnel_up "$STANDBY_IF" "$standby_conf" "$STATE_DIR/standby.env"
+unset CONF_FILE
+
+# The tunnel's IPv6 address is local (a route on lo), not an address of a tunnel: an
+# interface address would be picked as the source of every unbound IPv6 socket here
+# (tailscaled's own traffic included), which rule 110 would then send through the tunnel.
+# Bound sockets (the health probe; net.ipv6.ip_nonlocal_bind) and forwarded traffic (SNAT)
+# use it; it also survives a tunnel going down, which flushes interface IPv6 addresses.
 if [ -n "$VPN_ADDR6" ]; then ip -6 route replace local "$VPN_SRC6/128" dev lo table local; fi
-ip link set "$WG_IF" mtu "${WG_MTU:-1420}" up
+# Forwarded traffic: via the active tunnel (wg0 at start)
 ip route replace default dev "$WG_IF" table "$EXIT_TABLE"
-# IPv6 too (forwarded IPv6 then waits for the gate in nftables). Metric 1: IPv6 routes
-# default to 1024, which would lose to the unreachable routes' 1000.
-if [ -n "$VPN_ADDR6" ]; then
-  ip -6 route replace default dev "$WG_IF" metric 1 table "$EXIT_TABLE"
-  ip -6 route replace default dev "$WG_IF" metric 1 table "$TUNNEL6_TABLE"
-fi
-log "tunnel up: peer ${PEER_NAME:-from-config} $peer_endpoint, address $VPN_ADDR ${VPN_ADDR6:-(no IPv6)}"
+ip -6 route replace default dev "$WG_IF" metric 1 table "$EXIT_TABLE"
+log "active tunnel $WG_IF, standby $STANDBY_IF; address $VPN_ADDR ${VPN_ADDR6:-(no IPv6)}"

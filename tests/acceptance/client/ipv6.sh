@@ -67,8 +67,8 @@ if [ "$(status | j 'd["ipv6"]')" = True ]; then
   else bad "the open IPv6 connection: curl exit $rc after $got bytes (want 28: still running at 25 s)"; fi
 fi
 
-# Tunnel down for 15 s (restored by the VPS itself): no IPv6 egress at all, then back
-vps "sudo docker exec -d $NODE sh -c 'ip link set wg0 down; sleep 15; ip link set wg0 up'"
+# Both tunnels down for 15 s (restored by the VPS itself; one alone would be handed over): no IPv6 egress at all, then back
+vps "sudo docker exec -d $NODE sh -c 'for t in wg0 wg1; do ip link set \$t down; done; sleep 15; for t in wg0 wg1; do ip link set \$t up; done'"
 sleep 2; seen=""; end=$((SECONDS+10))
 while [ $SECONDS -lt $end ]; do t=$(trace6 2); [ -n "$t" ] && seen="$seen ${t%% *}"; sleep 0.5; done
 [ -z "$seen" ] && ok "kill switch: no IPv6 egress while the tunnel is down" || bad "IPv6 while the tunnel was down:$seen"

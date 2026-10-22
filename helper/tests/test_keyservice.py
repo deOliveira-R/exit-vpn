@@ -30,6 +30,17 @@ async def test_rotate_records_the_merged_levers_and_a_device_name_for_the_slot(l
     assert meta["device_name"].startswith("exit-proton-a-")
 
 
+async def test_a_first_standby_key_takes_the_exit_keys_levers(logged_in):
+    """The standby replaces the exit at a handover, so it must filter and route the same."""
+    p, _ = logged_in
+    old = await dashboard_key(p, {"netshield": 0})
+    node = FakeExitNode(slot_pub=old.meta.wg_public_key)
+    await KeyService(p, node).rotate("c", {})
+    slot, meta = node.puts[0]
+    assert slot == "c" and meta["options"]["netshield"] == 0
+    assert meta["device_name"].startswith("exit-proton-c-")
+
+
 async def test_a_rotation_the_node_refuses_deletes_the_new_certificate_and_keeps_the_old(logged_in):
     p, sess = logged_in
     old = await dashboard_key(p)

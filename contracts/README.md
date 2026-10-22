@@ -35,7 +35,7 @@ The app updates itself and the exit node does not, so a field the app needs must
 
 | Sample | Route |
 |---|---|
-| `status.json` | `GET /status`, and the result of `POST /rotate`, `POST /select`, `POST /find/{id}/apply`. Its `events` are the last 10 events (below); `catalog` is also the result of `PUT /catalog` and `DELETE /catalog`; `ipv6` says whether forwarded IPv6 goes through the tunnel (the IPv6 gate), `exit_ip6` its exit address then |
+| `status.json` | `GET /status`, and the result of `POST /rotate`, `POST /select`, `POST /find/{id}/apply`. Its `events` are the last 10 events (below); `catalog` is also the result of `PUT /catalog` and `DELETE /catalog`; `ipv6` says whether forwarded IPv6 goes through the tunnel (the IPv6 gate), `exit_ip6` its exit address then; `standby` the standby tunnel (`state`: `ready`, `searching`, `starting`, `suspect`, `off` without a slot c key, `key_suspect`; its server and exit IP), null on an exit without a second tunnel |
 | `servers.json` | `GET /servers[?country=&city=&feature=]`; `countries` is null when `country` is given |
 | `prefs.json` | `GET /prefs`, and the result of `PUT /prefs` |
 | `keys.json`, `key_slot.json` | `GET /keys`; one slot is the result of `PUT /keys/{slot}` and `PUT /keys/{slot}/meta`. `meta` holds what exitctl recorded (`KeyMeta` in `api.py`); it is empty for a bootstrap key |
@@ -64,6 +64,8 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `failover_done` | `old`, `new`, `exit_ip`, `seconds` |
 | `failover_start` | `server`, `reason` |
 | `find_started` | `by`, `url`, `job`, `candidates` |
+| `handover` | `old`, `new`, `reason`, `exit_ip`, `seconds`: forwarded traffic moved to the standby tunnel in one route change |
+| `handover_error` | `server`, `error`: the route could not be switched (nothing changed) |
 | `health` | `state`, `errors` |
 | `ipv6` | `open` (forwarded IPv6 now goes through the tunnel, or not), `server`, `exit_ip6`; `error` (what the IPv6 probe saw) when it closed |
 | `key_meta` | `slot`, `by`, `expires_at` |
@@ -71,11 +73,13 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `key_replaced` | `slot`, `reason`, `seconds` |
 | `prefs` | `by`, `prefs` |
 | `recovered` | `server` |
-| `started` | `server` |
+| `standby` | `state` (`ready`, `lost`, `moving`, `none_found`, `key_suspect`), `server`; `reason`, `exit_ip`, `tried` as they apply |
+| `started` | `server`, `standby` |
 | `swap_error` | `server`, `error` |
 | `switch_reverted` | `server`, `reason` |
-| `switched` | `old`, `new`, `reason`, `exit_ip`, `seconds` |
+| `switched` | `old`, `new`, `reason`, `exit_ip`, `seconds`; `handover` (true: made on the standby, then handed over) |
 | `unhealthy_no_failover` | `errors` |
+| `uplink_suspect` | `server`, `standby`, `errors`: both tunnels fail at once, so the uplink (or the test site) is suspected; no switch for up to `uplink_hold` |
 
 A test fails if the controller can emit a kind that has no sample here.
 
@@ -99,7 +103,7 @@ A test fails if the controller can emit a kind that has no sample here.
 | `login.json`, `whoami.json`, `logged_out.json` | `exitctl <provider> login --stdin` (stdin: `{username, password, totp, hv_token, hv_type}`), `whoami`, and `whoami` or `logout` when logged out |
 | `list.json` | `exitctl <provider> list`; `slot` is the slot that uses the certificate, and `orphan` marks an exit-node certificate no slot uses |
 | `keys.json` | `exitctl keys` (the controller's `keys.json`) |
-| `rotate.json`, `renew.json` | `exitctl <provider> rotate --slot a|b [--<lever> …]`, `renew --slot a|b` |
+| `rotate.json`, `renew.json` | `exitctl <provider> rotate --slot a|b|c [--<lever> …]`, `renew --slot a|b|c` |
 | `servers_push.json` | `exitctl <provider> servers --push` |
 | `error.json`, `need_*.json` | errors (below) |
 

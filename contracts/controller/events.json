@@ -43,6 +43,21 @@
     "job": "f1-1792586345",
     "candidates": 2
   },
+  "handover": {
+    "ts": 1000034.0,
+    "kind": "handover",
+    "old": "US-NY#723",
+    "new": "US-NY#5",
+    "reason": "health checks failed: https: timeout",
+    "exit_ip": "9.9.9.9",
+    "seconds": 0.01
+  },
+  "handover_error": {
+    "ts": 1000034.0,
+    "kind": "handover_error",
+    "server": "US-NY#5",
+    "error": "ip -4 route replace default dev wg1 table 100: Cannot find device"
+  },
   "health": {
     "ts": 1000034.0,
     "kind": "health",
@@ -108,10 +123,20 @@
     "kind": "recovered",
     "server": "US-IL#510"
   },
+  "standby": {
+    "ts": 1000030.0,
+    "kind": "standby",
+    "state": "ready",
+    "server": "US-NY#5",
+    "reason": "health checks failed: https: timeout",
+    "exit_ip": "9.9.9.8",
+    "tried": 5
+  },
   "started": {
     "ts": 1000000.0,
     "kind": "started",
-    "server": "US-NY#723"
+    "server": "US-NY#723",
+    "standby": "US-NY#5"
   },
   "swap_error": {
     "ts": 1000050.0,
@@ -132,11 +157,21 @@
     "new": "US-IL#510",
     "reason": "select {'server': 'US-IL#510'} by o@github (?)",
     "exit_ip": "9.9.9.9",
-    "seconds": 1.0
+    "seconds": 1.0,
+    "handover": true
   },
   "unhealthy_no_failover": {
     "ts": 1000033.0,
     "kind": "unhealthy_no_failover",
+    "errors": [
+      "https: timeout"
+    ]
+  },
+  "uplink_suspect": {
+    "ts": 1000034.0,
+    "kind": "uplink_suspect",
+    "server": "US-NY#723",
+    "standby": "US-NY#5",
     "errors": [
       "https: timeout"
     ]

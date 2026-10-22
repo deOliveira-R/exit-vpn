@@ -32,8 +32,8 @@ else bad "IPv6 stalled for ${dt}s instead of failing at once"; fi
 p=$(tailscale ping -c 5 "$NODE" 2>&1 | tail -1)
 case "$p" in *"via DERP"*) bad "the path is relayed: $p";; *"via "*) ok "the path to the exit node is direct";; *) bad "tailscale ping: $p";; esac
 
-# Tunnel down for 15 s (restored by the VPS itself); sample only inside the window (2-12 s)
-vps "sudo docker exec -d $NODE sh -c 'ip link set wg0 down; sleep 15; ip link set wg0 up'"
+# Both tunnels down for 15 s (restored by the VPS itself; one alone would be handed over); sample only inside the window (2-12 s)
+vps "sudo docker exec -d $NODE sh -c 'for t in wg0 wg1; do ip link set \$t down; done; sleep 15; for t in wg0 wg1; do ip link set \$t up; done'"
 sleep 2; seen=""; end=$((SECONDS+10))
 while [ $SECONDS -lt $end ]; do ip=$(egress_ip 2); [ -n "$ip" ] && seen="$seen $ip"; sleep 0.5; done
 case " $seen " in

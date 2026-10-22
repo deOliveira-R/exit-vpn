@@ -23,6 +23,19 @@ def _list(value: str) -> list[str]:
 class Settings:
     vpn_conf: Path
     wg_if: str = "wg0"
+    # The standby tunnel (slot c), kept ready for a handover; no key: no standby
+    standby_if: str = "wg1"
+    standby_conf: Path | None = None     # slot c's bootstrap config
+    # The active tunnel, for route-keeper (common.sh's ACTIVE_FILE)
+    active_file: Path = Path("/run/exit-vpn/active")
+    # Second opinion: while the standby fails at the same time as the active tunnel, the
+    # fault is taken to be the uplink (no handover, no failover) for at most this long
+    uplink_hold: float = 120.0
+    # The standby's own failed servers are avoided this long (never the shared blacklist: a
+    # bad standby key must not steer the active tunnel's failover)
+    standby_blacklist_ttl: float = 10 * 60
+    # This many servers failing in a row on the standby: its key is suspect, it stops searching
+    standby_key_suspect: int = 5
     state_dir: Path = Path("/var/lib/exit-vpn")
     ts_socket: Path = Path("/run/tailscale/tailscaled.sock")
     provider: str = "proton"
@@ -40,7 +53,7 @@ class Settings:
     # A new key may also need its registration to reach the server
     key_warmup: float = 45.0
     key_dirs: dict[str, Path] = field(
-        default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b")})
+        default_factory=lambda: {"a": Path("/keys/a"), "b": Path("/keys/b"), "c": Path("/keys/c")})
     probe_conf: Path | None = None       # slot b's bootstrap config (the prober's)
     prober_url: str = ""                 # the prober container (empty: no /v1/find)
     version: str = "dev"                 # the image's release (node-vX.Y.Z)
@@ -77,6 +90,10 @@ class Settings:
         return self.state_dir / "peer.env"
 
     @property
+    def standby_env_file(self) -> Path:
+        return self.state_dir / "standby.env"
+
+    @property
     def events_file(self) -> Path:
         return self.state_dir / "events.json"
 
@@ -107,9 +124,14 @@ class Settings:
             kw["prober_url"] = e["PROBER_URL"]
         if e.get("PROBE_VPN_CONF"):
             kw["probe_conf"] = Path(e["PROBE_VPN_CONF"])
-        if e.get("KEY_DIR_A") or e.get("KEY_DIR_B"):
+        if e.get("STANDBY_VPN_CONF"):
+            kw["standby_conf"] = Path(e["STANDBY_VPN_CONF"])
+        if e.get("KEY_DIR_A") or e.get("KEY_DIR_B") or e.get("KEY_DIR_C"):
             kw["key_dirs"] = {"a": Path(e.get("KEY_DIR_A", "/keys/a")),
-                              "b": Path(e.get("KEY_DIR_B", "/keys/b"))}
+                              "b": Path(e.get("KEY_DIR_B", "/keys/b")),
+                              "c": Path(e.get("KEY_DIR_C", "/keys/c"))}
+        if e.get("ACTIVE_FILE"):
+            kw["active_file"] = Path(e["ACTIVE_FILE"])
         if e.get("EXIT_IPV6"):
             kw["ipv6"] = e["EXIT_IPV6"].strip().lower() not in ("off", "0", "false", "no")
         if e.get("IPV6_GATE"):

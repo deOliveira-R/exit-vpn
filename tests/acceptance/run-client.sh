@@ -6,7 +6,7 @@
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 EXITCTL=${EXITCTL:-$here/../../helper/.venv/bin/exitctl}
-all="access egress ipv6 selection preferences failover find catalog keys secrets"
+all="access egress ipv6 handover selection preferences failover find catalog keys secrets"
 needs_login=" catalog keys secrets "
 logged_in=$("$EXITCTL" proton whoami --json 2>/dev/null | python3 -c 'import json,sys; print(bool(json.load(sys.stdin).get("account")))' 2>/dev/null)
 

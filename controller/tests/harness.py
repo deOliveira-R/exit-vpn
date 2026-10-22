@@ -1,7 +1,8 @@
-"""Test harness: a controller node built by `node.build`, as in production, with a fake
-tunnel, fake health probes and a fake clock. Traffic works unless the peer's public key or
-the interface's private key is marked dead; IPv6 works too unless the peer is marked as
-without IPv6. Also the builders and fakes the tests share:
+"""Test harness: a controller node built by `node.build`, as in production, with fake
+tunnels (wg0; with `standby=True` also wg1), fake health probes, a fake route and a fake
+clock. Traffic works unless the peer's public key or the interface's private key is marked
+dead, or the uplink is down (`World`, shared by both tunnels); IPv6 works too unless the peer
+is marked as without IPv6. Also the builders and fakes the tests share:
 WireGuard configs and keys, pushed catalog rows, a scripted prober, an owner-only whois."""
 
 from __future__ import annotations
@@ -34,18 +35,30 @@ class Clock:
         return self.t
 
 
-class FakeWg:
-    ifname = "wg0"
+class World:
+    """What both fake tunnels see: dead servers and keys, servers without IPv6, the uplink."""
 
-    def __init__(self, clock, key, pubkey, endpoint):
-        self.clock, self.key = clock, key
-        self.peer = Peer(pubkey, endpoint, int(clock()))
-        self.swaps, self.keys = [], [key]
+    def __init__(self):
         self.dead_peers, self.dead_keys = set(), set()
         self.no_ipv6 = set()   # peers whose IPv6 drops (servers without IPv6)
+        self.uplink_down = False
+
+
+class FakeWg:
+    def __init__(self, clock, key, pubkey, endpoint, ifname="wg0", world=None):
+        self.clock, self.key, self.ifname = clock, key, ifname
+        self.peer = Peer(pubkey, endpoint, int(clock())) if pubkey else None
+        self.swaps, self.keys = [], [key]
+        self.world = world or World()
+        self.dead_peers, self.dead_keys = self.world.dead_peers, self.world.dead_keys
+        self.no_ipv6 = self.world.no_ipv6
 
     async def peers(self):
-        return [self.peer]
+        return [self.peer] if self.peer else []
+
+    def works(self) -> bool:
+        return (self.peer is not None and self.key is not None and not self.world.uplink_down
+                and self.peer.pubkey not in self.dead_peers and self.key not in self.dead_keys)
 
     async def swap_peer(self, pubkey, endpoint):
         self.swaps.append(pubkey)
@@ -62,17 +75,32 @@ class FakeHealth:
 
     def __init__(self, wg, clock, source6="2a07:b944::2:2"):
         self.wg, self.clock, self.source6 = wg, clock, source6
+        self.ipv6_on, self.device = True, wg.ifname
 
     async def cycle(self, latest_handshake, now=None):
         self.clock.t += 1.0
-        ok = self.wg.peer.pubkey not in self.wg.dead_peers and self.wg.key not in self.wg.dead_keys
-        v6 = (ok and self.wg.peer.pubkey not in self.wg.no_ipv6) if self.source6 else None
+        ok = self.wg.works()
+        v6 = (ok and self.wg.peer.pubkey not in self.wg.no_ipv6) if self.source6 and self.ipv6_on else None
         return CycleResult(ok, ok, ok, 1.0, "9.9.9.9" if ok else None, "US" if ok else None,
                            [] if ok else ["https: timeout"], v6, "2001:db8::9" if v6 else None,
                            "" if v6 or v6 is None else "ipv6: ConnectTimeout")
 
     def reset_ipv6(self):
         pass
+
+
+class FakeRoute:
+    """The handover's route switch: records which tunnel table 100 points at."""
+
+    def __init__(self):
+        self.active, self.sets = None, []
+
+    def current(self):
+        return self.active
+
+    async def set(self, ifname):
+        self.active = ifname
+        self.sets.append(ifname)
 
 
 class FakeProberClient:
@@ -122,6 +150,13 @@ class Rig:
     prober: FakeProberClient
     boot_a: str
     settings: Settings
+    wg1: FakeWg | None = None
+    route: FakeRoute | None = None
+    catalog: object = None
+
+    @property
+    def world(self) -> World:
+        return self.wg.world
 
     @property
     def svc(self):
@@ -132,34 +167,55 @@ class Rig:
         return [e["kind"] for e in self.node.events.recent() if ipv6 or e["kind"] != "ipv6"]
 
     def rebuild(self, catalog) -> Rig:
-        """The same state directory and tunnel, as after a controller restart."""
+        """The same state directory and tunnels, as after a controller restart."""
         node = build(self.settings, exit_conf=self.svc.exit_conf, wg=self.wg,
                      probe=FakeHealth(self.wg, self.clock), catalog=catalog, keys=self.keys,
                      prober=self.prober, clock=self.clock, rng=random.Random(0),
-                     pubkey=fake_pubkey)
+                     pubkey=fake_pubkey, **_standby_parts(self.wg1, self.clock, self.route))
         return Rig(node, self.wg, self.clock, self.start, self.keys, self.prober, self.boot_a,
-                   self.settings)
+                   self.settings, self.wg1, self.route, catalog)
 
 
-def make(catalog, tmp_path: Path, monkeypatch, prober_answer: dict | None = None) -> Rig:
+def _standby_parts(wg1, clock, route) -> dict:
+    if wg1 is None:
+        return {}
+    return {"standby_wg": wg1, "standby_probe": FakeHealth(wg1, clock), "route": route}
+
+
+def make(catalog, tmp_path: Path, monkeypatch, prober_answer: dict | None = None,
+         standby: bool = False, standby_key: bool = True) -> Rig:
+    """A node on New York's first server. `standby`: with the second tunnel wg1 (keyed with
+    slot c's bootstrap key unless `standby_key` is False), which init-wg left on the same
+    server as wg0 (its config's peer), so the standby starts by searching."""
     monkeypatch.setattr(asyncio, "sleep", no_sleep)
     clock = Clock()
     start = catalog.filter("United States", "New York")[0]
-    boot_a, boot_b = new_key(), new_key()
+    boot_a, boot_b, boot_c = new_key(), new_key(), new_key()
     (tmp_path / "secrets").mkdir()
     (tmp_path / "secrets/a.conf").write_text(conf(boot_a))
     (tmp_path / "secrets/b.conf").write_text(conf(boot_b))
+    if standby and standby_key:
+        (tmp_path / "secrets/c.conf").write_text(conf(boot_c))
     s = Settings(vpn_conf=tmp_path / "secrets/a.conf", state_dir=tmp_path / "state",
                  owners=["o@github"], probe_conf=tmp_path / "secrets/b.conf",
-                 key_dirs={"a": tmp_path / "keys-a", "b": tmp_path / "keys-b"},
-                 ipv6_gate_file=tmp_path / "run/ipv6")
-    keys = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf})
-    wg = FakeWg(clock, boot_a, start.pubkey, start.endpoint(51820))
+                 standby_conf=tmp_path / "secrets/c.conf",
+                 key_dirs={"a": tmp_path / "keys-a", "b": tmp_path / "keys-b",
+                           "c": tmp_path / "keys-c"},
+                 ipv6_gate_file=tmp_path / "run/ipv6", active_file=tmp_path / "run/active")
+    keys = KeyStore(s.key_dirs, {"a": s.vpn_conf, "b": s.probe_conf, "c": s.standby_conf})
+    world = World()
+    wg = FakeWg(clock, boot_a, start.pubkey, start.endpoint(51820), "wg0", world)
+    wg1 = route = None
+    if standby:
+        wg1 = (FakeWg(clock, boot_c, start.pubkey, start.endpoint(51820), "wg1", world)
+               if standby_key else FakeWg(clock, None, None, None, "wg1", world))
+        route = FakeRoute()
     prober = FakeProberClient(keys, prober_answer)
     node = build(s, exit_conf=WgConf("10.2.0.2", "10.2.0.1", start.pubkey, start.endpoint(51820)),
                  wg=wg, probe=FakeHealth(wg, clock), catalog=catalog, keys=keys, prober=prober,
-                 clock=clock, rng=random.Random(0), pubkey=fake_pubkey)
-    return Rig(node, wg, clock, start, keys, prober, boot_a, s)
+                 clock=clock, rng=random.Random(0), pubkey=fake_pubkey,
+                 **_standby_parts(wg1, clock, route))
+    return Rig(node, wg, clock, start, keys, prober, boot_a, s, wg1, route, catalog)
 
 
 class AllowAll:

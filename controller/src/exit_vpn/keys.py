@@ -1,4 +1,4 @@
-"""Key files: `a` = the exit tunnel, `b` = the prober's tunnel.
+"""Key files: `a` = the exit tunnel wg0, `b` = the prober's tunnel, `c` = the standby tunnel wg1.
 
 An uploaded key lives in its slot directory (a named volume) as `wg.conf` (0600) plus
 `meta.json` (public facts from the provider: certificate id, expiry, options). While a
@@ -9,7 +9,8 @@ Private keys are only ever read from these files and passed on via stdin; they n
 appear in responses or logs.
 
 Shell contract: `init-wg` (the top of common.sh) brings wg0 up with the file
-`KeyStore.path("a")` returns: `KEY_DIR_A/wg.conf` if present, else the bootstrap config.
+`KeyStore.path("a")` returns: `KEY_DIR_A/wg.conf` if present, else the bootstrap config;
+wg1 likewise with `KeyStore.path("c")` (`KEY_DIR_C`, `STANDBY_VPN_CONF`).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from .persistence import atomic_write
 from .wgconf import WgConf, parse_text
 
 log = logging.getLogger("exit_vpn")
-SLOTS = ("a", "b")
+SLOTS = ("a", "b", "c")
 CONF, PREV, META = "wg.conf", "wg.conf.prev", "meta.json"
 MAX_CONF_BYTES = 8192
 _PRIVATE = re.compile(r"^\s*PrivateKey\s*=\s*(\S+)", re.IGNORECASE | re.MULTILINE)

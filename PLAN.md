@@ -1354,6 +1354,13 @@ or for a good server for the standby).
 - **IPv6 later, as a measured attribute.** Off for now (Phase M). Per-server IPv6 quality can
   join the states later, at the cost of more frequent rotation; its benefit to the owner is small.
 
+**Where it runs (owner, 2026-10-22):** everything above runs on the VPS, in the controller: both
+tunnels, their probes, the states, the standby's search, the handover and the second opinion.
+Quality of service here means VPS ↔ Proton, measured at the VPS, so nothing depends on any
+client being on. The Mac's monitor (`monitor/`) only measures the outcome end to end (Mac ↔
+tailnet ↔ VPS ↔ Proton); its tailnet records separate drops on the Mac ↔ VPS leg, which no
+server change can fix and which Phase Q must never react to.
+
 **Steps** (each deployable and measured with `monitor/` against the Phase M baseline):
 - Q-1 Standby tunnel: slot c key (`exitctl proton rotate --slot c`), `wg1`, the interface set in
   the kill switch and NAT, per-tunnel probes; the standby kept warm and health-checked; failover
@@ -1365,6 +1372,14 @@ or for a good server for the standby).
 - Q-4 Active rules: handover on Critical at once, on Degraded at a quiet moment.
 - Later, experiment only: both tunnels active at once, flows split per destination (a failure
   ends half the connections; sites may see two exit IPs).
+
+**Acceptance (Q-1):** T47 (client `handover`) with the standby ready, a silently dropped active
+server is handed over to it with no failover search and no leak, traffic flows via the standby's
+VPN IP, a connection open across the handover is reset within seconds (not left to stall), and
+the standby is rebuilt on another server. T48 (client `handover`) both tunnels dropped at once:
+no handover, no failover, no blacklisting, `uplink_suspect`; the exit carries on when the fault
+ends. `tunnel`, `tailnet`, `egress`, `ipv6`, `failover` keep passing with two tunnels (kill-switch
+checks take both down).
 
 **Decided (owner, 2026-10-22):** three connections (active, standby, find); find serves both
 the standby's search and unblocking; no server history; tolerances calibrated from Q-2's

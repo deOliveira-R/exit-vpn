@@ -78,13 +78,13 @@ def _probe(source6):
 async def test_the_ipv6_probe_is_bound_to_the_tunnels_ipv6_address_and_never_decides_health(monkeypatch):
     calls = []
 
-    async def https(url, source, timeout):
+    async def https(url, source, timeout, device=""):
         calls.append((url, source))
         if source == "2a07:b944::2:2":
             return False, {}, f"{url}: ConnectTimeout"
         return True, {"ip": "198.51.100.1", "loc": "US"}, ""
 
-    async def dns(*a):
+    async def dns(*a, **kw):
         return True, ""
     monkeypatch.setattr(probes, "https_probe", https)
     monkeypatch.setattr(probes, "dns_probe", dns)
@@ -95,10 +95,10 @@ async def test_the_ipv6_probe_is_bound_to_the_tunnels_ipv6_address_and_never_dec
 
 
 async def test_a_working_ipv6_probe_reports_the_ipv6_exit_address(monkeypatch):
-    async def https(url, source, timeout):
+    async def https(url, source, timeout, device=""):
         return True, {"ip": "2001:db8::1" if ":" in source else "198.51.100.1"}, ""
 
-    async def dns(*a):
+    async def dns(*a, **kw):
         return True, ""
     monkeypatch.setattr(probes, "https_probe", https)
     monkeypatch.setattr(probes, "dns_probe", dns)
@@ -109,11 +109,11 @@ async def test_a_working_ipv6_probe_reports_the_ipv6_exit_address(monkeypatch):
 async def test_without_an_ipv6_address_there_is_no_ipv6_probe(monkeypatch):
     calls = []
 
-    async def https(url, source, timeout):
+    async def https(url, source, timeout, device=""):
         calls.append(source)
         return True, {}, ""
 
-    async def dns(*a):
+    async def dns(*a, **kw):
         return True, ""
     monkeypatch.setattr(probes, "https_probe", https)
     monkeypatch.setattr(probes, "dns_probe", dns)
@@ -125,14 +125,14 @@ async def test_a_slow_ipv6_probe_spans_cycles_and_never_holds_up_the_ipv4_checks
     release = asyncio.Event()
     timeouts = {}
 
-    async def https(url, source, timeout):
+    async def https(url, source, timeout, device=""):
         timeouts[source] = timeout
         if ":" in source:
             await release.wait()   # Proton's first IPv6 connection stalling
             return True, {"ip": "2001:db8::1"}, ""
         return True, {"ip": "198.51.100.1"}, ""
 
-    async def dns(*a):
+    async def dns(*a, **kw):
         return True, ""
     monkeypatch.setattr(probes, "https_probe", https)
     monkeypatch.setattr(probes, "dns_probe", dns)
@@ -149,13 +149,13 @@ async def test_a_slow_ipv6_probe_spans_cycles_and_never_holds_up_the_ipv4_checks
 async def test_a_new_server_drops_an_ipv6_probe_still_running_for_the_old_one(monkeypatch):
     started = []
 
-    async def https(url, source, timeout):
+    async def https(url, source, timeout, device=""):
         if ":" in source:
             started.append(source)
             await asyncio.sleep(3600)
         return True, {}, ""
 
-    async def dns(*a):
+    async def dns(*a, **kw):
         return True, ""
     monkeypatch.setattr(probes, "https_probe", https)
     monkeypatch.setattr(probes, "dns_probe", dns)

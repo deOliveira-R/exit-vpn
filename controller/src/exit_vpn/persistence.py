@@ -1,10 +1,11 @@
 """Files the controller keeps in its state volume (`/var/lib/exit-vpn`), all written
 atomically (temp file, fsync, rename; 0600):
 
-- `state.json`: preferences, the active server, the blacklist (`StateStore`).
+- `state.json`: preferences, the active and standby servers, the blacklist (`StateStore`).
 - `peer.env`: the active peer, read by `init-wg` on the next start, so the tunnel comes up
-  on the last good server before Python runs. Shell contract: `PEER_NAME`, `PEER_PUBKEY`,
-  `PEER_ENDPOINT`, single-quoted (see `common.sh`).
+  on the last good server before Python runs (on wg0, which starts as the active tunnel).
+  `standby.env`: likewise the standby's peer (on wg1). Shell contract: `PEER_NAME`,
+  `PEER_PUBKEY`, `PEER_ENDPOINT`, single-quoted (see `common.sh`).
 - `events.json`: the recent event log (`EventStore`).
 - `catalog.json`: the last good catalog (`CatalogCache`), so restarts and upstream outages
   keep a working server list.
@@ -22,7 +23,7 @@ from pathlib import Path
 from .catalog import MIN_SERVERS, Catalog, CatalogError
 from .prefs import Prefs
 from .servers import Server
-from .state import ActiveServer, Blacklist, State
+from .state import TunnelServer, Blacklist, State
 
 log = logging.getLogger("exit_vpn")
 
@@ -48,8 +49,10 @@ def _shell_quote(value: str) -> str:
 
 
 class StateStore:
-    def __init__(self, path: Path, peer_env: Path, default_countries: list[str]):
+    def __init__(self, path: Path, peer_env: Path, default_countries: list[str],
+                 standby_env: Path | None = None):
         self.path, self.peer_env, self.default_countries = path, peer_env, default_countries
+        self.standby_env = standby_env
 
     def load(self) -> tuple[State, list[dict]]:
         """The saved state, and the events an older version kept inside state.json."""
@@ -58,20 +61,27 @@ class StateStore:
         except FileNotFoundError:
             return State(Prefs.default(self.default_countries)), []
         prefs = Prefs.from_dict(d.get("prefs", {}), self.default_countries)
-        active = ActiveServer.from_dict(d["current"]) if d.get("current") else None
-        return State(prefs, active, Blacklist(d.get("blacklist", {}))), d.get("events", [])
+        active = TunnelServer.from_dict(d["current"]) if d.get("current") else None
+        standby = TunnelServer.from_dict(d["standby"]) if d.get("standby") else None
+        return (State(prefs, active, Blacklist(d.get("blacklist", {})), standby),
+                d.get("events", []))
 
     def save(self, state: State) -> None:
         atomic_write(self.path, json.dumps({
             "prefs": state.prefs.to_dict(),
             "current": state.active.to_dict() if state.active else None,
+            "standby": state.standby.to_dict() if state.standby else None,
             "blacklist": state.blacklist.to_dict()}, indent=1))
         if state.active:
-            a = state.active
-            atomic_write(self.peer_env, "".join(
-                f"{k}={_shell_quote(v)}\n"
-                for k, v in (("PEER_NAME", a.name), ("PEER_PUBKEY", a.pubkey),
-                             ("PEER_ENDPOINT", a.endpoint))))
+            atomic_write(self.peer_env, _peer_env(state.active))
+        if state.standby and self.standby_env:
+            atomic_write(self.standby_env, _peer_env(state.standby))
+
+
+def _peer_env(a: TunnelServer) -> str:
+    return "".join(f"{k}={_shell_quote(v)}\n"
+                   for k, v in (("PEER_NAME", a.name), ("PEER_PUBKEY", a.pubkey),
+                                ("PEER_ENDPOINT", a.endpoint)))
 
 
 class EventStore:

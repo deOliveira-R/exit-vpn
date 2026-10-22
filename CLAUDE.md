@@ -107,6 +107,10 @@ formats between them (samples checked by both sides' tests).
 
 ## Gotchas learned
 
+- Two exit tunnels share one address (Proton gives every config `10.2.0.2`): tell them apart
+  by interface (SO_BINDTODEVICE, `oif` rules, tables 102/103), never by address. Table 100
+  follows the active one; a single-tunnel kill-switch test must take both down, else the
+  controller rightly hands over.
 - Proton completes WireGuard handshakes even for unregistered keys; only traffic proves
   health. Fresh sessions drop TCP for 4–14 s (warm-up).
 - A Proton public key is not unique (Secure Core entries reuse the exit's key): identify

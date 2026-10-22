@@ -1,9 +1,11 @@
-"""Key slots: uploading a key into slot a (the exit) or b (the prober),
-keeping it only if it carries traffic.
+"""Key slots: uploading a key into slot a (the exit tunnel wg0), b (the prober) or c (the
+standby tunnel wg1), keeping it only if it carries traffic.
 
-The two slots are tested in opposite orders, because of where the key runs:
-- Slot a: the new key is tried on wg0 first (`ExitService.replace_exit_key`) and saved only
-  once traffic passes; otherwise wg0 is back on the old key and nothing was saved.
+The slots are tested in opposite orders, because of where the key runs:
+- Slots a and c: the new key is tried on its tunnel first (`ExitService.replace_exit_key`) and
+  saved only once traffic passes; otherwise the tunnel is back on the old key and nothing
+  was saved. (Either tunnel may be the active one at the time; on the standby, forwarded
+  traffic is never touched. A first slot c key brings the standby up.)
 - Slot b: the prober reads its key from the slot's file, so the key is saved first, the
   prober reloads it and probes a few servers; if none answers, the old key is restored.
 """
@@ -24,6 +26,8 @@ from .wg import public_key
 log = logging.getLogger("exit_vpn")
 TEST_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 TEST_SERVERS = 3
+TUNNEL_SLOTS = ("a", "c")   # keys of the exit's own tunnels (wg0, wg1)
+ROLES = {"a": "exit", "b": "prober", "c": "standby"}
 DAY = 86400.0
 
 
@@ -46,8 +50,8 @@ class KeySlots:
     async def put(self, slot: str, text: str, meta: dict, who: str) -> dict:
         if slot not in SLOTS:
             raise KeyRejected(f"unknown slot {slot!r}")
-        if slot == "a":
-            like = self.service.exit_conf
+        if slot in TUNNEL_SLOTS:
+            like = self.service.exit_conf   # both tunnels share the routing built on it
         else:
             cur = self.store.current("b")
             like = cur.conf if cur else None
@@ -55,18 +59,18 @@ class KeySlots:
         meta = {**meta, "wg_public_key": await self.pubkey(key.private_key),
                 "uploaded_by": who, "uploaded_at": int(time.time())}
         async with self.lock:
-            if slot == "a":
-                await self._put_exit_key(key, meta, who)
+            if slot in TUNNEL_SLOTS:
+                await self._put_exit_key(slot, key, meta, who)
             else:
                 await self._put_probe_key(key, meta, who)
         return await self.view(slot)
 
-    async def _put_exit_key(self, key: KeyFile, meta: dict, who: str) -> None:
-        cur = self.store.current("a")
+    async def _put_exit_key(self, slot: str, key: KeyFile, meta: dict, who: str) -> None:
+        cur = self.store.current(slot)
         if not await self.service.replace_exit_key(key.private_key, cur.private_key if cur else "",
-                                                   key.conf, f"upload by {who}"):
+                                                   key.conf, f"upload by {who}", slot=slot):
             raise KeyFailed("the new key carried no traffic; the previous key is back")
-        self.store.commit("a", key, meta)
+        self.store.commit(slot, key, meta)
 
     async def _put_probe_key(self, key: KeyFile, meta: dict, who: str) -> None:
         if not self.prober:
@@ -116,7 +120,7 @@ class KeySlots:
         meta = self.store.meta(slot)
         if meta.get("wg_public_key") != pub:
             meta = {}   # stale facts about some other key
-        out = {"slot": slot, "role": "exit" if slot == "a" else "prober",
+        out = {"slot": slot, "role": ROLES[slot],
                "source": self.store.source(slot), "public_key": pub,
                "options": cur.conf.options if cur else {}, "meta": meta,
                "expires_in_days": None}

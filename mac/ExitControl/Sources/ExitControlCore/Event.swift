@@ -55,6 +55,18 @@ public struct Event: Codable, Hashable, Sendable {
         case "catalog_reverted": return "Server list reverted to the pinned list"
         case "find_started": return "Finding a server for \(s("url"))"
         case "key_meta": return "Key details saved (slot \(s("slot")))"
+        case "handover": return "Handed over \(s("old")) → \(s("new")) (standby, instant)"
+        case "handover_error": return "Handover to \(s("server")) failed: \(s("error"))"
+        case "uplink_suspect": return "Both tunnels failing: likely the VPS's own connection; staying on \(s("server"))"
+        case "standby":
+            switch s("state") {
+            case "ready": return "Standby ready on \(s("server"))"
+            case "lost": return "Standby \(s("server")) failed; finding another"
+            case "moving": return "Standby leaving \(s("server")): outside the exit's region"
+            case "none_found": return "No standby server found (\(s("tried")) tried)"
+            case "key_suspect": return "Standby stopped: its key carries no traffic"
+            default: return "Standby: \(s("state"))"
+            }
         case "ipv6":
             return data["open"] == .bool(true) ? "IPv6 through the exit on \(s("server"))"
                                               : "IPv6 off on \(s("server")); apps use IPv4"

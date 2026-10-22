@@ -1,6 +1,6 @@
 """What the controller keeps between cycles: the active server and the blacklist (logic)."""
 
-from exit_vpn.state import ActiveServer, Blacklist
+from exit_vpn.state import TunnelServer, Blacklist
 
 
 def test_a_blacklist_entry_lasts_until_it_expires():
@@ -13,7 +13,7 @@ def test_a_blacklist_entry_lasts_until_it_expires():
 
 
 def test_the_active_server_round_trips_and_knows_its_ip():
-    a = ActiveServer("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0, ("port_forward",))
+    a = TunnelServer("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0, ("port_forward",))
     assert a.ip == "1.2.3.4"
-    assert ActiveServer.from_dict(a.to_dict()) == a
-    assert ActiveServer.from_dict({"name": "X", "pubkey": "k=", "endpoint": "1.1.1.1:51820"}).profile == ()
+    assert TunnelServer.from_dict(a.to_dict()) == a
+    assert TunnelServer.from_dict({"name": "X", "pubkey": "k=", "endpoint": "1.1.1.1:51820"}).profile == ()

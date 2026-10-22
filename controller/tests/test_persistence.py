@@ -6,14 +6,14 @@ import json
 from exit_vpn.events import EventBus
 from exit_vpn.persistence import CatalogCache, EventStore, StateStore
 from exit_vpn.servers import Region
-from exit_vpn.state import ActiveServer
+from exit_vpn.state import TunnelServer
 
 
 def test_state_is_saved_privately_and_read_back(tmp_path):
     store = StateStore(tmp_path / "state.json", tmp_path / "peer.env", ["United States"])
     st, old_events = store.load()
     assert st.prefs.countries == ["United States"] and st.active is None and old_events == []
-    st.active = ActiveServer("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0)
+    st.active = TunnelServer("US-NY#1", "pk=", "1.2.3.4:51820", "United States", "New York", 1.0)
     st.blacklist.add("bad=", 100.0)
     store.save(st)
     again, _ = store.load()

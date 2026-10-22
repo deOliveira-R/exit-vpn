@@ -53,6 +53,7 @@ public struct Status: Codable, Hashable, Sendable {
     public var exitIp6: String?
     public var errors: [String]
     public var warnings: [String]?
+    public var standby: Standby?      // the tunnel kept ready for a handover; nil: none (older nodes too)
     public var prefs: Prefs
     public var provider: String
     public var keyOptions: [String: String]?
@@ -63,6 +64,18 @@ public struct Status: Codable, Hashable, Sendable {
     public var endpointIP: String? { endpoint.map { String($0.split(separator: ":").first ?? "") } }
     /// "Los Angeles, United States" (the parts the controller knows).
     public var place: String { [city, country].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ") }
+}
+
+/// The standby tunnel: kept ready on another server of the exit's region, so a failing exit
+/// is handed over in one route change.
+public struct Standby: Codable, Hashable, Sendable {
+    public var state: String          // ready | searching | starting | suspect | off | key_suspect
+    public var server: String?
+    public var country: String?
+    public var city: String?
+    public var since: Double?
+    public var exitIp: String?
+    public var interface: String?
 }
 
 public struct Server: Codable, Hashable, Sendable, Identifiable {

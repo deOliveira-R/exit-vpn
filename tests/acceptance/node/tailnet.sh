@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The exit node on the tailnet: logged in, named and tagged, advertising an approved exit
 # node, not taking over the container's DNS; our routing rules and kill switch coexist with
-# tailscaled's; forwarded traffic goes to wg0, the node's own via the underlay; the host's own
+# tailscaled's; forwarded traffic goes to the active tunnel, the node's own via the underlay; the host's own
 # Tailscale node and services are untouched. On the VPS, from the deploy dir, as a sudoer:
 #   sudo bash tests/acceptance/node/tailnet.sh
 . "$(dirname "$0")/../lib.sh"
@@ -29,8 +29,9 @@ first_ts=$(x ip rule | awk -F: '/lookup 52/ && $1+0>=5000 {print $1+0; exit}')
 if x nft list table inet killswitch >/dev/null 2>&1 && x nft list chain ip filter ts-forward >/dev/null 2>&1; then
   ok "the kill switch (forward, priority -10) coexists with tailscaled's ts-forward (0)"
 else bad "nft: the kill switch or ts-forward is missing"; fi
-x ip -4 route get 1.1.1.1 iif tailscale0 from 100.85.0.1 2>&1 | grep -q 'dev wg0' \
-  && ok "forwarded exit traffic routes to wg0" || bad "forwarded traffic does not route to wg0"
+act=$(x sh -c '. /usr/local/lib/exit-vpn/common.sh; active_if')
+x ip -4 route get 1.1.1.1 iif tailscale0 from 100.85.0.1 2>&1 | grep -q "dev $act" \
+  && ok "forwarded exit traffic routes to the active tunnel ($act)" || bad "forwarded traffic does not route to $act"
 x sh -c 'ip -4 route get 1.1.1.1 | grep -q "dev eth0"' && ok "the node's own traffic (underlay) uses eth0" || bad "underlay route"
 
 h=$(tailscale status --self --json 2>/dev/null | tr -d '\n ' | grep -o '"HostName":"[^"]*"' | head -1)

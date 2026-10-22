@@ -86,7 +86,8 @@ class FakeSession:
 
 
 class FakeExitNode:
-    """The exit node's controller API as KeyService and the CLI use it: one slot `a`."""
+    """The exit node's controller API as KeyService and the CLI use it: slot `a`, and an empty
+    slot `c` (the standby, before its first key)."""
 
     base_url = "http://exit-proton:8080"
     node_name = "exit-proton"
@@ -96,12 +97,14 @@ class FakeExitNode:
                      "options": {"NetShield": "0", "VPN Accelerator": "on"}, "meta": {},
                      "expires_in_days": None}
         self.fail, self.puts, self.metas = fail, [], []
+        self.empty = {"slot": "c", "role": "standby", "source": "none", "public_key": None,
+                      "options": {}, "meta": {}, "expires_in_days": None}
 
     async def status(self):
         return {"server": "US-NY#1", "pubkey": "cGVlcg==", "endpoint": "192.0.2.10:51820"}
 
     async def key(self, slot):
-        return self.slot
+        return self.slot if slot == "a" else self.empty
 
     async def keys(self):
         return [self.slot]

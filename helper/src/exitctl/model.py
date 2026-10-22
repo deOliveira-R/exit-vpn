@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-SLOTS = ("a", "b")   # a: the exit tunnel, b: the prober's tunnel
+SLOTS = ("a", "b", "c")   # a: the exit tunnel, b: the prober's tunnel, c: the standby tunnel
 
 
 # Errors, by what the caller can do about them (cli maps them to exit codes) ------------

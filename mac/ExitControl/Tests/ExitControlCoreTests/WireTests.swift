@@ -34,3 +34,13 @@ import Testing
     st.ipv6 = nil
     #expect(StatusText.ipv6(st) == nil)
 }
+
+@Test func statusShowsTheStandbyAndNothingForNodesWithoutOne() throws {
+    var st = try sample("controller/status", as: Status.self)
+    #expect(st.standby?.interface == "wg1")
+    #expect(StatusText.standby(st) == "Standby US-NY#5 ready")
+    st.standby?.state = "off"
+    #expect(StatusText.standby(st) == "Standby off: slot c has no key")
+    st.standby = nil
+    #expect(StatusText.standby(st) == nil)
+}

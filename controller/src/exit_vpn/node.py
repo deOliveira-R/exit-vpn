@@ -1,7 +1,9 @@
 """Building the controller (the composition root): every object, its collaborators, and
 how they connect. `__main__` builds the real node; the tests build one with fakes.
 
-    ExitService ── Tunnel ── WireGuard (wg0), HealthProbe (HealthTracker, IPv6Gate → GateFile)
+    ExitService ── Tunnel (active) ── WireGuard (wg0), HealthProbe (HealthTracker, IPv6Gate → GateFile)
+        │  ├── Tunnel (standby) ── WireGuard (wg1), HealthProbe, HealthTracker
+        │  ├── ActiveRoute (the handover: table 100's default)
         │  └── selection (pure), Catalog, Prefs, State → StateStore, CatalogCache
         ├── EventBus → EventStore, /v1/events subscribers
     KeySlots ── ExitService.replace_exit_key, KeyStore, ProberClient
@@ -27,7 +29,7 @@ from .keys import KeyStore
 from .persistence import CatalogCache, EventStore, StateStore
 from .probes import HealthProbe
 from .prober_client import ProberClient
-from .routes import GateFile
+from .routes import ActiveRoute, GateFile
 from .service import ExitService
 from .slots import KeySlots
 from .tunnel import Tunnel
@@ -47,15 +49,23 @@ class Node:
 
 def build(settings: Settings, *, exit_conf: WgConf, wg: WireGuard, probe: HealthProbe,
           catalog: Catalog, keys: KeyStore, prober: ProberClient | None = None,
+          standby_wg: WireGuard | None = None, standby_probe: HealthProbe | None = None,
+          route: ActiveRoute | None = None,
           forbid_ips: Callable[[], list[str]] = lambda: [],
           clock: Callable[[], float] = time.time, rng: random.Random | None = None,
           pubkey: Callable[[str], Awaitable[str]] = public_key) -> Node:
     s = settings
-    store = StateStore(s.state_file, s.peer_env_file, s.countries)
+    store = StateStore(s.state_file, s.peer_env_file, s.countries, s.standby_env_file)
     events = EventBus(EventStore(s.events_file), clock, initial=store.load()[1])
     cache = CatalogCache(s.catalog_file)
     tunnel = Tunnel(wg, probe, HealthTracker(s.strikes, s.warmup), clock, GateFile(s.ipv6_gate_file))
-    service = ExitService(s, tunnel, catalog, store, events, exit_conf, catalog_cache=cache,
+    standby = None
+    if standby_wg and standby_probe:
+        standby = Tunnel(standby_wg, standby_probe, HealthTracker(s.strikes, s.warmup), clock,
+                         slot="c", keyed=keys.current("c") is not None)
+    service = ExitService(s, tunnel, catalog, store, events, exit_conf, standby=standby,
+                          route=route or (ActiveRoute(s.active_file) if standby else None),
+                          catalog_cache=cache,
                           clock=clock, rng=rng)
 
     def code_for(country: str) -> str:

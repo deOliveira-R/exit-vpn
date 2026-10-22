@@ -18,6 +18,8 @@ services:
     restart: unless-stopped
     environment:
       EXIT_VPN_CONF: /secrets/${EXIT_VPN_CONF:-proton_a.conf}
+      # The standby tunnel's bootstrap key (slot c); none: no standby until one is uploaded
+      STANDBY_VPN_CONF: /secrets/${STANDBY_VPN_CONF:-proton_c.conf}
       WG_MTU: ${WG_MTU:-1420}
       EXIT_IPV6: ${EXIT_IPV6:-on}
       EXIT_NODE_NAME: ${EXIT_NODE_NAME:-exit-proton}
@@ -68,6 +70,7 @@ services:
       # Key slots uploaded via PUT /v1/keys; empty = use secrets/
       - keys-a:/keys/a
       - keys-b:/keys/b
+      - keys-c:/keys/c
       - exit-state:/var/lib/exit-vpn
       - ts-state:/var/lib/tailscale
     # tailscaled's WireGuard port for direct connections (the host's tailscaled has 41641).
@@ -124,4 +127,5 @@ volumes:
   exit-state: {}
   keys-a: {}
   keys-b: {}
+  keys-c: {}
   ts-state: {}

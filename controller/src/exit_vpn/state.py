@@ -1,5 +1,5 @@
 """What the controller keeps between cycles and restarts (pure; saving is `persistence`):
-the active server, the preferences and the blacklist."""
+the active and standby servers, the preferences and the blacklist."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from .servers import Server
 
 
 @dataclass(frozen=True)
-class ActiveServer:
-    """The server wg0 is talking to. `profile`: the features failover keeps from a manual
+class TunnelServer:
+    """The server a tunnel is talking to. `profile`: the features failover keeps from a manual
     pick (P2P stays P2P). A peer the catalog does not know keeps a descriptive name."""
     name: str
     pubkey: str
-    endpoint: str          # ip:port as configured on wg0
+    endpoint: str          # ip:port as configured on the tunnel
     country: str = ""
     city: str = ""
     since: float = 0.0     # kept across restarts while the peer is the same
@@ -26,7 +26,7 @@ class ActiveServer:
         return self.endpoint.rsplit(":", 1)[0]
 
     @classmethod
-    def of(cls, srv: Server, port: int, since: float, profile=()) -> ActiveServer:
+    def of(cls, srv: Server, port: int, since: float, profile=()) -> TunnelServer:
         return cls(srv.name, srv.pubkey, srv.endpoint(port), srv.country, srv.city, since,
                    tuple(profile))
 
@@ -36,7 +36,7 @@ class ActiveServer:
                 "profile": list(self.profile)}
 
     @classmethod
-    def from_dict(cls, d: dict) -> ActiveServer:
+    def from_dict(cls, d: dict) -> TunnelServer:
         return cls(d["name"], d["pubkey"], d["endpoint"], d.get("country", ""), d.get("city", ""),
                    d.get("since", 0.0), tuple(d.get("profile", ())))
 
@@ -68,5 +68,6 @@ class Blacklist:
 @dataclass
 class State:
     prefs: Prefs
-    active: ActiveServer | None = None
+    active: TunnelServer | None = None    # the active tunnel's server: the exit
     blacklist: Blacklist = field(default_factory=Blacklist)
+    standby: TunnelServer | None = None   # the standby tunnel's server, ready for a handover

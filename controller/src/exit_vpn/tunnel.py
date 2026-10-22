@@ -1,14 +1,15 @@
-"""The exit tunnel (wg0) and its health: the only object that changes wg0. It knows how to
-check the tunnel, try a server and try a key, each judged by real traffic; it decides
-nothing about which server or key (that is `service.ExitService`).
+"""One exit tunnel (wg0 or wg1) and its health: the only object that changes its interface.
+It knows how to check the tunnel, try a server and try a key, each judged by real traffic;
+it decides nothing about which server or key, nor whether it is the active or the standby
+tunnel (that is `service.ExitService`).
 
 A WireGuard handshake proves nothing (Proton completes it even for unregistered keys), so
 "works" always means one fully passing health cycle, waited for through a warm-up: fresh
 sessions drop TCP for 4-14 s.
 
-IPv6 rides along: each cycle's IPv6 probe feeds the IPv6 gate (closed on every server or key
-change), and the gate file tells route-keeper whether forwarded IPv6 goes via wg0. IPv6 never
-decides whether the tunnel works.
+IPv6 rides along on the active tunnel: each cycle's IPv6 probe feeds the IPv6 gate (closed on
+every server or key change, and at a handover), and the gate file tells route-keeper whether
+forwarded IPv6 goes via the active tunnel. IPv6 never decides whether the tunnel works.
 """
 
 from __future__ import annotations
@@ -24,16 +25,35 @@ from .wg import Peer, WgError, WireGuard
 
 class Tunnel:
     def __init__(self, wg: WireGuard, probe: HealthProbe, tracker: HealthTracker,
-                 clock: Callable[[], float], gate_file: GateFile | None = None):
+                 clock: Callable[[], float], gate_file: GateFile | None = None,
+                 slot: str = "a", keyed: bool = True):
         self.wg, self.probe, self.tracker, self.clock = wg, probe, tracker, clock
         self.last: CycleResult | None = None   # the latest health cycle
         self.last_ok_at = 0.0
         self.ipv6 = IPv6Gate()
-        self.gate_file = gate_file
+        self.gate_file = gate_file   # set while this is the active tunnel
+        self.slot = slot             # the key slot whose key this interface runs
+        self.keyed = keyed           # False: an interface without a key yet (no standby)
+
+    @property
+    def ifname(self) -> str:
+        return self.wg.ifname
 
     @property
     def ipv6_open(self) -> bool:
         return self.ipv6.open
+
+    def make_active(self, gate_file: GateFile | None) -> None:
+        """This tunnel now carries forwarded traffic: it probes IPv6 and owns the gate,
+        closed until proven on its server."""
+        self.gate_file = gate_file
+        self.probe.ipv6_on = True
+        self.close_ipv6()
+
+    def make_standby(self) -> None:
+        self.close_ipv6()   # the gate file is closed while it is still this tunnel's
+        self.gate_file = None
+        self.probe.ipv6_on = False
 
     def close_ipv6(self) -> None:
         """Closed until proven (a new server or key; also at start, over a stale file)."""
@@ -78,7 +98,7 @@ class Tunnel:
             await asyncio.sleep(1.0)
 
     async def try_peer(self, pubkey: str, endpoint: str, warmup: float) -> bool:
-        """Point wg0 at another server; True once traffic passes. Raises WgError if the
+        """Point the tunnel at another server; True once traffic passes. Raises WgError if the
         swap itself fails (the tunnel is unchanged then)."""
         self.close_ipv6()   # before the swap: the next server may not carry IPv6
         await self.wg.swap_peer(pubkey, endpoint)
@@ -86,7 +106,7 @@ class Tunnel:
 
     async def try_private_key(self, new: str, old: str, warmup: float,
                               fallback_warmup: float) -> tuple[bool, bool]:
-        """Run wg0 with another private key (same peer); keep it only if traffic passes,
+        """Run the tunnel with another private key (same peer); keep it only if traffic passes,
         else put `old` back. Returns (kept, healthy after putting the old one back)."""
         self.close_ipv6()
         await self.wg.set_private_key(new)

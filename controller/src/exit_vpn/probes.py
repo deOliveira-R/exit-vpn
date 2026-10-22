@@ -1,6 +1,7 @@
-"""The health probe of the exit tunnel: HTTPS, DNS and handshake checks, all bound to the
-tunnel address so they can only travel through wg0. (Not the prober container, which tests
-other servers for /v1/find: that is `prober_client`.)"""
+"""The health probe of one exit tunnel: HTTPS, DNS and handshake checks, all bound to the
+tunnel's interface (both tunnels carry the same address, so only the interface tells them
+apart) so they can only travel through it. (Not the prober container, which tests other
+servers for /v1/find: that is `prober_client`.)"""
 
 from __future__ import annotations
 
@@ -35,8 +36,18 @@ def parse_trace(text: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
 
 
-async def https_probe(url: str, source: str, timeout: float) -> tuple[bool, dict[str, str], str]:
-    transport = httpx.AsyncHTTPTransport(local_address=source, retries=0)
+# Linux's SO_BINDTODEVICE (absent from macOS's socket module, where the unit tests run)
+SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)
+
+
+def _device_opts(device: str) -> list[tuple[int, int, bytes]]:
+    return [(socket.SOL_SOCKET, SO_BINDTODEVICE, device.encode())] if device else []
+
+
+async def https_probe(url: str, source: str, timeout: float,
+                      device: str = "") -> tuple[bool, dict[str, str], str]:
+    transport = httpx.AsyncHTTPTransport(local_address=source, retries=0,
+                                         socket_options=_device_opts(device))
     try:
         async with httpx.AsyncClient(transport=transport, timeout=timeout,
                                      follow_redirects=False) as client:
@@ -61,12 +72,15 @@ def dns_answer_ok(resp: bytes, qid: int) -> bool:
     return rid == qid and flags & 0x8000 and (flags & 0x000F) == 0 and ancount > 0
 
 
-async def dns_probe(server: str, name: str, source: str, timeout: float) -> tuple[bool, str]:
+async def dns_probe(server: str, name: str, source: str, timeout: float,
+                    device: str = "") -> tuple[bool, str]:
     loop = asyncio.get_running_loop()
     qid = int.from_bytes(os.urandom(2), "big")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
     try:
+        for level, opt, value in _device_opts(device):
+            sock.setsockopt(level, opt, value)
         sock.bind((source, 0))
         await loop.sock_sendto(sock, dns_query(name, qid), (server, 53))
         resp = await asyncio.wait_for(loop.sock_recv(sock, 512), timeout)
@@ -84,21 +98,24 @@ class HealthProbe:
 
     def __init__(self, source: str, dns_server: str, urls: list[str], dns_name: str,
                  timeout: float, dns_timeout: float, handshake_max_age: float,
-                 source6: str = "", url6: str = "", timeout6: float = 10.0):
+                 source6: str = "", url6: str = "", timeout6: float = 10.0, device: str = ""):
         self.source, self.dns_server, self.urls, self.dns_name = source, dns_server, urls, dns_name
+        self.device = device   # the tunnel's interface: every probe is bound to it
         self.timeout, self.dns_timeout, self.handshake_max_age = timeout, dns_timeout, handshake_max_age
         self.source6, self.url6 = source6, url6   # IPv6 probe: bound to the tunnel's v6 address
         self.timeout6 = timeout6
+        self.ipv6_on = True   # IPv6 is probed on the active tunnel only (it carries the gate)
         self._v6: asyncio.Task | None = None
 
     async def _ipv6(self) -> tuple[bool | None, dict[str, str], str]:
         """The IPv6 probe runs across cycles: Proton's first IPv6 connection to a destination
         can stall 4-8 s, so it gets `timeout6`, while a cycle waits for it no longer than for
         its IPv4 probes. Until it finishes, cycles report no IPv6 verdict (None)."""
-        if not (self.source6 and self.url6):
+        if not (self.source6 and self.url6 and self.ipv6_on):
             return None, {}, ""
         if self._v6 is None:
-            self._v6 = asyncio.create_task(https_probe(self.url6, self.source6, self.timeout6))
+            self._v6 = asyncio.create_task(https_probe(self.url6, self.source6, self.timeout6,
+                                                       device=self.device))
         try:
             ok, trace, err = await asyncio.wait_for(asyncio.shield(self._v6), self.timeout)
         except TimeoutError:
@@ -115,8 +132,9 @@ class HealthProbe:
     async def cycle(self, latest_handshake: int, now: float | None = None) -> CycleResult:
         now = time.time() if now is None else now
         results = await asyncio.gather(
-            *(https_probe(u, self.source, self.timeout) for u in self.urls),
-            dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout),
+            *(https_probe(u, self.source, self.timeout, device=self.device) for u in self.urls),
+            dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout,
+                      device=self.device),
             self._ipv6())
         https = results[:-2]
         dns_ok, dns_err = results[-2]

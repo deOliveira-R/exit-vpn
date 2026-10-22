@@ -52,6 +52,7 @@ struct MenuContent: View {
             }
             Text("Exit IP \(st.exitIp ?? "—")" + (st.load.map { "  ·  load \($0)%" } ?? ""))
             if let v6 = StatusText.ipv6(st) { Text(v6) }
+            if let sb = StatusText.standby(st) { Text(sb) }
             Text(c.online ? st.health.label : "Offline: \(c.offlineReason ?? "controller unreachable")")
             if let p = st.profile, !p.isEmpty {
                 Text("Keeping: \(p.map(Feature.name).joined(separator: ", "))")

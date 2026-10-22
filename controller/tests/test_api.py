@@ -110,7 +110,7 @@ async def test_a_key_is_never_echoed(rig):
         assert r.status_code == 400
         r = c.get("/v1/keys")
         assert r.status_code == 200 and k not in r.text
-        assert [s["source"] for s in r.json()["slots"]] == ["bootstrap", "bootstrap"]
+        assert [s["source"] for s in r.json()["slots"]] == ["bootstrap", "bootstrap", "none"]
 
 
 # Catalog -------------------------------------------------------------------------------

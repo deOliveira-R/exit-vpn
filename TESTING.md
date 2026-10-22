@@ -47,6 +47,7 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_health.py` | logic | the health state machine: strikes, warm-up, backoff; the IPv6 gate |
 | `test_state.py` | logic | the active server and the blacklist |
 | `test_service.py` | component | the health cycle: failover, degraded, recovery, restart |
+| `test_standby.py` | component | the standby and the handover: kept ready on another server of the region, a failing active tunnel handed over in one route change, the second opinion (both failing: the uplink, no switch), owner switches made on the standby first, the standby's key |
 | `test_ipv6.py` | component | IPv6 through the exit: the IPv6 gate in health cycles, switches and key changes; status, events, warnings |
 | `test_switching.py` | component | select, rotate, exact servers, Secure Core, all-or-nothing preference changes |
 | `test_slots.py` | component | key slots: validate, try, keep or roll back, mirror |

@@ -44,8 +44,9 @@ class ExitNode:
         raise NodeError(404, f"the exit node has no slot {slot!r}")
 
     async def put_key(self, slot: str, conf: str, meta: dict) -> dict:
-        # The controller tries the key (up to ~45 s) and may roll back (~20 s more)
-        return await self._req("PUT", f"/v1/keys/{slot}", timeout=120.0,
+        # The controller tries the key (up to ~45 s) and may roll back (~20 s more); a first
+        # standby key (slot c) may try several servers (up to ~100 s)
+        return await self._req("PUT", f"/v1/keys/{slot}", timeout=180.0,
                                json={"conf": conf, "meta": meta})
 
     async def put_meta(self, slot: str, meta: dict) -> dict:

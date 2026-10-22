@@ -2,7 +2,7 @@
 (component: the real node on a fake tunnel and clock)."""
 
 from exit_vpn.health import Health
-from exit_vpn.state import ActiveServer
+from exit_vpn.state import TunnelServer
 from exit_vpn.wg import Peer
 from exit_vpn.wgconf import WgConf
 
@@ -28,7 +28,7 @@ async def test_the_configs_peer_name_replaces_a_stale_saved_name(rig):
     svc = rig.svc
     rig.wg.peer = Peer("cfgkey=", "203.0.113.9:51820", 0)
     svc.exit_conf = WgConf("10.2.0.2", "10.2.0.1", "cfgkey=", "203.0.113.9:51820", "US-CA#556")
-    svc.state.active = ActiveServer("SE-US#1", "cfgkey=", "203.0.113.9:51820", "United States", "", 5.0)
+    svc.state.active = TunnelServer("SE-US#1", "cfgkey=", "203.0.113.9:51820", "United States", "", 5.0)
     await svc.start()
     assert svc.state.active.name == "US-CA#556" and svc.state.active.since == 5.0
 

@@ -19,6 +19,15 @@
   "last_ok_age": null,
   "errors": [],
   "warnings": [],
+  "standby": {
+    "state": "ready",
+    "server": "US-NY#5",
+    "country": "United States",
+    "city": "New York",
+    "since": 1000030.0,
+    "exit_ip": "9.9.9.8",
+    "interface": "wg1"
+  },
   "prefs": {
     "regions": [
       {
@@ -51,7 +60,8 @@
     {
       "ts": 1000000.0,
       "kind": "started",
-      "server": "US-NY#723"
+      "server": "US-NY#723",
+      "standby": "US-NY#5"
     }
   ],
   "version": "dev",

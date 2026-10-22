@@ -59,7 +59,10 @@ class KeyService:
         status, cur = await self.node.status(), await self.node.key(slot)
         if not (status.get("pubkey") and status.get("endpoint")):
             raise ExitctlError("the controller reports no current server")
-        vals = await self.slot_levers(cur) | overrides
+        # A slot without a key yet (the standby's first) takes the exit key's levers: the
+        # standby replaces the exit at a handover, so it must behave the same
+        base = await self.node.key("a") if cur.get("source") == "none" and slot != "a" else cur
+        vals = await self.slot_levers(base) | overrides
         old = await self._certificate_for(cur.get("public_key") or "")
         peer = Peer(status.get("server") or "server", status["pubkey"], status["endpoint"])
         name = self.naming.name(slot)
