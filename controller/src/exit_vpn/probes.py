@@ -84,16 +84,33 @@ class HealthProbe:
 
     def __init__(self, source: str, dns_server: str, urls: list[str], dns_name: str,
                  timeout: float, dns_timeout: float, handshake_max_age: float,
-                 source6: str = "", url6: str = ""):
+                 source6: str = "", url6: str = "", timeout6: float = 10.0):
         self.source, self.dns_server, self.urls, self.dns_name = source, dns_server, urls, dns_name
         self.timeout, self.dns_timeout, self.handshake_max_age = timeout, dns_timeout, handshake_max_age
         self.source6, self.url6 = source6, url6   # IPv6 probe: bound to the tunnel's v6 address
+        self.timeout6 = timeout6
+        self._v6: asyncio.Task | None = None
 
     async def _ipv6(self) -> tuple[bool | None, dict[str, str], str]:
+        """The IPv6 probe runs across cycles: Proton's first IPv6 connection to a destination
+        can stall 4-8 s, so it gets `timeout6`, while a cycle waits for it no longer than for
+        its IPv4 probes. Until it finishes, cycles report no IPv6 verdict (None)."""
         if not (self.source6 and self.url6):
             return None, {}, ""
-        ok, trace, err = await https_probe(self.url6, self.source6, self.timeout)
+        if self._v6 is None:
+            self._v6 = asyncio.create_task(https_probe(self.url6, self.source6, self.timeout6))
+        try:
+            ok, trace, err = await asyncio.wait_for(asyncio.shield(self._v6), self.timeout)
+        except TimeoutError:
+            return None, {}, ""
+        self._v6 = None
         return ok, trace, f"ipv6: {err}" if err else ""
+
+    def reset_ipv6(self) -> None:
+        """A new server or key: a probe still running speaks for the old one, drop it."""
+        if self._v6 is not None:
+            self._v6.cancel()
+            self._v6 = None
 
     async def cycle(self, latest_handshake: int, now: float | None = None) -> CycleResult:
         now = time.time() if now is None else now

@@ -1255,6 +1255,24 @@ owner notes (`monitor/mark.sh`). The exit's side: its container log for the same
   resets all the clients' open IPv6 TCP connections, which apps prefer over IPv4.
 - The monitor's first 35 s showed both: the Mac's first IPv6 connect took 5.2 s, then the gate
   closed on a probe timeout.
+- The drops the owner sees are Claude Code sessions failing: either a retry timer (recovered) or
+  "API Error: Connection lost mid-response" (the request is lost). Claude Code's transcripts
+  record each error with a timestamp. The four overnight (2026-10-22 00:52:43, 02:27:15,
+  03:53:50, 03:54:30 UTC) fall within a second of an IPv6 gate close in the exit's log
+  (00:52:43, 02:27:14, 03:53:50, 03:54:30). `api.anthropic.com` has an AAAA record, so its
+  streams use IPv6 while the gate is open, and a close cut them mid-reply.
+
+**Conclusion and fix (node-v1.1.4)**, so the baseline was cut short:
+1. The closed gate refuses only *new* IPv6 connections (`ct state new` in `killswitch.nft`); open
+   ones carry on. On a server whose IPv6 really broke they stall and time out, as IPv4 ones do.
+2. The IPv6 probe gets its own 10 s timeout (`probe6_timeout`), longer than the 4-8 s first-
+   connection stall, and runs across health cycles (a cycle waits for it no longer than for the
+   IPv4 probes; until it finishes there is no IPv6 verdict), so IPv4 health keeps its cadence. A
+   server or key change drops a probe still running for the old one.
+3. The gate closes after three failed IPv6 probes in a row (was two).
+Acceptance: `ipv6` gains "a closing gate refuses new IPv6 connections at once but never resets
+an open one". The monitor keeps running for a week after the deploy; the measure is the same
+(Claude Code connection errors vs gate closes, the monitor's long-lived flows).
 
 **Done when:** the baseline names the causes of the drops it saw (or shows there are none
 beyond the Mac's own network), a fix is deployed, and a week of monitoring shows the drops

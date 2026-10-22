@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # IPv6 through the exit node: on a server that carries it, this Mac's IPv6 leaves via the VPN
-# (never with an address of its own network); while the tunnel is down there is no IPv6
-# egress at all, and it comes back; on a server without IPv6 it fails at once (an error, not a
+# (never with an address of its own network); a closing gate refuses new IPv6 connections but
+# never resets open ones; while the tunnel is down there is no IPv6 egress at all, and it
+# comes back; on a server without IPv6 it fails at once (an error, not a
 # stall) while IPv4 works. The active server is put back at the end. From a Mac with no other
 # VPN app connected.
 . "$(dirname "$0")/../lib.sh"
@@ -45,6 +46,26 @@ if [ -n "$s" ]; then
   bps=$(curl -6 -s -o /dev/null --max-time 30 -w '%{speed_download}' 'https://speed.cloudflare.com/__down?bytes=25000000')
   info "IPv6 throughput $(python3 -c "print(round(${bps:-0}*8/1e6,1))") Mbit/s"
 else bad "on $name (an IPv6 server) the gate stays closed: $(status | j 'd["warnings"]')"; fi
+
+# The gate closing (the controller's file removed, as on failed IPv6 probes): new IPv6
+# connections are refused at once, while one already open carries on (never reset)
+if [ "$(status | j 'd["ipv6"]')" = True ]; then
+  out=$(mktemp); on_exit "rm -f '$out'"
+  curl -6 -s -o /dev/null --limit-rate 4k --max-time 25 -w '%{size_download}' \
+    'https://speed.cloudflare.com/__down?bytes=25000000' >"$out" 2>/dev/null & flow=$!
+  sleep 4
+  on_exit "vps 'sudo docker exec $NODE touch /run/exit-vpn/ipv6'"
+  vps "sudo docker exec $NODE rm -f /run/exit-vpn/ipv6"; sleep 3
+  t0=$SECONDS; t=$(trace6 5); dt=$((SECONDS-t0))
+  [ -z "$t" ] && [ "$dt" -le 2 ] && ok "a closed gate refuses new IPv6 connections at once" \
+    || bad "with the gate closed, a new IPv6 request: '$t' after ${dt}s"
+  sleep 8
+  vps "sudo docker exec $NODE touch /run/exit-vpn/ipv6"
+  wait "$flow"; rc=$?; got=$(cat "$out")
+  if [ "$rc" = 28 ] && [ "${got:-0}" -gt 60000 ]; then
+    ok "an IPv6 connection open when the gate closed carried on ($got bytes in 25 s, never reset)"
+  else bad "the open IPv6 connection: curl exit $rc after $got bytes (want 28: still running at 25 s)"; fi
+fi
 
 # Tunnel down for 15 s (restored by the VPS itself): no IPv6 egress at all, then back
 vps "sudo docker exec -d $NODE sh -c 'ip link set wg0 down; sleep 15; ip link set wg0 up'"

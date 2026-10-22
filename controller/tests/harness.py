@@ -71,6 +71,9 @@ class FakeHealth:
                            [] if ok else ["https: timeout"], v6, "2001:db8::9" if v6 else None,
                            "" if v6 or v6 is None else "ipv6: ConnectTimeout")
 
+    def reset_ipv6(self):
+        pass
+
 
 class FakeProberClient:
     def __init__(self, keys: KeyStore, answer: dict | None = None):

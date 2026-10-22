@@ -53,8 +53,9 @@ s6-overlay services, in order (`exit/rootfs/etc/s6-overlay/s6-rc.d`):
 4. `route-keeper`, `tailscaled`, `tailscale-up`: route-keeper owns the routes via wg0. The
    kernel drops them when wg0 bounces, and route-keeper restores them. It also applies the
    **IPv6 gate** (the file `/run/exit-vpn/ipv6`, written by the controller): while it exists,
-   wg0 is in the kill switch's `ipv6_gate` set; otherwise forwarded IPv6 is refused at once
-   (TCP reset, else ICMP) and clients use IPv4. An unreachable route would not do: Tailscale
+   wg0 is in the kill switch's `ipv6_gate` set; otherwise new forwarded IPv6 connections are
+   refused at once (TCP reset, else ICMP) and clients use IPv4, while connections already open
+   carry on (a close never resets them). An unreachable route would not do: Tailscale
    clients drop its ICMP error and stall. tailscaled advertises the exit node (`0.0.0.0/0`, `::/0`).
 5. `controller`: `python -m exit_vpn`.
 
@@ -75,7 +76,7 @@ Shared between the shell scripts and Python, and tested on both sides:
 | Prefs | `prefs` | Pinned regions in order, Secure Core mode, automatic failover, required features, favourites. Immutable: `updated()` validates a change against the catalog and returns a new Prefs. |
 | State | `state` | `ActiveServer` (the peer wg0 uses, with the profile of features a pick keeps) and `Blacklist` (recently failed keys). |
 | Selection | `selection` | Pure functions that order candidates: failover, rotation, region and exact picks, Secure Core switches, find. One set of rules (eligibility, tiers, favourites, profile, load). |
-| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after two failed in a row; after a close on the same server, reopened only after 3, 6, 12, then 24 good probes in a row). |
+| Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after three failed in a row; after a close on the same server, reopened only after 3, 6, 12, then 24 good probes in a row). |
 
 **Services** (async, own the lock, get their collaborators injected):
 
@@ -91,7 +92,9 @@ Shared between the shell scripts and Python, and tested on both sides:
 **Adapters**:
 - `wg`: the `wg` CLI.
 - `probes.HealthProbe`: HTTPS, DNS and handshake checks bound to the tunnel address, and an
-  IPv6 check bound to its IPv6 address (reported apart: it never decides health).
+  IPv6 check bound to its IPv6 address (reported apart: it never decides health; it has its own,
+  longer timeout and runs across cycles, so a slow first IPv6 connection neither fails it nor
+  delays the IPv4 checks).
 - `routes.GateFile`: the IPv6 gate file route-keeper reads.
 - `prober_client`: the prober's HTTP API.
 - `auth`: whois.
@@ -118,7 +121,8 @@ Rules worth knowing:
 - **Secure Core is a mode.** Turning it on or off switches servers at once. If nothing in the new mode works, nothing changes; `PUT /v1/prefs` is all-or-nothing.
 - **The blacklist is per public key.** A failed server is avoided under all its entry IPs.
 - **IPv6 is open only while proven.** A server without IPv6 drops it silently, which stalls
-  clients; the closed gate refuses it at once instead. IPv6 never causes a failover.
+  clients; the closed gate refuses new IPv6 connections at once instead, and never resets open
+  ones. IPv6 never causes a failover.
 
 ## Prober (`prober/src/prober`)
 

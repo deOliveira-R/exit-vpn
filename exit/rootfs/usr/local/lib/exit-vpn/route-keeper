@@ -3,7 +3,8 @@
 # wg0 when the link goes down, so put them back whenever wg0 is up again; while wg0 is down,
 # the unreachable routes hold and exit traffic fails closed. Forwarded IPv6 passes only while
 # the gate file (written by the controller) exists: route-keeper then puts wg0 in nftables'
-# ipv6_gate set; otherwise the kill switch refuses it at once and clients use IPv4.
+# ipv6_gate set; otherwise the kill switch refuses new IPv6 connections at once (clients use
+# IPv4) and lets open ones carry on.
 . /usr/local/lib/exit-vpn/common.sh
 load_conf
 set +e   # a failed command is retried on the next pass, never the end of the keeper
@@ -24,7 +25,7 @@ while :; do
   if [ -n "$VPN_ADDR6" ] && [ -e "$IPV6_GATE" ]; then
     gate_open || { nft add element inet killswitch ipv6_gate "{ $WG_IF }" && log "IPv6 gate open: forwarded IPv6 via $WG_IF"; }
   elif gate_open; then
-    nft delete element inet killswitch ipv6_gate "{ $WG_IF }" && log "IPv6 gate closed: forwarded IPv6 refused"
+    nft delete element inet killswitch ipv6_gate "{ $WG_IF }" && log "IPv6 gate closed: new forwarded IPv6 refused"
   fi
   sleep 1
 done

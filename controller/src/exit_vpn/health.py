@@ -75,11 +75,11 @@ class IPv6Gate:
     failed ones in a row. A server without IPv6 drops it silently, which stalls clients; the
     closed gate refuses IPv6 at once instead, and clients use IPv4.
 
-    Damped: every close resets clients' IPv6 connections, so on a server whose IPv6 comes and
-    goes, reopening needs `reopen` good probes in a row, doubling with each further close (up
+    Damped: while closed, clients' new IPv6 connections are refused, so on a server whose IPv6
+    comes and goes, reopening needs `reopen` good probes in a row, doubling with each further close (up
     to `reopen_max`). A new server or key starts afresh."""
 
-    def __init__(self, failures: int = 2, reopen: int = 3, reopen_max: int = 24):
+    def __init__(self, failures: int = 3, reopen: int = 3, reopen_max: int = 24):
         self.failures_needed, self.reopen, self.reopen_max = failures, reopen, reopen_max
         self.open = False
         self.failures = self.successes = 0

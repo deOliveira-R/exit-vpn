@@ -64,7 +64,8 @@ async def amain() -> None:
     # IPv6 is probed only where init-wg gave wg0 an IPv6 address (the same config and switch)
     probe = HealthProbe(conf.address, conf.dns, s.probe_urls, s.dns_probe_name,
                         s.probe_timeout, s.dns_timeout, s.handshake_max_age,
-                        source6=conf.address6 if s.ipv6 else "", url6=s.probe6_url)
+                        source6=conf.address6 if s.ipv6 else "", url6=s.probe6_url,
+                        timeout6=s.probe6_timeout)
     underlay: list[str] = []
     node = build(s, exit_conf=conf, wg=WireGuard(s.wg_if), probe=probe, catalog=catalog,
                  keys=keys, prober=ProberClient(s.prober_url) if s.prober_url else None,

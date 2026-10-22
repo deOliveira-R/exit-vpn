@@ -114,7 +114,8 @@ formats between them (samples checked by both sides' tests).
 - IPv6 in the exit: never put an IPv6 address on wg0 (it becomes the source of every unbound
   socket, and rule 110 pulls them into the tunnel); IPv6 routes need `metric 1` to beat the
   unreachable routes (default metric 1024 > 1000); Tailscale clients drop ICMPv6 errors from
-  the exit, so refuse with a TCP reset. Proton servers without the IPv6 flag drop IPv6 silently.
+  the exit, so refuse with a TCP reset, and only new connections (`ct state new`): rejecting
+  every packet resets clients' open streams, e.g. Claude Code's API responses mid-reply. Proton servers without the IPv6 flag drop IPv6 silently.
 - s6-overlay needs `/run` tmpfs with `exec`; `fwd` is an nft keyword; the kernel deletes
   table-100 routes when wg0 goes down (route-keeper restores them); tailscaled warns about
   `src_valid_mark` (read-only /proc/sys; compose sets it — cosmetic).

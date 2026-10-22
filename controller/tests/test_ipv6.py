@@ -44,7 +44,8 @@ async def test_ipv6_failing_closes_the_gate_but_never_fails_over(rig):
     assert gate(rig)
     rig.wg.no_ipv6.add(rig.start.pubkey)
     await rig.svc.step()
-    assert gate(rig), "one failed probe is not enough"
+    await rig.svc.step()
+    assert gate(rig), "two failed probes are not enough"
     await rig.svc.step()
     assert not gate(rig) and not rig.wg.swaps and rig.svc.health == Health.HEALTHY
 
@@ -124,7 +125,8 @@ async def test_a_flagged_server_whose_ipv6_fails_gets_a_warning(rig, monkeypatch
     rig.wg.no_ipv6.add(rig.start.pubkey)
     await rig.svc.start()
     await rig.svc.step()
-    assert not any("IPv6" in w for w in rig.svc.snapshot()["warnings"]), "not after one probe"
+    await rig.svc.step()
+    assert not any("IPv6" in w for w in rig.svc.snapshot()["warnings"]), "not after two probes"
     await rig.svc.step()
     assert any("IPv6 fails on this server" in w for w in rig.svc.snapshot()["warnings"])
 

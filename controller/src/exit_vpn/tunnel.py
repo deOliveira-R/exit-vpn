@@ -38,6 +38,7 @@ class Tunnel:
     def close_ipv6(self) -> None:
         """Closed until proven (a new server or key; also at start, over a stale file)."""
         self.ipv6.close()
+        self.probe.reset_ipv6()
         if self.gate_file:
             self.gate_file.set(False)
 

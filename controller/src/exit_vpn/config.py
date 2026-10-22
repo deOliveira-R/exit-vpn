@@ -61,6 +61,7 @@ class Settings:
     # the gate file tells route-keeper (common.sh's IPV6_GATE) to let forwarded IPv6 through.
     ipv6: bool = True
     probe6_url: str = "https://www.cloudflare.com/cdn-cgi/trace"
+    probe6_timeout: float = 10.0   # longer than Proton's first-IPv6-connection stalls (4-8 s)
     ipv6_gate_file: Path = Path("/run/exit-vpn/ipv6")
 
     @property

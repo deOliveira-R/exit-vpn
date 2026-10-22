@@ -1,6 +1,7 @@
 """Our side of system interfaces: `wg` output, WireGuard configs, the DNS and trace probes,
 Tailscale whois (boundary)."""
 
+import asyncio
 import struct
 
 from exit_vpn.auth import decide
@@ -118,6 +119,56 @@ async def test_without_an_ipv6_address_there_is_no_ipv6_probe(monkeypatch):
     monkeypatch.setattr(probes, "dns_probe", dns)
     r = await _probe("").cycle(1000, now=1001)
     assert r.ipv6_ok is None and calls == ["10.2.0.2"]
+
+
+async def test_a_slow_ipv6_probe_spans_cycles_and_never_holds_up_the_ipv4_checks(monkeypatch):
+    release = asyncio.Event()
+    timeouts = {}
+
+    async def https(url, source, timeout):
+        timeouts[source] = timeout
+        if ":" in source:
+            await release.wait()   # Proton's first IPv6 connection stalling
+            return True, {"ip": "2001:db8::1"}, ""
+        return True, {"ip": "198.51.100.1"}, ""
+
+    async def dns(*a):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    p = HealthProbe("10.2.0.2", "10.2.0.1", ["https://v4/"], "n", 0.05, 1, 180,
+                    source6="2a07:b944::2:2", url6="https://v6/", timeout6=10)
+    r = await p.cycle(1000, now=1001)
+    assert r.ok and r.ipv6_ok is None, "no IPv6 verdict yet, and IPv4 health is not held up"
+    assert timeouts == {"10.2.0.2": 0.05, "2a07:b944::2:2": 10}
+    release.set()
+    r = await p.cycle(1000, now=1002)
+    assert r.ipv6_ok is True and r.exit_ip6 == "2001:db8::1", "the same probe's verdict, later"
+
+
+async def test_a_new_server_drops_an_ipv6_probe_still_running_for_the_old_one(monkeypatch):
+    started = []
+
+    async def https(url, source, timeout):
+        if ":" in source:
+            started.append(source)
+            await asyncio.sleep(3600)
+        return True, {}, ""
+
+    async def dns(*a):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    p = HealthProbe("10.2.0.2", "10.2.0.1", ["https://v4/"], "n", 0.01, 1, 180,
+                    source6="2a07:b944::2:2", url6="https://v6/")
+    await p.cycle(1000, now=1001)
+    old = p._v6
+    p.reset_ipv6()
+    await asyncio.sleep(0)
+    assert old.cancelled()
+    await p.cycle(1000, now=1002)
+    assert len(started) == 2, "a fresh probe for the new server"
+    p.reset_ipv6()
 
 
 def test_the_ipv6_gate_file_exists_only_while_open(tmp_path):

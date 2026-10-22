@@ -60,12 +60,12 @@ def test_the_ipv6_gate_starts_closed_and_opens_on_one_good_probe():
     assert not g.feed(True), "no change, nothing to report"
 
 
-def test_the_ipv6_gate_closes_after_two_failed_probes_in_a_row_not_one():
+def test_the_ipv6_gate_closes_after_three_failed_probes_in_a_row_not_fewer():
     g = IPv6Gate()
     g.feed(True)
-    assert not g.feed(False) and g.open
+    assert not g.feed(False) and not g.feed(False) and g.open
     g.feed(True)
-    assert not g.feed(False) and g.open, "a success in between resets the count"
+    assert not g.feed(False) and not g.feed(False) and g.open, "a success in between resets the count"
     assert g.feed(False) and not g.open
 
 
@@ -81,6 +81,7 @@ def test_after_closing_on_a_server_the_ipv6_gate_reopens_only_after_three_good_p
     g = IPv6Gate()
     g.feed(True)
     g.feed(False)
+    g.feed(False)
     assert g.feed(False) and not g.open
     assert not g.feed(True) and not g.feed(True), "two are not enough"
     assert g.feed(True) and g.open
@@ -91,8 +92,8 @@ def test_each_further_close_on_a_server_doubles_the_good_probes_needed_up_to_a_c
     needed = []
     g.feed(True)
     for _ in range(6):
-        g.feed(False)
-        g.feed(False)
+        for _ in range(3):
+            g.feed(False)
         n = 0
         while not g.feed(True):
             n += 1

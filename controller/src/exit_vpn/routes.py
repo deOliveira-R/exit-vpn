@@ -1,5 +1,6 @@
 """The IPv6 gate file, shared with the exit's `route-keeper` (common.sh's `IPV6_GATE`): while
-it exists, forwarded IPv6 passes the kill switch to wg0; otherwise it is refused at once. The
+it exists, forwarded IPv6 passes the kill switch to wg0; otherwise new IPv6 connections are refused at
+once (open ones carry on). The
 file holds nothing; its presence is the signal."""
 
 from __future__ import annotations
