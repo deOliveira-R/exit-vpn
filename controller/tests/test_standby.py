@@ -64,6 +64,8 @@ async def test_a_standby_key_that_carries_nothing_is_suspected_and_blacklists_no
     assert st["standby"]["state"] == "key_suspect"
     assert any("standby key (slot c)" in w for w in st["warnings"])
     assert not two.svc.state.blacklist.active(two.clock())
+    failed = [e for e in two.node.events.recent() if e.get("state") == "candidate_failed"]
+    assert failed and all(e["errors"] for e in failed), "each server's failure says why"
     await two.svc.standby_step()
     assert st["standby"]["state"] == "key_suspect", "it stops searching"
 

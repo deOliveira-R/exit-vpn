@@ -73,7 +73,7 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `key_replaced` | `slot`, `reason`, `seconds` |
 | `prefs` | `by`, `prefs` |
 | `recovered` | `server` |
-| `standby` | `state` (`ready`, `lost`, `moving`, `none_found`, `key_suspect`), `server`; `reason`, `exit_ip`, `tried` as they apply |
+| `standby` | `state` (`ready`, `lost`, `moving`, `candidate_failed`, `none_found`, `key_suspect`), `server`; `reason`, `exit_ip`, `tried`, `errors` (a candidate's last health cycle) as they apply |
 | `started` | `server`, `standby` |
 | `swap_error` | `server`, `error` |
 | `switch_reverted` | `server`, `reason` |

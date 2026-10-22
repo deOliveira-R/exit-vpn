@@ -90,7 +90,10 @@ formats between them (samples checked by both sides' tests).
 - Release: bump nothing by hand; commit, then `git tag -a vX.Y.Z -m … && git push origin vX.Y.Z`.
   `release.yml` builds, signs, publishes; installed apps update via Check for Updates. CI:
   `ci.yml` on pushes to main and PRs (`gh run list`).
-- App: `mac/ExitControl` (SwiftPM core + XcodeGen app; `swift test`, `./build-app.sh`; see its README). `open exitvpn://servers|find|settings/<tab>`
+- App: `mac/ExitControl` (SwiftPM core + XcodeGen app; `swift test`, `./build-app.sh`; see its README).
+  Update the installed app without its UI: `mac/ExitControl/update-app.sh` (Bash sandbox off).
+  Before an action that cuts the exit's traffic (a node rollout), `open 'exitvpn://direct?minutes=10'`;
+  after it, `open exitvpn://exitnode`. `open exitvpn://servers|find|settings/<tab>`
   opens windows; `open --env EXITCONTROL_DEBUG=1 --stderr <log> build/app.noindex/ExitControl.app` logs actions and updates. exitctl for
   the app: `uv tool install --force --reinstall --python <Homebrew python3.13> ./helper` (uv's standalone
   Python aborts on libssl; `--reinstall`, else uv reuses a cached build of the same version).

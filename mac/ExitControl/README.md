@@ -9,7 +9,10 @@ python-proton-core (GPLv3).
 
 Download `ExitControl-<version>.zip` from the latest GitHub Release, unzip, move
 `ExitControl.app` to Applications, then right-click → Open once (signed, not notarized).
-Updates: menu → Check for Updates… (Sparkle; automatic checks are on by default).
+Updates: menu → Check for Updates… (Sparkle; automatic checks are on by default). From a
+terminal: `./update-app.sh [version]` (default: the latest release) makes Sparkle's checks
+(the zip's EdDSA signature, the code signature against the installed app's designated
+requirement), then quits, replaces and relaunches the app in `~/Applications`.
 
 ## Release
 

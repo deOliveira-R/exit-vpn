@@ -388,6 +388,9 @@ class ExitService:
                     self.events.publish("standby", state="ready", server=srv.name,
                                         exit_ip=self.standby.last.exit_ip if self.standby.last else None)
                     return
+                last = self.standby.last
+                self.events.publish("standby", state="candidate_failed", server=srv.name,
+                                    errors=last.errors if last else [])
                 self.standby_avoid.add(srv.pubkey, self.clock() + self.s.standby_blacklist_ttl)
                 self.standby_misses += 1
                 if self.standby_misses >= self.s.standby_key_suspect:

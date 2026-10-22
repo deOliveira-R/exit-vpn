@@ -130,7 +130,10 @@
     "server": "US-NY#5",
     "reason": "health checks failed: https: timeout",
     "exit_ip": "9.9.9.8",
-    "tried": 5
+    "tried": 5,
+    "errors": [
+      "https: timeout"
+    ]
   },
   "started": {
     "ts": 1000000.0,
