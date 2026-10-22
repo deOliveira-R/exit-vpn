@@ -1310,53 +1310,61 @@ that a server degrades only once it fails. No handover can save connections alre
 exit's public IP changes), so the aim is: switch rarely, switch to a connection already proven,
 switch in under a second, and switch before failing where possible.
 
-**Design (owner's sequence, 2026-10-22):** a proactive, measured rotation of two tunnels.
-- **Two tunnels, two roles, both always measured.** The exit holds `wg0` and `wg1` on keys of
-  slots a and c. Roles, not interfaces, are *active* (carries forwarded traffic) and *standby*.
-  - The active one is measured to decide whether to leave it: outright failure → immediate
-    handover; sustained degradation → planned handover.
-  - The standby is measured to stay ready: when its own quality drops it moves to another
-    server by itself, so a handover always lands on a proven connection.
-- **Handover = swap roles.** Table 100's default (and the kill switch's allowed interface,
-  masquerade) move to the standby's interface, in well under a second. The former active
-  becomes the standby and looks for a better server. Keys stay with their interfaces.
-- **The standby stays in the chosen region** (prefs: country/city and required features), so a
-  handover never moves the exit somewhere the owner did not pick.
-- **Second opinion.** Before a failover, the standby is asked whether the internet is reachable:
-  if it fails too, the fault is the uplink or the test site, and switching would end every open
-  connection for nothing, so the exit stays.
-- **Quality, measured live (no long-term history: past quality biases choice, D4 below).** On
-  both tunnels the same small probes, over a sliding window of a few minutes:
-  round-trip time and loss (a frequent, cheap probe through the tunnel, e.g. to the in-tunnel
-  resolver), HTTPS time to first byte, DNS time, jitter. One score per tunnel.
-- **Planned handover needs a margin and a quiet moment.** Each handover still ends every open
-  connection, so: only for real degradation (loss, stalls), never for slightly higher latency;
-  the standby must be clearly better for a sustained window (hysteresis); and the exit waits for
-  a moment with no active forwarded flows (conntrack, tailscale0 counters), e.g. between Claude
-  Code replies, up to a limit; then it switches anyway.
-- **Scouting by the prober (third connection, key b).** The prober already attaches to arbitrary
-  servers; while Find does not need it, it measures candidate servers in the region and reports
-  the best, and the standby moves there. Find always takes precedence. This gives the benefit of a
-  three-way rotation (scout, standby, active) with one standby kept ready: three Proton
-  connections in all, which the owner's plan allows (the exit node is the owner's only Proton
-  client).
+**Design (owner's sequence, 2026-10-22):** a proactive, measured rotation over three
+connections: *active* (carries forwarded traffic), *standby* (kept ready for a handover) and
+*find* (the prober, key b: unused most of the time; it searches for a server that unblocks a site,
+or for a good server for the standby).
+- **Both exit tunnels always measured.** The exit holds `wg0` and `wg1` on keys of slots a and c;
+  roles, not interfaces, are active and standby. Keys stay with their interfaces.
+- **Quality states: Healthy, Degraded, Critical** (Critical includes a total drop), from live
+  measurement only: round-trip time and loss (a frequent, cheap probe through each tunnel),
+  HTTPS time to first byte, DNS time, jitter, over a sliding window of a few minutes. No server
+  history: past quality would bias the choice against servers that improved.
+- **The roles differ in tolerance:**
+
+  | | Healthy | Degraded | Critical |
+  |---|---|---|---|
+  | active | stay | hand over at a quiet moment | hand over immediately |
+  | standby | stay ready | find searches; the standby moves when a good server is found | standby and find both search; the first good server becomes the standby |
+
+  - A handover goes only to a Healthy standby (a degraded one for a degraded active only ends
+    connections). Active Critical while the standby is not ready: the current failover (try
+    servers on the active tunnel itself).
+  - Second opinion: if the standby fails at the same moment as the active, the fault is the
+    uplink or the test site; the exit stays.
+  - A quiet moment: no active forwarded flows (conntrack, tailscale0 counters), e.g. between
+    Claude Code replies; after a limit the handover happens anyway.
+  - The standby stays in the chosen region (prefs: country/city, required features), so a
+    handover never moves the exit somewhere the owner did not pick.
+- **Handover = one atomic operation.** Everything else is in place beforehand: the kill switch
+  and NAT allow both tunnel interfaces (a set), each tunnel has its own probe routing. The
+  switch itself is `ip route replace default dev <standby> table 100`: one netlink message,
+  packets before it use the old tunnel, after it the new one. Then the roles swap, and the
+  former active, now standby, looks for a better server.
+  - Both tunnels carry the same in-tunnel address (Proton gives every config `10.2.0.2`), so
+    each tunnel's probes bind to its interface, not to the address.
+  - Connections open at the handover would stall (their packets now leave with a different
+    public IP, which the far end ignores) until apps time out ("The response stopped
+    arriving"). Right after the swap the exit ends them with a reset (conntrack entries of the
+    old tunnel removed, their next packets refused), so apps reconnect at once.
 - **IPv6 later, as a measured attribute.** Off for now (Phase M). Per-server IPv6 quality can
-  join the score later, at the cost of more frequent rotation; its benefit to the owner is small.
+  join the states later, at the cost of more frequent rotation; its benefit to the owner is small.
 
 **Steps** (each deployable and measured with `monitor/` against the Phase M baseline):
-- Q-1 Standby tunnel: slot c key (`exitctl proton rotate --slot c`), `wg1`, routing, kill switch
-  and NAT for two interfaces; the standby kept warm and health-checked; failover = role swap;
-  the second opinion. Events and status gain the standby (`standby`, `handover`).
-- Q-2 Quality measurement on both tunnels; score in status and the app.
-- Q-3 Standby self-rotation on poor quality; prober scouting.
-- Q-4 Planned handover: margin, sustained window, quiet moment.
+- Q-1 Standby tunnel: slot c key (`exitctl proton rotate --slot c`), `wg1`, the interface set in
+  the kill switch and NAT, per-tunnel probes; the standby kept warm and health-checked; failover
+  = atomic role swap with the reset of old connections; the second opinion. Events and status
+  gain the standby (`standby`, `handover`).
+- Q-2 Quality measurement on both tunnels; states in status and the app; measure many servers
+  to calibrate what Healthy, Degraded and Critical mean.
+- Q-3 Standby rules: moves on Degraded (with find), both search on Critical.
+- Q-4 Active rules: handover on Critical at once, on Degraded at a quiet moment.
 - Later, experiment only: both tunnels active at once, flows split per destination (a failure
   ends half the connections; sites may see two exit IPs).
 
-**Decisions to confirm:** D1 the prober scouts when idle (vs. a fourth connection);
-D2 maximum wait for a quiet moment before a planned handover; D3 thresholds for "clearly
-better" and the window (from the Phase M week's data); D4 only recent quality counts (a server
-that flapped within the blacklist TTL stays excluded; otherwise no memory).
+**Decided (owner, 2026-10-22):** three connections (active, standby, find); find serves both
+the standby's search and unblocking; no server history; tolerances calibrated from Q-2's
+measurements. **Open:** the maximum wait for a quiet moment.
 
 **Done when:** a killed active tunnel hands over in under a second with traffic flowing on the
 standby (acceptance), the uplink-down case causes no switch, a degraded active is left for the
