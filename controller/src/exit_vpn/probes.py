@@ -8,11 +8,13 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import ssl
 import struct
 import time
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
-import httpx
+import certifi
 
 
 @dataclass
@@ -44,19 +46,70 @@ def _device_opts(device: str) -> list[tuple[int, int, bytes]]:
     return [(socket.SOL_SOCKET, SO_BINDTODEVICE, device.encode())] if device else []
 
 
+_TLS = ssl.create_default_context(cafile=certifi.where())
+MAX_RESPONSE = 64 * 1024
+
+
+def bound_socket(source: str, device: str) -> socket.socket:
+    """A TCP socket that can only leave through `device`, from `source`. The device is set
+    before bind and connect: set after (as httpx's `socket_options` are), the SYN is routed
+    by the source rule into the active tunnel, and the standby's probes broke mid-connection."""
+    sock = socket.socket(socket.AF_INET6 if ":" in source else socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setblocking(False)
+        for level, opt, value in _device_opts(device):
+            sock.setsockopt(level, opt, value)
+        sock.bind((source, 0))
+    except OSError:
+        sock.close()
+        raise
+    return sock
+
+
+def parse_response(raw: bytes) -> tuple[int, str]:
+    """An HTTP/1.0 response: (status code, body)."""
+    head, _, body = raw.partition(b"\r\n\r\n")
+    status = head.split(b"\r\n", 1)[0].split()
+    if len(status) < 2 or not status[0].startswith(b"HTTP/"):
+        raise ValueError("not an HTTP response")
+    return int(status[1]), body.decode(errors="replace")
+
+
 async def https_probe(url: str, source: str, timeout: float,
                       device: str = "") -> tuple[bool, dict[str, str], str]:
-    transport = httpx.AsyncHTTPTransport(local_address=source, retries=0,
-                                         socket_options=_device_opts(device))
+    """GET `url` through `device` (HTTP/1.0: one plain response, no redirects)."""
+    u = urlsplit(url)
+    host, port = u.hostname or "", u.port or 443
+    loop = asyncio.get_running_loop()
+    writer = None
     try:
-        async with httpx.AsyncClient(transport=transport, timeout=timeout,
-                                     follow_redirects=False) as client:
-            r = await client.get(url)
-        if r.status_code >= 400:
-            return False, {}, f"{url}: HTTP {r.status_code}"
-        return True, parse_trace(r.text) if "trace" in url else {}, ""
-    except (httpx.HTTPError, OSError) as e:
-        return False, {}, f"{url}: {type(e).__name__}"
+        async with asyncio.timeout(timeout):
+            sock = bound_socket(source, device)
+            try:
+                addrs = await loop.getaddrinfo(host, port, family=sock.family,
+                                               type=socket.SOCK_STREAM)
+                await loop.sock_connect(sock, addrs[0][4])
+            except BaseException:
+                sock.close()
+                raise
+            reader, writer = await asyncio.open_connection(
+                sock=sock, ssl=_TLS, server_hostname=host if _TLS else None)
+            writer.write(f"GET {u.path or '/'}{'?' + u.query if u.query else ''} HTTP/1.0\r\n"
+                         f"Host: {host}\r\nUser-Agent: exit-vpn\r\n\r\n".encode())
+            raw = b""
+            while len(raw) < MAX_RESPONSE and (chunk := await reader.read(MAX_RESPONSE)):
+                raw += chunk
+        code, body = parse_response(raw)
+        if code >= 400:
+            return False, {}, f"{url}: HTTP {code}"
+        return True, parse_trace(body) if "trace" in url else {}, ""
+    except TimeoutError:
+        return False, {}, f"{url}: timeout"
+    except (OSError, ValueError) as e:   # ssl.SSLError is an OSError
+        return False, {}, f"{url}: {type(e).__name__}: {e}"
+    finally:
+        if writer is not None:
+            writer.close()
 
 
 def dns_query(name: str, qid: int) -> bytes:

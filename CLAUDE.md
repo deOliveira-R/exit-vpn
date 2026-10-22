@@ -111,7 +111,9 @@ formats between them (samples checked by both sides' tests).
 ## Gotchas learned
 
 - Two exit tunnels share one address (Proton gives every config `10.2.0.2`): tell them apart
-  by interface (SO_BINDTODEVICE, `oif` rules, tables 102/103), never by address. Table 100
+  by interface (SO_BINDTODEVICE, `oif` rules, tables 102/103), never by address. Bind the device
+  *before* connect: httpx applies `socket_options` after it, so the SYN followed rule 110 into the
+  active tunnel and every standby probe failed (the probes use their own sockets). Table 100
   follows the active one; a single-tunnel kill-switch test must take both down, else the
   controller rightly hands over.
 - Proton completes WireGuard handshakes even for unregistered keys; only traffic proves

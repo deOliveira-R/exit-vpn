@@ -2,6 +2,7 @@
 Tailscale whois (boundary)."""
 
 import asyncio
+import socket
 import struct
 
 from exit_vpn.auth import decide
@@ -178,3 +179,55 @@ def test_the_ipv6_gate_file_exists_only_while_open(tmp_path):
     f.set(False)
     assert not f.is_set()
     f.set(False)   # closing twice is fine
+
+
+# The HTTPS probe -----------------------------------------------------------------------
+def test_the_https_probe_socket_is_bound_to_the_tunnel_before_it_connects(monkeypatch):
+    """Bound after the connect, the SYN follows the source rule into the active tunnel: the
+    standby's probes failed on every server."""
+    seen = []
+
+    class Recording(socket.socket):
+        def setsockopt(self, level, opt, value):
+            seen.append(("device", value, self.getsockname()[1]))   # port 0: not yet bound
+
+    monkeypatch.setattr(probes.socket, "socket", Recording)
+    s = probes.bound_socket("127.0.0.1", "wg1")
+    try:
+        assert seen == [("device", b"wg1", 0)] and s.getsockname()[0] == "127.0.0.1"
+    finally:
+        s.close()
+
+
+async def serve(reply: bytes):
+    """A local server answering one fixed response; returns (server, port, requests)."""
+    requests = []
+
+    async def handle(r, w):
+        requests.append(await r.readuntil(b"\r\n\r\n"))
+        w.write(reply)
+        await w.drain()
+        w.close()
+    srv = await asyncio.start_server(handle, "127.0.0.1", 0)
+    return srv, srv.sockets[0].getsockname()[1], requests
+
+
+async def test_the_https_probe_reads_the_trace(monkeypatch):
+    monkeypatch.setattr(probes, "_TLS", None)   # plain TCP stands in for TLS here
+    srv, port, requests = await serve(b"HTTP/1.1 200 OK\r\nServer: x\r\n\r\nip=9.9.9.9\nloc=CH\n")
+    async with srv:
+        ok, trace, err = await probes.https_probe(f"https://localhost:{port}/cdn-cgi/trace",
+                                                  "127.0.0.1", 2)
+    assert ok and trace["ip"] == "9.9.9.9" and trace["loc"] == "CH" and not err
+    assert requests[0].startswith(b"GET /cdn-cgi/trace HTTP/1.0\r\nHost: localhost\r\n")
+
+
+async def test_the_https_probe_fails_on_an_error_status_or_no_server(monkeypatch):
+    monkeypatch.setattr(probes, "_TLS", None)
+    srv, port, _ = await serve(b"HTTP/1.1 503 Service Unavailable\r\n\r\n")
+    async with srv:
+        ok, _, err = await probes.https_probe(f"https://localhost:{port}/generate_204",
+                                              "127.0.0.1", 2)
+    assert not ok and "HTTP 503" in err
+    ok, _, err = await probes.https_probe(f"https://localhost:{port}/", "127.0.0.1", 2)
+    assert not ok and "ConnectionRefusedError" in err
