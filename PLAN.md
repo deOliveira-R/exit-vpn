@@ -1274,6 +1274,17 @@ Acceptance: `ipv6` gains "a closing gate refuses new IPv6 connections at once bu
 an open one". The monitor keeps running for a week after the deploy; the measure is the same
 (Claude Code connection errors vs gate closes, the monitor's long-lived flows).
 
+Deployed 2026-10-22 04:24 UTC (node-v1.1.4). Acceptance: `ipv6` 8/8 (new: a closed gate
+refuses a new IPv6 connection at once while an open one carries on, 100 KB in 25 s, never
+reset), `egress` 9/9, VPS `tunnel` 14/14. Seen meanwhile: Proton's IPv6 connection setup
+stalls intermittently, not only on a destination's first connection, and it varies by server
+and time. On US-CA#96 (04:18-04:22 UTC) 10 of the Mac's 15 fresh IPv6 requests took 1-7 s to
+connect (SYN retransmits); right after, on US-CA#152, 0 of 16 from the Mac and 2 of 16 from the
+exit itself, IPv4 never. Clients' Happy Eyeballs falls back to IPv4 within ~250 ms, and the 10 s
+probe no longer closes the gate on it. Still the last Claude Code error before the deploy (04:21:14 UTC,
+"The response stopped arriving", gate open since 04:20:47) is not a gate close: watch for
+mid-stream stalls on IPv6 during the week (the monitor's IPv6 flow).
+
 **Done when:** the baseline names the causes of the drops it saw (or shows there are none
 beyond the Mac's own network), a fix is deployed, and a week of monitoring shows the drops
 attributed to the exit gone or rare; results recorded here.

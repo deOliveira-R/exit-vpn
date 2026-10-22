@@ -8,7 +8,7 @@ VPS. **`PLAN.md` is the master document**: design decisions (D1–D19), phases, 
 ## Status (2026-10-21)
 
 Phases 0–5d (incl. 3b, 3b.2, 5a, 5b), R (architecture pass), D (published node images; the VPS runs
-node-v1.1.3 from GHCR), RT (tests by concept) and V6 (IPv6 through the exit, behind the IPv6 gate)
+node-v1.1.4 from GHCR), RT (tests by concept) and V6 (IPv6 through the exit, behind the IPv6 gate)
 done and deployed; all acceptance suites green. The exit runs on a
 live catalog pushed from Proton's API (`exitctl proton servers --push`; the app's launchd agent
 `org.exit-vpn.catalog-push` refreshes it hourly). ExitControl is installed in `~/Applications` from GitHub Releases and updates itself (Sparkle). Remaining: **6–7** (residential app connectors). Open improvement: issue #1 (Lightpanda as a lighter
