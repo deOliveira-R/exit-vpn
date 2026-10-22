@@ -135,6 +135,27 @@ async def test_a_failing_active_is_never_handed_to_a_standby_that_no_longer_fits
     assert "failover_done" in two.kinds()
 
 
+async def test_when_the_uplink_comes_back_the_active_tunnel_is_kept(two):
+    """The standby may pass a moment before the active tunnel handshakes again: that is the
+    uplink returning, not the active server failing, so its connections are kept."""
+    await ready(two)
+    two.world.uplink_down = True
+    await strikes(two)
+    assert "uplink_suspect" in two.kinds()
+    two.world.uplink_down = False
+    works, misses = two.wg.works, [1]
+
+    def slow_handshake():   # the active tunnel's first check after the outage still fails
+        if misses:
+            misses.pop()
+            return False
+        return works()
+    two.wg.works = slow_handshake
+    await two.svc.step()
+    assert not two.route.sets, "no handover"
+    assert two.svc.health == Health.HEALTHY and "recovered" in two.kinds()
+
+
 async def test_after_the_uplink_hold_the_exit_fails_over_after_all(two):
     await ready(two)
     two.world.uplink_down = True

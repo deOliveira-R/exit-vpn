@@ -25,9 +25,33 @@ st=$(status); from=$(echo "$st" | j 'd["server"]'); ep=$(echo "$st" | j 'd["endp
 to_want=$(echo "$st" | j 'd["standby"]["server"]'); ip_before=$(egress_ip 3)
 info "active $from, standby $to_want"
 out=$(mktemp); log=$(mktemp); on_exit "rm -f '$out' '$log'"
-# A connection open across the handover: a slow download that would run for minutes
-( curl -s -o /dev/null --limit-rate 2k --max-time 120 -w '%{size_download}' \
-    'https://speed.cloudflare.com/__down?bytes=25000000' >"$out" 2>/dev/null; echo " $? $(now)" >>"$out" ) &
+# A connection open across the handover, read the way a streamed reply is: slowly, with a
+# small receive buffer, so a reset shows within a second (curl --limit-rate buffers hundreds
+# of KB and noticed it only after reading them, minutes later). Prints "bytes outcome time".
+python3 - >"$out" 2>/dev/null <<'PY' &
+import socket, ssl, time
+host = "speed.cloudflare.com"
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+s.settimeout(120)
+s.connect((host, 443))
+s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+s.sendall(f"GET /__down?bytes=25000000 HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+got, end, outcome = 0, time.time() + 120, "running"
+try:
+    while time.time() < end:
+        b = s.recv(512)
+        if not b:
+            outcome = "eof"
+            break
+        got += len(b)
+        time.sleep(0.25)
+except ConnectionResetError:
+    outcome = "reset"
+except (OSError, ssl.SSLError) as e:
+    outcome = type(e).__name__
+print(got, outcome, time.time())
+PY
 flow=$!
 sleep 5
 sample_start "$log"
@@ -49,10 +73,10 @@ first_new=$(awk -v old="$ip_before" '$2 != "" && $2 != old {print $1; exit}' "$l
 [ -n "$first_new" ] && ok "traffic flows via the standby's VPN IP ($(awk -v old="$ip_before" '$2 != "" && $2 != old {print $2; exit}' "$log"))" \
   || bad "no traffic via a new VPN IP after the handover"
 wait "$flow"
-read -r got rc ended <<<"$(cat "$out")"
-if [ -n "$ho" ] && [ "$rc" != 0 ] && [ "$rc" != 28 ] && python3 -c "import sys; sys.exit(0 if $ended - $ho < 8 else 1)"; then
-  ok "a connection open across the handover was ended at once (curl exit $rc, $(python3 -c "print(round($ended-$ho,1))") s after it), not left to stall"
-else bad "the open connection: curl exit $rc, ended $( [ -n "$ho" ] && python3 -c "print(round($ended-$ho,1))") s after the handover (want a reset within 8 s)"; fi
+read -r got outcome ended <<<"$(cat "$out")"
+if [ -n "$ho" ] && [ "$outcome" = reset ] && python3 -c "import sys; sys.exit(0 if $ended - $ho < 8 else 1)"; then
+  ok "a connection open across the handover was reset at once ($(python3 -c "print(round($ended-$ho,1))") s after it, $got bytes read), not left to stall"
+else bad "the open connection: $outcome after $got bytes, $( [ -n "$ho" ] && [ -n "$ended" ] && python3 -c "print(round($ended-$ho,1))") s after the handover (want a reset within 8 s)"; fi
 clear_drops handover
 if wait_ready 90; then
   nsb=$(sb_field server)

@@ -72,6 +72,9 @@ log = logging.getLogger("exit_vpn")
 MAX_SWITCH_TRIES = 5
 # How long a handover waits for the standby's current health check to finish
 STANDBY_WAIT = 10.0
+# After a suspected uplink outage: how long the active tunnel may take to work again (a
+# WireGuard handshake retries every 5 s) before the standby, back first, takes over
+UPLINK_RECHECK = 10.0
 # The controller API's version (contracts/controller/): raised when a change would break the
 # app; additions that clients may ignore keep it.
 API_VERSION = 1
@@ -291,6 +294,14 @@ class ExitService:
             res = await self.standby.check()
             now = self.clock()
             self.standby.tracker.feed(res.ok, now)
+            if res.ok and self.uplink_since is not None:
+                # Both failed until now: the uplink is probably back, and the active tunnel
+                # only slower to handshake again. It gets a short wait before its clients'
+                # connections are given up for nothing.
+                self.uplink_since = None
+                if await self.tunnel.healthy_within(UPLINK_RECHECK):
+                    self.events.publish("recovered", server=self._name())
+                    return True
             if res.ok:
                 return await self._handover(reason, failed=True)
             if self.uplink_since is None:
