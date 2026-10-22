@@ -7,10 +7,15 @@ import Foundation
 ///     exitvpn://rotate?scope=city|country|any        (default any)
 ///     exitvpn://connect?country=…[&city=…] | connect?server=CH%23821
 ///     exitvpn://securecore?on=1|0
+///     exitvpn://direct[?minutes=10]   this Mac goes direct (no exit node) for 1–60 minutes,
+///                                     then uses the exit node again (the menu's "Go Direct")
+///     exitvpn://exitnode              this Mac uses the exit node again now
 ///     exitvpn://refresh
 public enum ExitURL: Equatable, Sendable {
     case open(AppRoute)
     case run(ControllerCommand)
+    case direct(minutes: Int)
+    case useExitNode
     case refresh
 
     public static let scheme = "exitvpn"
@@ -37,6 +42,11 @@ public enum ExitURL: Equatable, Sendable {
         case "securecore":
             guard let on = q["on"]?.lowercased(), ["1", "0", "true", "false", "on", "off"].contains(on) else { return nil }
             self = .run(.secureCore(["1", "true", "on"].contains(on)))
+        case "direct":
+            guard let m = Int(q["minutes"] ?? "10"), (1...60).contains(m) else { return nil }
+            self = .direct(minutes: m)
+        case "exitnode":
+            self = .useExitNode
         case "refresh":
             self = .refresh
         default:

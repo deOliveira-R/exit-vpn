@@ -335,6 +335,8 @@ class ExitService:
         if not self.standby_on():
             return
         async with self.standby_lock:
+            if not self.standby_on():
+                return   # changed while waiting for the lock (a key upload just failed)
             st, cur = self.standby, self.state.standby
             if cur and not self._fits(self._server_of(cur)):
                 self.events.publish("standby", state="moving", server=cur.name,
@@ -355,9 +357,9 @@ class ExitService:
                 return
             await self._standby_search()
 
-    async def _standby_search(self) -> None:
+    async def _standby_search(self, first_warmup: float | None = None) -> None:
         """Bring the standby up on the best fitting server (same city first). Callers hold
-        `standby_lock`."""
+        `standby_lock`. `first_warmup`: a longer wait on the first candidate (a new key)."""
         self.standby_searching = True
         try:
             now = self.clock()
@@ -366,12 +368,13 @@ class ExitService:
             cands = [c for c in selection.choose_candidates(
                 self.catalog.servers, self.current_server(), self.prefs, avoid, self.rng,
                 "failover", profile=self._profile()) if self._fits(c)]
-            for srv in cands[:MAX_SWITCH_TRIES]:
+            for i, srv in enumerate(cands[:MAX_SWITCH_TRIES]):
                 if self.tunnel.last and not self.tunnel.last.ok:
                     return   # the active tunnel fails too: probably the uplink, try later
+                warmup = first_warmup if i == 0 and first_warmup else self.s.warmup
                 try:
                     ok = await self.standby.try_peer(srv.pubkey, srv.endpoint(self.s.wg_port),
-                                                     self.s.warmup)
+                                                     warmup)
                 except WgError as e:
                     self.events.publish("swap_error", server=srv.name, error=str(e))
                     ok = False
@@ -637,7 +640,7 @@ class ExitService:
         self.standby_key_suspect, self.standby_misses = False, 0
         self.standby_next_search = 0.0
         self.state.standby = None
-        await self._standby_search()
+        await self._standby_search(first_warmup=self.s.standby_key_warmup)
         if self.state.standby is not None:
             return True, True
         st.keyed = was_keyed

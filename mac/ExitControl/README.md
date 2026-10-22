@@ -43,7 +43,7 @@ show the keychain prompt.
 
 `exitvpn://` URLs:
 - **Windows:** `servers`, `find`, `settings/general|regions|connection|account|events`.
-- **Actions:** `rotate?scope=city|country|any`, `connect?country=…&city=…`, `connect?server=CH%23821`, `securecore?on=1|0` and `refresh`. They run queued, in the order sent.
+- **Actions:** `rotate?scope=city|country|any`, `connect?country=…&city=…`, `connect?server=CH%23821`, `securecore?on=1|0` and `refresh`. They run queued, in the order sent. `direct?minutes=10` (1–60) takes this Mac off the exit node for that long, as the menu's "Go Direct" does, and `exitnode` puts it back now: for work on the exit node itself that cuts its traffic.
 
 Shortcuts actions: Rotate Exit Server, Connect Exit to Region, Exit Status. They share that queue; menu clicks are refused while something runs.
 

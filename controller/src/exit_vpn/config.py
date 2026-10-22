@@ -36,6 +36,9 @@ class Settings:
     standby_blacklist_ttl: float = 10 * 60
     # This many servers failing in a row on the standby: its key is suspect, it stops searching
     standby_key_suspect: int = 5
+    # A first standby key: a new key's registration and a fresh session's warm-up together
+    # took over 45 s on Proton (2026-10-22), so its first server gets this long
+    standby_key_warmup: float = 90.0
     state_dir: Path = Path("/var/lib/exit-vpn")
     ts_socket: Path = Path("/run/tailscale/tailscaled.sock")
     provider: str = "proton"

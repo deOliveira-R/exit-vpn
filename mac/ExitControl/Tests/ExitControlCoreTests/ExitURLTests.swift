@@ -37,3 +37,11 @@ private func parse(_ s: String) -> ExitURL? { ExitURL(URL(string: s)!) }
     #expect(parse("https://rotate") == nil)
     #expect(parse("exitvpn://launch-missiles") == nil)
 }
+
+@Test func directTakesMinutesWithinAnHourAndExitNodeEndsIt() {
+    #expect(parse("exitvpn://direct") == .direct(minutes: 10))
+    #expect(parse("exitvpn://direct?minutes=3") == .direct(minutes: 3))
+    #expect(parse("exitvpn://direct?minutes=0") == nil)
+    #expect(parse("exitvpn://direct?minutes=600") == nil)
+    #expect(parse("exitvpn://exitnode") == .useExitNode)
+}

@@ -231,3 +231,27 @@ async def test_a_standby_key_that_carries_nothing_is_not_kept(catalog, tmp_path,
     with pytest.raises(Exception, match="no traffic"):
         await rig.node.slots.put("c", conf(key), {}, "o@github")
     assert rig.keys.source("c") == "none" and rig.svc.standby_view()["state"] == "off"
+
+
+async def test_a_first_standby_key_gets_a_long_warm_up_on_its_first_server(
+        catalog, tmp_path, monkeypatch):
+    """A new key's registration plus a fresh session's warm-up can outlast the usual 20 s."""
+    rig = make(catalog, tmp_path, monkeypatch, standby=True, standby_key=False)
+    await rig.svc.start()
+    t0 = rig.clock()
+    rig.wg1.works = lambda: rig.wg1.peer is not None and rig.clock() - t0 > 60   # 60 s to carry
+    view = await rig.node.slots.put("c", conf(new_key()), {}, "o@github")
+    assert view["source"] == "uploaded" and rig.svc.standby_view()["state"] == "ready"
+    assert len(rig.wg1.swaps) == 1, "the first server, waited for"
+
+
+async def test_a_failed_standby_key_stops_the_standby_from_searching(catalog, tmp_path, monkeypatch):
+    rig = make(catalog, tmp_path, monkeypatch, standby=True, standby_key=False)
+    await rig.svc.start()
+    key = new_key()
+    rig.world.dead_keys.add(key)
+    with pytest.raises(Exception, match="no traffic"):
+        await rig.node.slots.put("c", conf(key), {}, "o@github")
+    swaps = len(rig.wg1.swaps)
+    await rig.svc.standby_step()
+    assert len(rig.wg1.swaps) == swaps

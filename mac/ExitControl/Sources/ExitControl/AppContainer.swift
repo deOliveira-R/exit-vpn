@@ -111,6 +111,8 @@ final class AppContainer {
         switch action {
         case .open(let route): router.open(route)
         case .run(let command): Task { try? await runQueued(command) }
+        case .direct(let minutes): goDirect(for: TimeInterval(minutes * 60))
+        case .useExitNode: exitGuard.resume()
         case .refresh: Task { await connection.refresh(); await catalog.load() }
         }
     }
