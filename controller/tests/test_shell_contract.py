@@ -128,3 +128,13 @@ def test_the_active_tunnel_file_is_where_route_keeper_looks(tmp_path):
                          capture_output=True, text=True, check=True).stdout
     assert out == "wg1"
     assert Settings(vpn_conf=Path("x")).active_file == Path("/run/exit-vpn/active")
+
+
+def test_the_kill_switch_shares_the_tunnel_and_nudge_marks_with_the_controller():
+    """killswitch.nft marks each connection with its tunnel (flows lists them by it) and
+    leaves the controller's nudges untracked (by their packet mark)."""
+    from exit_vpn import flows
+    nft = (COMMON.parents[4] / "etc/exit-vpn/killswitch.nft").read_text()
+    for ifname, mark in flows.TUNNEL_MARK.items():
+        assert f'oifname "{ifname}" ct state new ct mark set ct mark and 0xffffff00 or 0x{mark:08x}' in nft
+    assert f"meta mark 0x{flows.NUDGE_MARK:08x} notrack" in nft

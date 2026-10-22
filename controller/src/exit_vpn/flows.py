@@ -11,6 +11,10 @@ the client does not expect. TCP answers an unacceptable segment with an ACK of i
 9293 3.10.7.4), which the kill switch then refuses with a reset the client accepts (it carries
 the sequence number the client itself just announced). The connections are listed with
 `conntrack` (the low byte of the mark: 1 wg0, 2 wg1, as killswitch.nft sets it). IPv4 only.
+
+The nudges carry the packet mark `NUDGE_MARK`, which killswitch.nft exempts from connection
+tracking: tracked, a nudge's reply tuple would collide with the client's own connection and
+NAT would rewrite its source port, so the client would not recognise it.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ from dataclasses import dataclass
 log = logging.getLogger("exit_vpn")
 
 TUNNEL_MARK = {"wg0": 1, "wg1": 2}
+NUDGE_MARK = 0x10000000   # killswitch.nft: `meta mark 0x10000000 notrack` (tailscaled: 0xff0000)
+SO_MARK = getattr(socket, "SO_MARK", 36)   # Linux (absent on macOS, where the tests run)
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 _FIELD = re.compile(r"(\w+)=(\S+)")
 
@@ -100,6 +106,7 @@ def send_nudges(flows: list[Flow]) -> int:
         return 0
     sent = 0
     with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW) as s:
+        s.setsockopt(socket.SOL_SOCKET, SO_MARK, NUDGE_MARK)
         for flow in flows:
             try:
                 s.sendto(nudge_packet(flow, int.from_bytes(os.urandom(4), "big")),

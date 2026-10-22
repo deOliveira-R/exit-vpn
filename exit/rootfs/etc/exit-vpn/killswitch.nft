@@ -33,6 +33,12 @@ table inet killswitch {
     iifname "tailscale0" oifname "wg0" ct mark and 0x000000ff == 0x00000002 drop
     iifname "tailscale0" oifname "wg1" ct mark and 0x000000ff == 0x00000001 drop
   }
+  # The controller's nudges at a handover (flows.py), untracked: tracked, each would collide
+  # with the client connection it answers for, and NAT would rewrite its source port.
+  chain nudge {
+    type filter hook output priority raw; policy accept;
+    meta mark 0x10000000 notrack
+  }
   chain output {
     type filter hook output priority -10; policy accept;
     # The VPN's DNS server must never be asked over the underlay.
