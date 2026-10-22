@@ -11,6 +11,7 @@ import socket
 import ssl
 import struct
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -75,9 +76,13 @@ def parse_response(raw: bytes) -> tuple[int, str]:
     return int(status[1]), body.decode(errors="replace")
 
 
-async def https_probe(url: str, source: str, timeout: float,
-                      device: str = "") -> tuple[bool, dict[str, str], str]:
-    """GET `url` through `device` (HTTP/1.0: one plain response, no redirects)."""
+Resolver = Callable[[str, int], Awaitable[str]]   # (host, address family) -> address
+
+
+async def https_probe(url: str, source: str, timeout: float, device: str = "",
+                      resolver: Resolver | None = None) -> tuple[bool, dict[str, str], str]:
+    """GET `url` through `device` (HTTP/1.0: one plain response, no redirects). `resolver`:
+    how to find the host (default: the system's resolver)."""
     u = urlsplit(url)
     host, port = u.hostname or "", u.port or 443
     loop = asyncio.get_running_loop()
@@ -86,9 +91,12 @@ async def https_probe(url: str, source: str, timeout: float,
         async with asyncio.timeout(timeout):
             sock = bound_socket(source, device)
             try:
-                addrs = await loop.getaddrinfo(host, port, family=sock.family,
-                                               type=socket.SOCK_STREAM)
-                await loop.sock_connect(sock, addrs[0][4])
+                if resolver:
+                    addr = await resolver(host, sock.family)
+                else:
+                    addr = (await loop.getaddrinfo(host, port, family=sock.family,
+                                                   type=socket.SOCK_STREAM))[0][4][0]
+                await loop.sock_connect(sock, (addr, port))
             except BaseException:
                 sock.close()
                 raise
@@ -112,10 +120,13 @@ async def https_probe(url: str, source: str, timeout: float,
             writer.close()
 
 
-def dns_query(name: str, qid: int) -> bytes:
+A, AAAA = 1, 28
+
+
+def dns_query(name: str, qid: int, qtype: int = A) -> bytes:
     header = struct.pack("!HHHHHH", qid, 0x0100, 1, 0, 0, 0)  # RD, one question
     qname = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\0"
-    return header + qname + struct.pack("!HH", 1, 1)  # A, IN
+    return header + qname + struct.pack("!HH", qtype, 1)  # IN
 
 
 def dns_answer_ok(resp: bytes, qid: int) -> bool:
@@ -125,8 +136,42 @@ def dns_answer_ok(resp: bytes, qid: int) -> bool:
     return rid == qid and flags & 0x8000 and (flags & 0x000F) == 0 and ancount > 0
 
 
-async def dns_probe(server: str, name: str, source: str, timeout: float,
-                    device: str = "") -> tuple[bool, str]:
+def _skip_name(buf: bytes, i: int) -> int:
+    while True:
+        n = buf[i]
+        if n == 0:
+            return i + 1
+        if n & 0xC0 == 0xC0:   # a compression pointer ends the name
+            return i + 2
+        i += n + 1
+
+
+def dns_addresses(resp: bytes, qid: int, qtype: int = A) -> list[str]:
+    """The addresses of type `qtype` in an answer (CNAMEs and others skipped)."""
+    if not dns_answer_ok(resp, qid):
+        return []
+    _, _, qdcount, ancount, _, _ = struct.unpack("!HHHHHH", resp[:12])
+    try:
+        i = 12
+        for _ in range(qdcount):
+            i = _skip_name(resp, i) + 4
+        out = []
+        for _ in range(ancount):
+            i = _skip_name(resp, i)
+            rtype, _, _, rdlen = struct.unpack("!HHIH", resp[i:i + 10])
+            rdata = resp[i + 10:i + 10 + rdlen]
+            i += 10 + rdlen
+            if rtype == qtype and len(rdata) == (4 if qtype == A else 16):
+                out.append(socket.inet_ntop(socket.AF_INET if qtype == A else socket.AF_INET6,
+                                            rdata))
+        return out
+    except (IndexError, struct.error):
+        return []
+
+
+async def dns_exchange(server: str, name: str, source: str, timeout: float, device: str = "",
+                       qtype: int = A) -> tuple[bytes, int]:
+    """One query to `server` through `device`: (the answer, its query id)."""
     loop = asyncio.get_running_loop()
     qid = int.from_bytes(os.urandom(2), "big")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -135,13 +180,19 @@ async def dns_probe(server: str, name: str, source: str, timeout: float,
         for level, opt, value in _device_opts(device):
             sock.setsockopt(level, opt, value)
         sock.bind((source, 0))
-        await loop.sock_sendto(sock, dns_query(name, qid), (server, 53))
-        resp = await asyncio.wait_for(loop.sock_recv(sock, 512), timeout)
+        await loop.sock_sendto(sock, dns_query(name, qid, qtype), (server, 53))
+        return await asyncio.wait_for(loop.sock_recv(sock, 512), timeout), qid
+    finally:
+        sock.close()
+
+
+async def dns_probe(server: str, name: str, source: str, timeout: float,
+                    device: str = "") -> tuple[bool, str]:
+    try:
+        resp, qid = await dns_exchange(server, name, source, timeout, device)
         return (True, "") if dns_answer_ok(resp, qid) else (False, "dns: bad answer")
     except (TimeoutError, OSError) as e:
         return False, f"dns: {type(e).__name__}"
-    finally:
-        sock.close()
 
 
 class HealthProbe:
@@ -160,6 +211,21 @@ class HealthProbe:
         self.ipv6_on = True   # IPv6 is probed on the active tunnel only (it carries the gate)
         self._v6: asyncio.Task | None = None
 
+    async def resolve(self, host: str, family: int) -> str:
+        """A probe's host, looked up through this tunnel's own DNS: the container's resolver
+        forwards to the VPN's DNS through the active tunnel, so the standby's probes would
+        fail whenever the active tunnel does (and the second opinion with them)."""
+        qtype = AAAA if family == socket.AF_INET6 else A
+        try:
+            resp, qid = await dns_exchange(self.dns_server, host, self.source, self.dns_timeout,
+                                           self.device, qtype)
+        except TimeoutError:
+            raise OSError(f"resolving {host}: timeout") from None
+        addrs = dns_addresses(resp, qid, qtype)
+        if not addrs:
+            raise OSError(f"resolving {host}: no address")
+        return addrs[0]
+
     async def _ipv6(self) -> tuple[bool | None, dict[str, str], str]:
         """The IPv6 probe runs across cycles: Proton's first IPv6 connection to a destination
         can stall 4-8 s, so it gets `timeout6`, while a cycle waits for it no longer than for
@@ -168,7 +234,8 @@ class HealthProbe:
             return None, {}, ""
         if self._v6 is None:
             self._v6 = asyncio.create_task(https_probe(self.url6, self.source6, self.timeout6,
-                                                       device=self.device))
+                                                       device=self.device,
+                                                       resolver=self.resolve))
         try:
             ok, trace, err = await asyncio.wait_for(asyncio.shield(self._v6), self.timeout)
         except TimeoutError:
@@ -185,7 +252,8 @@ class HealthProbe:
     async def cycle(self, latest_handshake: int, now: float | None = None) -> CycleResult:
         now = time.time() if now is None else now
         results = await asyncio.gather(
-            *(https_probe(u, self.source, self.timeout, device=self.device) for u in self.urls),
+            *(https_probe(u, self.source, self.timeout, device=self.device,
+                          resolver=self.resolve) for u in self.urls),
             dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout,
                       device=self.device),
             self._ipv6())

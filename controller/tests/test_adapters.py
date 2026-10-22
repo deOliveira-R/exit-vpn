@@ -79,7 +79,7 @@ def _probe(source6):
 async def test_the_ipv6_probe_is_bound_to_the_tunnels_ipv6_address_and_never_decides_health(monkeypatch):
     calls = []
 
-    async def https(url, source, timeout, device=""):
+    async def https(url, source, timeout, **kw):
         calls.append((url, source))
         if source == "2a07:b944::2:2":
             return False, {}, f"{url}: ConnectTimeout"
@@ -96,7 +96,7 @@ async def test_the_ipv6_probe_is_bound_to_the_tunnels_ipv6_address_and_never_dec
 
 
 async def test_a_working_ipv6_probe_reports_the_ipv6_exit_address(monkeypatch):
-    async def https(url, source, timeout, device=""):
+    async def https(url, source, timeout, **kw):
         return True, {"ip": "2001:db8::1" if ":" in source else "198.51.100.1"}, ""
 
     async def dns(*a, **kw):
@@ -110,7 +110,7 @@ async def test_a_working_ipv6_probe_reports_the_ipv6_exit_address(monkeypatch):
 async def test_without_an_ipv6_address_there_is_no_ipv6_probe(monkeypatch):
     calls = []
 
-    async def https(url, source, timeout, device=""):
+    async def https(url, source, timeout, **kw):
         calls.append(source)
         return True, {}, ""
 
@@ -126,7 +126,7 @@ async def test_a_slow_ipv6_probe_spans_cycles_and_never_holds_up_the_ipv4_checks
     release = asyncio.Event()
     timeouts = {}
 
-    async def https(url, source, timeout, device=""):
+    async def https(url, source, timeout, **kw):
         timeouts[source] = timeout
         if ":" in source:
             await release.wait()   # Proton's first IPv6 connection stalling
@@ -150,7 +150,7 @@ async def test_a_slow_ipv6_probe_spans_cycles_and_never_holds_up_the_ipv4_checks
 async def test_a_new_server_drops_an_ipv6_probe_still_running_for_the_old_one(monkeypatch):
     started = []
 
-    async def https(url, source, timeout, device=""):
+    async def https(url, source, timeout, **kw):
         if ":" in source:
             started.append(source)
             await asyncio.sleep(3600)
@@ -231,3 +231,40 @@ async def test_the_https_probe_fails_on_an_error_status_or_no_server(monkeypatch
     assert not ok and "HTTP 503" in err
     ok, _, err = await probes.https_probe(f"https://localhost:{port}/", "127.0.0.1", 2)
     assert not ok and "ConnectionRefusedError" in err
+
+
+def answer(qid: int, name: str, records: list[tuple[int, bytes]]) -> bytes:
+    """A DNS answer to `dns_query(name, qid)`: each record named by a pointer to the question."""
+    q = probes.dns_query(name, qid)[12:]
+    rrs = b"".join(b"\xc0\x0c" + struct.pack("!HHIH", t, 1, 60, len(d)) + d for t, d in records)
+    return struct.pack("!HHHHHH", qid, 0x8180, 1, len(records), 0, 0) + q + rrs
+
+
+def test_a_dns_answers_addresses_are_read_past_cnames():
+    resp = answer(7, "www.example.com", [(5, b"\x03cdn\xc0\x10"), (1, bytes([192, 0, 2, 9]))])
+    assert probes.dns_addresses(resp, 7) == ["192.0.2.9"]
+    assert probes.dns_addresses(resp, 8) == [], "another query's answer"
+    v6 = answer(9, "h", [(28, bytes.fromhex("20010db8" + "00" * 11 + "01"))])
+    assert probes.dns_addresses(v6, 9, probes.AAAA) == ["2001:db8::1"]
+
+
+async def test_a_probes_hosts_are_resolved_through_its_own_tunnel(monkeypatch):
+    """Not via the container's resolver: it forwards through the active tunnel, so the
+    standby's probes failed whenever the active tunnel did."""
+    seen = []
+
+    async def exchange(server, name, source, timeout, device="", qtype=1):
+        seen.append((server, name, source, device, qtype))
+        return answer(3, name, [(1, bytes([192, 0, 2, 7]))]), 3
+    monkeypatch.setattr(probes, "dns_exchange", exchange)
+    p = HealthProbe("10.2.0.2", "10.2.0.1", ["https://a/"], "example.com", 1, 1, 180, device="wg1")
+    assert await p.resolve("www.cloudflare.com", socket.AF_INET) == "192.0.2.7"
+    assert seen == [("10.2.0.1", "www.cloudflare.com", "10.2.0.2", "wg1", probes.A)]
+    calls = []
+
+    async def https(url, source, timeout, **kw):
+        calls.append(kw)
+        return True, {}, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    await p.cycle(1000, now=1001)
+    assert calls and all(kw["resolver"] == p.resolve and kw["device"] == "wg1" for kw in calls)
