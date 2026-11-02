@@ -1,0 +1,33 @@
+{
+  "enabled": true,
+  "hours": [
+    0,
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21
+  ],
+  "minute": 10,
+  "seconds": 60,
+  "targets": [
+    {
+      "countries": [],
+      "cities": [
+        "Los Angeles"
+      ],
+      "servers": 20
+    },
+    {
+      "countries": [
+        "Switzerland"
+      ],
+      "cities": [],
+      "servers": 8
+    }
+  ],
+  "last_run": 1793592600.0,
+  "next_run": 1793603400.0
+}

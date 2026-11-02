@@ -10,7 +10,8 @@ how they connect. `__main__` builds the real node; the tests build one with fake
         ├── EventBus → EventStore, /v1/events subscribers
     KeySlots ── ExitService.replace_exit_key, KeyStore, ProberClient
     FindService ── ExitService.find_candidates / switch_to, ProberClient ─┐ prober_lock
-    SurveyService ── ExitService.survey_candidates, ProberClient, QualityLog ┘
+    SurveyService ── ExitService.survey_candidates, ProberClient ┘
+        └── QualityLog (survey.jsonl), SurveyScheduleStore (the schedule, run by itself)
     CatalogSource ── CatalogCache (startup, push, revert)
     api ── all of the above, through their public methods
 """
@@ -30,7 +31,7 @@ from .events import EventBus
 from .finder import FindService
 from .health import HealthTracker
 from .keys import KeyStore
-from .persistence import CatalogCache, EventStore, QualityLog, StateStore
+from .persistence import CatalogCache, EventStore, QualityLog, StateStore, SurveyScheduleStore
 from .probes import HealthProbe
 from .prober_client import ProberClient
 from .routes import ActiveRoute, GateFile
@@ -85,5 +86,6 @@ def build(settings: Settings, *, exit_conf: WgConf, wg: WireGuard, probe: Health
     prober_lock = asyncio.Lock()   # the prober has one tunnel
     finder = FindService(service, prober, events, code_for, forbid_ips, prober_lock) if prober else None
     survey = SurveyService(service, prober, events, prober_lock, code_for, forbid_ips,
-                           service.quality_log, s.quality, clock) if prober else None
+                           QualityLog(s.survey_log_file, s.survey_log_max_bytes), s.quality,
+                           SurveyScheduleStore(s.survey_schedule_file), clock) if prober else None
     return Node(s, service, events, slots, finder, CatalogSource(s, cache), survey)

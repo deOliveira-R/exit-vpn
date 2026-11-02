@@ -727,14 +727,19 @@ class ExitService:
                                          self._blacklisted(), [known[c.lower()] for c in countries],
                                          limit, self.rng)
 
-    def survey_candidates(self, countries: list[str], limit: int) -> list[Server]:
+    def survey_candidates(self, countries: list[str], limit: int,
+                          cities: list[str] = ()) -> list[Server]:
         known = {c.lower(): c for c in self.catalog.countries()}
         bad = [c for c in countries if c.lower() not in known]
         if bad:
             raise PolicyError(f"unknown countries: {bad}")
+        towns = {s.city.lower() for s in self.catalog.servers if s.city}
+        bad = [c for c in cities if c.lower() not in towns]
+        if bad:
+            raise PolicyError(f"unknown cities: {bad}")
         return selection.survey_candidates(self.catalog.servers, self.current_server(),
                                            self.prefs, [known[c.lower()] for c in countries],
-                                           limit, self.rng)
+                                           limit, self.rng, list(cities))
 
     def test_servers(self, n: int) -> list[Server]:
         """Servers in the current country, to test a prober key against."""

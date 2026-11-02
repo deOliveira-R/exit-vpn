@@ -18,6 +18,7 @@ class KeyFileError(ValueError):
 class KeyFile:
     private_key: str
     address: str          # first IPv4 Address, with prefix
+    dns: str = ""         # first IPv4 DNS server (the provider's resolver, beyond the tunnel)
 
     def __repr__(self) -> str:   # never print the key
         return f"KeyFile(address={self.address})"
@@ -35,7 +36,10 @@ class KeyFile:
                    if re.fullmatch(r"\d+(\.\d+){3}(/\d+)?", a.strip())), "")
         if not key or not v4:
             raise KeyFileError("config has no PrivateKey or IPv4 Address")
-        return cls(key.group(1), v4 if "/" in v4 else v4 + "/32")
+        dns = re.search(r"^\s*DNS\s*=\s*([^#\n]+)", text, re.M | re.I)
+        dns4 = next((a.strip() for a in (dns.group(1).split(",") if dns else [])
+                     if re.fullmatch(r"\d+(\.\d+){3}", a.strip())), "")
+        return cls(key.group(1), v4 if "/" in v4 else v4 + "/32", dns4)
 
     @classmethod
     def current(cls, env=os.environ) -> KeyFile:

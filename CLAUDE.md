@@ -107,7 +107,8 @@ formats between them (samples checked by both sides' tests).
   `secrets` need `helper/.venv/bin/exitctl proton login`, done by the owner in their own terminal:
   password/2FA/CAPTCHA prompts). On the VPS: `sudo bash tests/acceptance/node/{tunnel,tailnet}.sh`.
 - Catalog: `exitctl proton servers [--push|--revert]`. Keys: `exitctl keys`, `exitctl proton list|rotate --slot a|b [--netshield 0|1|2 ...]|renew --slot a|b`.
-- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,survey,events,keys,catalog}`.
+- Controller API (owner's untagged devices only): `http://exit-proton:8080/v1/{status,servers,rotate,select,prefs,find,survey,events,keys,catalog}`;
+  `survey/schedule` (surveys at set UTC hours, run by the node), `survey/log`, `quality/log`.
 
 ## Gotchas learned
 

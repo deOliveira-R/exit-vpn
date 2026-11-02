@@ -119,14 +119,15 @@ class Pings:
     """A measurer's ping: the given RTTs (None: lost) in turn, then 20 ms."""
 
     def __init__(self, *rtts):
-        self.rtts, self.calls = list(rtts), 0
+        self.rtts, self.calls, self.servers = list(rtts), 0, set()
 
-    async def __call__(self):
+    async def __call__(self, server):
         self.calls += 1
+        self.servers.add(server)
         return self.rtts.pop(0) if self.rtts else 20.0
 
 
-def measurer(p: Prober, pings=None, https=(200, "ip=1", "")):
+def measurer(p: Prober, pings=None, https=(200, "ip=1", ""), resolver="10.64.0.1"):
     """A Measurer on prober `p` with no real waiting (a fake clock that sleeps advance)."""
     from prober.measure import Measurer
     t = [0.0]
@@ -137,4 +138,5 @@ def measurer(p: Prober, pings=None, https=(200, "ip=1", "")):
 
     async def sleep(seconds):
         t[0] += seconds
-    return Measurer(p, fetch, pings or Pings(), clock=lambda: t[0], sleep=sleep)
+    return Measurer(p, fetch, pings or Pings(), clock=lambda: t[0], sleep=sleep,
+                    resolver=lambda: resolver)

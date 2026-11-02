@@ -45,6 +45,14 @@ def test_scattered_loss_is_degraded_and_heavy_recent_loss_critical():
     assert m.assess(t)[0] == Quality.CRITICAL
 
 
+def test_a_single_lost_ping_is_not_loss_even_in_a_short_window():
+    m = meter()
+    t = pings(m, [20.0] * 30 + [None] + [20.0] * 19)   # 1 of 50: 2%, as after a restart
+    assert m.assess(t)[:2] == (Quality.HEALTHY, [])
+    t = pings(m, [None] + [20.0] * 9, t)               # 2 of 60
+    assert m.assess(t)[:2] == (Quality.DEGRADED, ["3.3% loss"])
+
+
 def test_standing_queues_and_jitter_are_degraded():
     m = meter()
     t = pings(m, [20.0] * 50 + [150.0] * 10)

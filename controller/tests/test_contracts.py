@@ -59,6 +59,15 @@ async def test_api_responses(catalog, tmp_path, monkeypatch):
             await asyncio.sleep(0.01)
         assert job["state"] == "done" and len(job["results"]) == 2, job
         shape.check("controller/survey_job", job)
+        shape.check("controller/survey_log", c.get("/v1/survey/log").json())
+
+        r = c.put("/v1/survey/schedule", json={
+            "enabled": True, "hours": [0, 3], "minute": 10, "seconds": 60,
+            "targets": [{"cities": ["Los Angeles"], "servers": 20},
+                        {"countries": ["Switzerland"], "servers": 8}]})
+        assert r.status_code == 200, r.text
+        shape.check("controller/survey_schedule", r.json())
+        shape.check("controller/survey_schedule", c.get("/v1/survey/schedule").json())
 
 
 async def test_prober_requests_match_the_sample(catalog, monkeypatch):

@@ -14,7 +14,7 @@ Over a sliding `window` this gives a `Summary`, and `assess` a `Quality`:
 - *Degraded*: loss, queueing (the 90th percentile RTT well above the window's minimum, i.e.
   standing queues on the path), jitter, or slow HTTPS;
 - *Healthy* otherwise; *measuring* until there are enough pings to tell.
-The thresholds are provisional: they are calibrated from the quality log (Q-2's survey).
+The thresholds are provisional: they are calibrated from the quality and survey logs.
 `QualityTracker` damps the state: a better state must hold for `dwell` seconds before it is
 reported (Critical at once), so a flapping server does not flood the event log.
 """
@@ -44,7 +44,8 @@ class Thresholds:
     drop_pings: int = 5            # lost in a row: a total drop
     recent: float = 30.0           # the span for Critical's loss and HTTPS checks
     critical_loss: float = 0.20    # of the recent pings
-    degraded_loss: float = 0.02    # of the window's pings
+    degraded_loss: float = 0.02    # of the window's pings,
+    degraded_lost: int = 2         # and at least this many (one lost ping is not a pattern)
     degraded_queue_ms: float = 100.0    # p90 RTT above the window's minimum
     degraded_jitter_ms: float = 30.0    # mean difference between consecutive RTTs
     degraded_https_ms: float = 2000.0   # median HTTPS check
@@ -152,7 +153,7 @@ class QualityMeter:
             return Quality.CRITICAL, critical, s
         if s.pings < th.min_pings:
             return Quality.MEASURING, [], s
-        if s.loss >= th.degraded_loss:
+        if s.loss >= th.degraded_loss and s.lost >= th.degraded_lost:
             degraded.append(f"{s.loss:.1%} loss")
         if s.rtt_p90 is not None and s.rtt_min is not None \
                 and s.rtt_p90 - s.rtt_min >= th.degraded_queue_ms:

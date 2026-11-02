@@ -1,5 +1,6 @@
 {
   "job_id": "s1",
+  "by": "owner@github",
   "state": "done",
   "error": "",
   "seconds": 60,
@@ -10,6 +11,7 @@
   "results": [
     {
       "server": "US-NY#5",
+      "hostname": "node-us-5.protonvpn.net",
       "ip": "198.51.100.5",
       "country": "United States",
       "city": "New York",

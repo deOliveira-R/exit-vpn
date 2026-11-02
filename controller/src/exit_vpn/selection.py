@@ -171,15 +171,19 @@ def find_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
 
 
 def survey_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
-                      countries: list[str], limit: int, rng: random.Random) -> list[Server]:
+                      countries: list[str], limit: int, rng: random.Random,
+                      cities: list[str] = ()) -> list[Server]:
     """Servers for a quality survey (calibration): eligible ones in these countries (default:
-    the current one), blacklisted ones included (their quality is part of the picture), cities
-    interleaved at random so a short survey still spans the country; never the active server
-    (the prober must not share it)."""
-    order = list(countries) or ([current.country] if current and current.country else [])
+    the current one, unless cities are named) and cities, blacklisted ones included (their
+    quality is part of the picture), cities interleaved at random so a short survey still
+    spans the country; never the active server (the prober must not share it)."""
+    order = list(countries) or ([current.country] if current and current.country and not cities
+                                else [])
     wanted = {c.lower() for c in order}
+    in_city = {c.lower() for c in cities}
     pool = [s for s in _pool(servers, current, prefs, set(), [])
-            if s.country.lower() in wanted]
+            if (not wanted or s.country.lower() in wanted)
+            and (not in_city or s.city.lower() in in_city)]
     by_city: dict[tuple[str, str], list[Server]] = {}
     for s in pool:
         by_city.setdefault((s.country, s.city), []).append(s)

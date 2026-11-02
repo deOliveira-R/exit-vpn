@@ -8,8 +8,10 @@ atomically (temp file, fsync, rename; 0600):
   `PEER_PUBKEY`, `PEER_ENDPOINT`, single-quoted (see `common.sh`).
 - `events.json`: the recent event log (`EventStore`).
 - `quality.jsonl`: a quality summary per tunnel each minute (`QualityLog`), for calibrating
-  the quality thresholds; rotated to `quality.jsonl.1` at its size limit. Never read back:
-  the controller keeps no server history.
+  the quality thresholds; rotated to `quality.jsonl.1` at its size limit. `survey.jsonl`:
+  every survey result, likewise. Both are read back only for the owner (the API's logs),
+  never by the controller's decisions: it keeps no server history.
+- `survey_schedule.json`: the survey schedule and its last run (`SurveyScheduleStore`).
 - `catalog.json`: the last good catalog (`CatalogCache`), so restarts and upstream outages
   keep a working server list.
 Key files live in the key volumes (`keys.KeyStore`).
@@ -136,3 +138,43 @@ class QualityLog:
                 f.write(json.dumps(record, separators=(",", ":")) + "\n")
         except OSError as e:
             log.warning("quality log: %s", e)
+
+    def read(self, since: float = 0.0, limit: int = 1000) -> tuple[list[dict], bool]:
+        """Records with `ts` after `since`, oldest first, at most `limit` (and whether more
+        follow): the rotated file, then the current one."""
+        out: list[dict] = []
+        for path in (self.path.with_name(self.path.name + ".1"), self.path):
+            try:
+                lines = path.read_text().splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue   # a line cut short by a full disk
+                if rec.get("ts", 0) > since:
+                    if len(out) == limit:
+                        return out, True
+                    out.append(rec)
+        return out, False
+
+
+class SurveyScheduleStore:
+    """The schedule (as `SurveySchedule.view()` gives it) and its last run's slot."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def load(self) -> tuple[dict, float]:
+        try:
+            d = json.loads(self.path.read_text())
+            return dict(d.get("schedule") or {}), float(d.get("last_run") or 0)
+        except FileNotFoundError:
+            return {}, 0.0
+        except (ValueError, TypeError, AttributeError) as e:
+            log.warning("survey schedule unreadable, starting without one: %s", e)
+            return {}, 0.0
+
+    def save(self, schedule: dict, last_run: float) -> None:
+        atomic_write(self.path, json.dumps({"schedule": schedule, "last_run": last_run}))

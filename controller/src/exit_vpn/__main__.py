@@ -1,5 +1,5 @@
 """Entry point (s6 longrun `controller`): read the settings, build the node (`node.build`),
-start the health loop and the API on the node's tailnet IPv4."""
+start the health loop, the survey schedule and the API on the node's tailnet IPv4."""
 
 from __future__ import annotations
 
@@ -79,7 +79,10 @@ async def amain() -> None:
     server = uvicorn.Server(uvicorn.Config(app, host=ip, port=s.api_port, lifespan="off",
                                            access_log=False, log_level="warning"))
     log.info("API on http://%s:%d (owners: %s)", ip, s.api_port, ", ".join(s.owners))
-    await asyncio.gather(node.service.run(), server.serve(), learn_underlay_ip(underlay))
+    loops = [node.service.run(), server.serve(), learn_underlay_ip(underlay)]
+    if node.survey:
+        loops.append(node.survey.run_schedule())
+    await asyncio.gather(*loops)
 
 
 def main() -> None:

@@ -86,7 +86,8 @@ class Settings:
     ping_interval: float = 1.0
     quality: Thresholds = field(default_factory=Thresholds)
     quality_log_interval: float = 60.0
-    quality_log_max_bytes: int = 8 * 1024 * 1024
+    quality_log_max_bytes: int = 32 * 1024 * 1024    # about 3 weeks of both tunnels
+    survey_log_max_bytes: int = 32 * 1024 * 1024     # months of scheduled surveys
 
     @property
     def state_file(self) -> Path:
@@ -107,6 +108,14 @@ class Settings:
     @property
     def quality_log_file(self) -> Path:
         return self.state_dir / "quality.jsonl"
+
+    @property
+    def survey_log_file(self) -> Path:
+        return self.state_dir / "survey.jsonl"
+
+    @property
+    def survey_schedule_file(self) -> Path:
+        return self.state_dir / "survey_schedule.json"
 
     @property
     def events_file(self) -> Path:

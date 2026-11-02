@@ -54,7 +54,7 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_switching.py` | component | select, rotate, exact servers, Secure Core, all-or-nothing preference changes |
 | `test_slots.py` | component | key slots: validate, try, keep or roll back, mirror |
 | `test_finder.py` | component | find jobs |
-| `test_survey.py` | component | quality surveys: judged like the exit's tunnels, logged, one at a time, over HTTP |
+| `test_survey.py` | component | quality surveys: judged like the exit's tunnels, logged and read back, one at a time, whole cities, the survey schedule (due times, once per run, restarts, skips, refused schedules), over HTTP |
 | `test_api.py` | component | the HTTP layer: auth, status codes, validation, nothing secret echoed; catalog push and revert |
 | `test_persistence.py` | boundary | state, event log and catalog cache files, migration of old state |
 | `test_adapters.py` | boundary | `wg` dump, WireGuard config, DNS, trace and IPv6 probes, pings and probe timings, the IPv6 gate file, Tailscale whois |
@@ -74,7 +74,7 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_measure.py` | component | measuring a server: session, exit check, settle, pings and HTTPS checks, `/measure` |
 | `test_api.py` | component | the HTTP layer: `/probe`, `/healthz`, key reload |
 | `test_tunnel.py` | boundary | the `wg` and `ip` commands that attach, detach and re-key `wg-probe` |
-| `test_keyfile.py` | boundary | the slot-b WireGuard config |
+| `test_keyfile.py` | boundary | the slot-b WireGuard config (key, address, DNS server) |
 | `test_contracts.py` | contract | `/probe` requests and responses, `/healthz` |
 
 ### exitctl (`helper/tests`)

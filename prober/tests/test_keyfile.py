@@ -13,6 +13,12 @@ def test_the_private_key_and_first_ipv4_address_are_read():
     assert (k.private_key, k.address) == ("abc=", "10.2.0.2/32")
 
 
+def test_the_first_ipv4_dns_server_is_read():
+    assert KeyFile.parse(CONF).dns == "10.2.0.1"
+    assert KeyFile.parse(CONF.replace("DNS = 10.2.0.1", "DNS = fd00::1, 10.64.0.1")).dns == "10.64.0.1"
+    assert KeyFile.parse(CONF.replace("DNS = 10.2.0.1\n", "")).dns == ""
+
+
 def test_an_address_without_a_prefix_gets_slash_32():
     assert KeyFile.parse(CONF.replace("10.2.0.2/32", "10.2.0.2")).address == "10.2.0.2/32"
 

@@ -21,6 +21,7 @@ from .keys import MAX_CONF_BYTES, KeyRejected
 from .node import Node
 from .servers import FEATURES, FLAGS, Region
 from .slots import KeyFailed
+from .survey import SurveySchedule
 
 
 class RotateBody(BaseModel):
@@ -99,9 +100,24 @@ class CatalogBody(BaseModel):
 
 
 class SurveyBody(BaseModel):
-    countries: list[str] = []        # default: the exit's country
+    countries: list[str] = Field([], max_length=50)   # none (and no cities): the exit's country
+    cities: list[str] = Field([], max_length=50)
     servers: int = 10
     seconds: int = 60
+
+
+class SurveyTargetBody(BaseModel):
+    countries: list[str] = Field([], max_length=50)
+    cities: list[str] = Field([], max_length=50)
+    servers: int = 10
+
+
+class SurveyScheduleBody(BaseModel):
+    enabled: bool = False
+    hours: list[int] = Field([], max_length=24)       # UTC
+    minute: int = 10
+    seconds: int = 60
+    targets: list[SurveyTargetBody] = Field([], max_length=20)
 
 
 class KeyBody(BaseModel):
@@ -198,7 +214,34 @@ def create_app(node: Node, whois: Whois, owners: list[str]) -> FastAPI:
 
     @app.post("/v1/survey", status_code=202)
     async def survey(body: SurveyBody, who: str = Depends(owner)):
-        return survey_service().start(body.countries, body.servers, body.seconds, who).view()
+        return survey_service().start(body.countries, body.servers, body.seconds, who,
+                                      body.cities).view()
+
+    @app.get("/v1/survey/schedule")
+    async def survey_schedule(_: str = Depends(owner)):
+        return survey_service().schedule_view()
+
+    @app.put("/v1/survey/schedule")
+    async def survey_schedule_set(body: SurveyScheduleBody, _: str = Depends(owner)):
+        sv = survey_service()
+        sv.set_schedule(SurveySchedule.from_dict(body.model_dump()))
+        return sv.schedule_view()
+
+    def log_page(qlog, since: float, limit: int) -> dict:
+        if qlog is None:
+            raise HTTPException(404, "no such log")
+        records, more = qlog.read(since, max(1, min(limit, 10000)))
+        return {"records": records, "more": more}
+
+    @app.get("/v1/survey/log")
+    async def survey_log(since: float = 0.0, limit: int = 1000, _: str = Depends(owner)):
+        """Survey results after `since` (unix seconds), oldest first; page with the last `ts`."""
+        return log_page(survey_service().log, since, limit)
+
+    @app.get("/v1/quality/log")
+    async def quality_log(since: float = 0.0, limit: int = 1000, _: str = Depends(owner)):
+        """The exit tunnels' quality summaries (one per tunnel each minute), likewise."""
+        return log_page(svc.quality_log, since, limit)
 
     @app.get("/v1/survey/{job_id}")
     async def survey_status(job_id: str, _: str = Depends(owner)):

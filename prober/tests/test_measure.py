@@ -16,6 +16,13 @@ async def test_a_measurement_attaches_proves_the_exit_settles_then_samples_each_
     assert r["exit_ip"] == "203.0.113.7" and r["error"] == ""
     assert r["pings"][:3] == [31.0, None, 20.0] and len(r["pings"]) == 10, "the settle is not counted"
     assert r["https"] == [150.0, 150.0], "every fifth ping"
+    assert pings.servers == {"10.64.0.1"}, "the resolver the key's config names (any provider)"
+
+
+async def test_a_key_without_a_dns_server_cannot_be_measured():
+    t = FakeTunnel()
+    r = await measurer(prober(t), resolver="").run(TARGET, 10)
+    assert "DNS" in r["error"] and r["pings"] == [] and t.attached == []
 
 
 async def test_a_failed_https_check_is_none_and_a_failed_exit_check_an_error():

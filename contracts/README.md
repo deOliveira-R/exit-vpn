@@ -41,7 +41,9 @@ The app updates itself and the exit node does not, so a field the app needs must
 | `servers.json` | `GET /servers[?country=&city=&feature=]`; `countries` is null when `country` is given |
 | `prefs.json` | `GET /prefs`, and the result of `PUT /prefs` |
 | `keys.json`, `key_slot.json` | `GET /keys`; one slot is the result of `PUT /keys/{slot}` and `PUT /keys/{slot}/meta`. `meta` holds what exitctl recorded (`KeyMeta` in `api.py`); it is empty for a bootstrap key |
-| `survey_job.json` | `POST /survey` (202), `GET /survey/{id}`, `DELETE /survey/{id}` (cancel); `results[]`: each server's `state` and `reasons` from the quality model, its summary (as the quality log), `load`, `features`, `exit_ip`, or `error` |
+| `survey_job.json` | `POST /survey` (202; body `countries`, `cities`, `servers`, `seconds`), `GET /survey/{id}`, `DELETE /survey/{id}` (cancel); `results[]`: each server's `hostname`, `state` and `reasons` from the quality model, its summary (as the quality log), `load`, `features`, `exit_ip`, or `error`; `by`: who started it (`schedule` for the survey schedule) |
+| `survey_schedule.json` | `GET /survey/schedule`, and the result of `PUT /survey/schedule` (body: the same without `last_run`, `next_run`). Surveys run by themselves at `minute` past each of `hours` (UTC), every target in turn (`countries` and/or `cities`; neither: the exit's country), `seconds` per server; a run due while one is going is skipped. `last_run` and `next_run` are Unix seconds or null |
+| `survey_log.json` | `GET /survey/log?since=&limit=` (survey results, as in `survey_job.json`, with `ts`, `job`, `by`), and `GET /quality/log?since=&limit=` (the exit tunnels' quality summary each minute: `ts`, `role` `active`/`standby`, the server, the summary): records after `since`, oldest first, at most `limit` (≤ 10000); `more` says whether to ask again from the last `ts` |
 | `find_job.json` | `POST /find` (202) and `GET /find/{id}`; `results[]` are prober responses plus the candidate's `ip`, `country`, `city` |
 | `events.json` | one sample per event kind (below) |
 
@@ -77,7 +79,7 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `prefs` | `by`, `prefs` |
 | `recovered` | `server` |
 | `quality` | `role` (`active`, `standby`), `server`, `state`, `reasons`, `rtt_ms`, `loss`, `jitter_ms`: a tunnel's quality changed (measurement only; nothing switches on it yet) |
-| `survey_started` | `by`, `job`, `servers`, `seconds`: a quality survey began (`POST /survey`) |
+| `survey_started` | `by`, `job`, `servers`, `seconds`: a quality survey began (`POST /survey`; the schedule's runs publish no events) |
 | `survey_done` | `job`, `servers`, and how many were `healthy`, `degraded`, `critical`, `measuring`, `error` |
 | `standby` | `state` (`ready`, `lost`, `moving`, `candidate_failed`, `none_found`, `key_suspect`), `server`; `reason`, `exit_ip`, `tried`, `errors` (a candidate's last health cycle) as they apply |
 | `started` | `server`, `standby` |

@@ -103,7 +103,7 @@ Shared between the shell scripts and Python, and tested on both sides:
 | EventBus | `events` | Every event: logged, kept (last 50, `events.json`), sent to SSE subscribers. |
 | KeySlots | `slots` | Uploading keys. Slots a and c are tried on their tunnel (wg0, wg1), then saved; a first slot c key brings the standby up. Slot b is saved, then the prober reloads it and tests it. |
 | FindService | `finder` | "Find a server for this URL" jobs, run through the prober one at a time. |
-| SurveyService | `survey` | Quality surveys: servers measured through the prober (sharing its lock with find jobs, per server), judged by the quality model, logged for calibrating the thresholds. Never switches anything. |
+| SurveyService | `survey` | Quality surveys: servers of countries and/or cities measured through the prober (sharing its lock with find jobs, per server), judged by the quality model, logged to the survey log. Started by the owner, or by the survey schedule (UTC hours, a list of targets; its runs publish no events). Never switches anything. |
 | CatalogSource | `catalog_source` | Where the catalog comes from: cache, pinned download, or a validated push. |
 
 **Adapters**:
@@ -121,8 +121,9 @@ Shared between the shell scripts and Python, and tested on both sides:
 - `prober_client`: the prober's HTTP API.
 - `auth`: whois.
 - `persistence`: `state.json`, `peer.env`, `standby.env`, `events.json`, `catalog.json`, and
-  `quality.jsonl` (`QualityLog`: a summary per tunnel each minute and every survey result;
-  never read back).
+  `quality.jsonl` and `survey.jsonl` (`QualityLog`: a summary per tunnel each minute, and
+  every survey result; read back only for the owner, `/v1/quality/log` and `/v1/survey/log`),
+  `survey_schedule.json` (`SurveyScheduleStore`).
 - `keys.KeyStore`: the key files.
 - `api`: input shapes; errors mapped to HTTP (PolicyError → 400, SwitchError → 409).
 
@@ -137,7 +138,7 @@ api ──► ExitService ──► Tunnel ×2 (active, standby) ──► WireG
  │        └──► StateStore, CatalogCache
  ├──► KeySlots ──► ExitService.replace_exit_key, KeyStore, ProberClient
  ├──► FindService ──► ExitService.find_candidates / switch_to, ProberClient ─┐ prober_lock
- ├──► SurveyService ──► ExitService.survey_candidates, ProberClient, QualityLog ┘
+ ├──► SurveyService ──► ExitService.survey_candidates, ProberClient ┘, QualityLog, SurveyScheduleStore
  └──► CatalogSource
 ```
 
@@ -163,7 +164,7 @@ Rules worth knowing:
 | ProbeTunnel | `tunnel` | wg-probe peer control; `session()` always detaches. |
 | KeyFile | `keyfile` | Slot b's key: uploaded, else bootstrap (the same choice as `entrypoint.sh`). |
 | Prober | `probe` | One probe, start to finish, under the lock; `needs_browser` is the escalation policy. |
-| Measurer | `measure` | A server's quality samples for a survey, under the same lock: attach, exit check, settle, then a ping each second (DNS to the server's resolver) and an HTTPS check every fifth; judged by the controller. |
+| Measurer | `measure` | A server's quality samples for a survey, under the same lock: attach, exit check, settle, then a ping each second (DNS to the resolver the slot b key's config names: any provider) and an HTTPS check every fifth; judged by the controller. |
 
 `api` maps the HTTP requests onto `Prober.run` and `Measurer.run`; `__main__` builds the parts. The prober's
 netns has its own kill switch: everything leaves through wg-probe or not at all. It is IPv4

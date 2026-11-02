@@ -1450,10 +1450,20 @@ certificate (slot c); test certificates deleted.
 - *Seen in*: status (`quality`, `standby.quality`), `quality` events, the app's menu.
 - *Quality log* (`quality.jsonl` in the state volume, rotated at 8 MB): a summary per tunnel
   each minute, and every survey result. For calibration only: the controller never reads it.
+  (Since 2026-11-02 survey results have their own log; see the survey schedule below.)
 - *Survey* (`POST /v1/survey`, `survey.py`; prober `POST /measure`): servers of a country
   measured one at a time through the prober's tunnel (60 s each after a 5 s settle; never the
   exit's server), judged by the same model, logged. Shares the prober with find jobs (a find
   job waits at most one measurement).
+- *Survey schedule* (added 2026-11-02, after a first survey and a full Los Angeles sweep showed
+  every server clean at 06:00 UTC): the node runs surveys by itself at set UTC hours
+  (`PUT /v1/survey/schedule`: hours, minute, seconds, targets of countries and/or cities;
+  kept in `survey_schedule.json`), so busy hours are sampled without the Mac. Results go to
+  their own `survey.jsonl` (32 MB, months), read back by the owner (`/v1/survey/log`;
+  `/v1/quality/log` for the tunnels' log, now 32 MB); selection never reads them. Scheduled runs
+  publish no events (they would crowd out the event log). The prober now pings the DNS
+  server the slot b key's config names, so surveys work for any provider. Loss counts as
+  Degraded only from 2 lost pings (1 lost of 50 read as 2 % right after a restart).
 - *Calibration*: a few days of both tunnels plus surveys of the pinned countries at different
   times of day; compare the states with the Mac monitor's drops and the owner's experience;
   set the thresholds; record them here. **Done when** the states match what clients feel
