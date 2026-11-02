@@ -30,7 +30,10 @@ struct GeneralTab: View {
                     TextField("Controller URL", text: $url)
                     Button("Apply") { settings.controllerURL = url }.disabled(url == settings.controllerURL)
                 }
-                LabeledContent("Connection", value: app.connection.online ? "Online" : "Offline: \(app.connection.offlineReason ?? "")")
+                LabeledContent("Connection") {
+                    Text(app.connection.online ? "Online" : "Offline: \(app.connection.offlineReason ?? "")")
+                    Button("Open Status JSON") { app.openStatusJSON() }.disabled(!app.connection.online)
+                }
                 LabeledContent("This Mac", value: app.exitNode.use.label)
                 Toggle("Keep this Mac on the exit node", isOn: $settings.keepExitNode)
                 Text("When this Mac has no exit node (cleared by a script, the Tailscale menu or a re-login), its traffic goes out directly; ExitControl then selects \(settings.nodeName) again within seconds. Another exit node chosen in Tailscale is left alone. Pause it from the menu for a captive portal. ExitControl chooses which VPN server the exit node uses, for every device routed through it.")
@@ -44,14 +47,52 @@ struct GeneralTab: View {
                 Toggle("Show the exit country's flag in the menu bar", isOn: $settings.showFlag)
                 Toggle("Notifications (failover, degraded, key expiry)", isOn: $settings.notify)
                 Toggle("Launch at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.setLaunchAtLogin($0) }))
-                Toggle("Check for updates automatically", isOn: Binding(
+                Toggle("Check for updates at launch and daily", isOn: Binding(
                     get: { app.updater.automaticChecks }, set: { app.updater.setAutomaticChecks($0) }))
-                LabeledContent("Version", value: app.updater.version)
+                VersionRow(updater: app.updater)
                 if let e = app.agentError { Text(e).foregroundStyle(.red).font(.caption) }
             }
         }
         .formStyle(.grouped)
         .onAppear { url = settings.controllerURL }
+    }
+}
+
+/// The app's version, and its update as the menu shows it: "0.1.0" with Check Now, or
+/// "0.1.0 → 0.6.0" with Update (download, install, relaunch), then the download's progress.
+struct VersionRow: View {
+    let updater: Updater
+
+    var body: some View {
+        let u = updater.progress
+        LabeledContent("Version") {
+            switch u {
+            case .available(let v):
+                Text("\(updater.shortVersion) → \(v)")
+                if let notes = updater.releaseNotes { Link("Release Notes", destination: notes) }
+                Button("Update") { updater.act() }.buttonStyle(.borderedProminent)
+            case .downloading(let v, _, _), .extracting(let v, _):
+                Text("\(updater.shortVersion) → \(v)")
+                if let f = u.fraction {
+                    ProgressView(value: f).frame(width: 90)
+                    Text("\(Int(f * 100))%").monospacedDigit().foregroundStyle(.secondary)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            case .installing:
+                ProgressView().controlSize(.small)
+                Text("Installing and relaunching…").foregroundStyle(.secondary)
+            case .checking:
+                Text(updater.version)
+                ProgressView().controlSize(.small)
+            case .failed(let message):
+                Text(message).foregroundStyle(.red).lineLimit(1)
+                Button("Try Again") { updater.act(); updater.check() }
+            case .idle:
+                Text(updater.version)
+                Button("Check Now") { updater.check() }.disabled(!updater.canCheck)
+            }
+        }
     }
 }
 
@@ -112,12 +153,14 @@ struct RegionsTab: View {
 
 /// What every server must have, and the provider's levers (Proton: NetShield, VPN
 /// Accelerator, Moderate NAT, NAT-PMP). Levers are bound to the key, so applying them
-/// makes a new key for the exit slot.
+/// makes new keys for both exit tunnels (slots a and c). Also in the menu's Security Options.
 struct ConnectionTab: View {
     let app: AppContainer
     @State private var values: [String: String] = [:]
 
-    var current: [String: String] { app.provider.levers(slot: "a") }
+    var current: [String: String] {
+        app.provider.levers(slot: ProviderStore.activeSlot(standby: app.connection.status?.standby))
+    }
 
     var body: some View {
         let required = Set(app.connection.status?.prefs.require ?? [])
@@ -154,7 +197,7 @@ struct ConnectionTab: View {
             } header: {
                 Text("\(app.provider.provider.capitalized) options for the exit")
             } footer: {
-                Text("Applying makes a new key with these options and swaps it in (about 10 s; traffic pauses ~1–2 s). The controller keeps the old key if the new one does not work.")
+                Text("Applying makes new keys with these options for both tunnels, the standby's first, and swaps them in (about a minute; the active tunnel's traffic pauses ~1–2 s). The controller keeps an old key if its new one does not work.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
@@ -162,7 +205,7 @@ struct ConnectionTab: View {
                 if let e = app.runner.lastError ?? app.provider.error { Text(e).foregroundStyle(.red).font(.caption) }
                 Spacer()
                 Button("Revert") { values = current }.disabled(values == current)
-                Button("Apply") { app.run(.rotateKey(slot: "a", options: values)) }
+                Button("Apply") { app.applyLevers(values) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(values == current || !app.runner.isIdle || !app.provider.isLoggedIn)
             }

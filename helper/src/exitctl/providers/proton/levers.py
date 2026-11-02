@@ -6,16 +6,16 @@ from __future__ import annotations
 
 from ...model import Lever
 
-LEVERS = [
+LEVERS = [   # the dashboard's order (as the app lists them)
     Lever("netshield", "NetShield", "NetShield", "choice", 0,
           {0: "no filter", 1: "block malware", 2: "block malware, ads and trackers"},
           "DNS filtering by Proton's resolver (10.2.0.1)"),
-    Lever("accelerator", "VPN Accelerator", "VPN Accelerator", "bool", True,
-          help="Proton's TCP split (Features.SplitTCP)"),
     Lever("moderate_nat", "Moderate NAT", "Moderate NAT", "bool", False,
           help="stable external port mapping (Features.RandomNAT = off)"),
     Lever("port_forward", "NAT-PMP (Port Forwarding)", "NAT-PMP (Port Forwarding)", "bool", False,
           help="NAT-PMP port forwarding on P2P servers"),
+    Lever("accelerator", "VPN Accelerator", "VPN Accelerator", "bool", True,
+          help="Proton's TCP split (Features.SplitTCP)"),
 ]
 
 

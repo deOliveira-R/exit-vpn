@@ -105,7 +105,8 @@ the app runs it); `conftest.py` makes the fixtures (`proton`, `logged_in`, `run`
 | `ServerQueryTests.swift` | logic | filtering and ordering the server list |
 | `ActionRunnerTests.swift` | component | one change at a time: refuse or queue |
 | `ConnectionStoreTests.swift` | component | stream state, notifications, the bounded log |
-| `ProviderStoreTests.swift` | component | levers and keys from exitctl |
+| `ProviderStoreTests.swift` | component | levers and keys from exitctl; lever changes to both exit slots, standby first |
+| `UpdateProgressTests.swift` | logic | the menu's update item: available, download progress, release notes |
 | `LoginFlowTests.swift` | component | the login steps |
 | `ExitNodeTests.swift` | component | Tailscale status, the guard, the monitor |
 | `ProcessRunnerTests.swift` | boundary | output, stderr, timeouts |

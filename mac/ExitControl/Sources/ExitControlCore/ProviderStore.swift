@@ -69,6 +69,33 @@ public final class ProviderStore {
         return out
     }
 
+    /// The exit's key slots, by interface: wg0 runs slot a's key, wg1 slot c's (keys stay
+    /// with interfaces; the active and standby roles move between them at a handover).
+    public static let slotOfInterface = ["wg0": "a", "wg1": "c"]
+
+    /// The slot whose key carries the exit's traffic now: the one the standby does not use.
+    public static func activeSlot(standby: Standby?) -> String {
+        standby?.interface.flatMap { slotOfInterface[$0] } == "a" ? "c" : "a"
+    }
+
+    /// The exit slots that hold a key, standby first: lever changes go to both tunnels (else
+    /// a handover would drop them), the standby's first since its new key never touches
+    /// forwarded traffic.
+    public func exitSlots(standby: Standby?) -> [String] {
+        let active = Self.activeSlot(standby: standby)
+        let other = active == "a" ? "c" : "a"
+        return [other, active].filter { s in keys.contains { $0.slot == s && $0.publicKey != nil } }
+    }
+
+    /// The exit's lever values with one changed, in flag form; nil when the levers are not
+    /// known yet (exitctl or the node not loaded).
+    public func levers(changing key: String, to value: String, standby: Standby?) -> [String: String]? {
+        var values = levers(slot: Self.activeSlot(standby: standby))
+        guard !values.isEmpty else { return nil }
+        values[key] = value
+        return values
+    }
+
     func setForTests(options: [ProviderOption], keys: [KeySlot]) {
         self.options = options; self.keys = keys
     }

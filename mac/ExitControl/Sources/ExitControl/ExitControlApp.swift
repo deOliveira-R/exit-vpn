@@ -35,6 +35,7 @@ struct ExitControlApp: App {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppContainer.shared.updater.start()   // Sparkle's scheduled checks
+        UpdateMenuItem.install(updater: AppContainer.shared.updater)
     }
 
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
@@ -47,7 +48,7 @@ struct ExitControlApp: App {
 /// A menu-bar app has no Dock icon, so its windows must pull the app forward.
 @MainActor func bringToFront() { NSApp.activate() }
 
-/// The menu-bar icon (shield by health, optional flag). It is always on screen, so it also
+/// The menu-bar icon (shield by health, optional flag, an arrow while an update waits). It is always on screen, so it also
 /// opens the windows the router asks for.
 struct MenuBarLabel: View {
     let app: AppContainer
@@ -61,6 +62,7 @@ struct MenuBarLabel: View {
             if app.settings.showFlag, app.connection.online, let st {
                 Text(flag(st.exitLoc ?? st.country.flatMap { app.catalog.codes[$0] }))
             }
+            if app.updater.progress.isPending { Image(systemName: "arrow.down.circle") }   // as Tailscale's badge
         }
         .onChange(of: app.router.request) { _, r in
             if let r { openWindow(id: r.route.windowID); bringToFront() }

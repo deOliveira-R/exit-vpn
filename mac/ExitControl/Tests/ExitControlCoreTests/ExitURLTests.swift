@@ -34,6 +34,7 @@ private func parse(_ s: String) -> ExitURL? { ExitURL(URL(string: s)!) }
 
 @Test func refreshIsAnActionAndOtherURLsAreRejected() {
     #expect(parse("exitvpn://refresh") == .refresh)
+    #expect(parse("exitvpn://update") == .update)
     #expect(parse("https://rotate") == nil)
     #expect(parse("exitvpn://launch-missiles") == nil)
 }

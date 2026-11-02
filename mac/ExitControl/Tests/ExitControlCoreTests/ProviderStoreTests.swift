@@ -18,3 +18,33 @@ import Testing
     let p = try providerStore(meta: "{}")
     #expect(p.levers(slot: "b") == [:])
 }
+
+// Component: lever changes reach both exit tunnels, so a handover keeps them.
+
+func standby(on interface: String) throws -> Standby {
+    try ControllerClient.decoder.decode(Standby.self, from: Data(#"{"state":"ready","interface":"\#(interface)"}"#.utf8))
+}
+
+@MainActor @Test func theActiveSlotIsTheOneTheStandbyDoesNotUse() throws {
+    #expect(ProviderStore.activeSlot(standby: nil) == "a")
+    #expect(ProviderStore.activeSlot(standby: try standby(on: "wg1")) == "a")
+    #expect(ProviderStore.activeSlot(standby: try standby(on: "wg0")) == "c")
+}
+
+@MainActor @Test func leverChangesGoToTheStandbyFirstThenTheActiveAndOnlyToKeyedSlots() throws {
+    let p = try providerStore(meta: "{}")
+    #expect(p.exitSlots(standby: try standby(on: "wg1")) == ["a"])   // slot c has no key
+    let c = try ControllerClient.decoder.decode(KeySlot.self, from: Data(#"""
+    {"slot":"c","role":"standby","source":"uploaded","public_key":"k2","options":{},"meta":{},"expires_in_days":null}
+    """#.utf8))
+    p.setForTests(options: p.options, keys: p.keys + [c])
+    #expect(p.exitSlots(standby: try standby(on: "wg1")) == ["c", "a"])
+    #expect(p.exitSlots(standby: try standby(on: "wg0")) == ["a", "c"])
+}
+
+@MainActor @Test func aLeverChangeKeepsTheActiveSlotsOtherLevers() throws {
+    let p = try providerStore(meta: "{}")
+    #expect(p.levers(changing: "netshield", to: "2", standby: nil)
+            == ["netshield": "2", "accelerator": "off", "moderate_nat": "off"])
+    #expect(ProviderStore().levers(changing: "netshield", to: "2", standby: nil) == nil)
+}

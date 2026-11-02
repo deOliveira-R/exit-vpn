@@ -37,6 +37,7 @@ final class AppContainer {
         connection.onConnected = { [weak self] in
             Log.info("connected")
             Task { await self?.catalog.loadIfEmpty() }
+            Task { await self?.loadProviderIfEmpty() }   // the menu's levers
         }
         connection.onEvent = { [weak self] ev in
             Log.info("event \(ev.summary)")
@@ -93,6 +94,31 @@ final class AppContainer {
         }
     }
 
+    /// One lever changed from the menu (the active tunnel's other levers kept).
+    func setLever(_ key: String, _ value: String) {
+        let standby = connection.status?.standby
+        guard let values = provider.levers(changing: key, to: value, standby: standby) else { return }
+        let o = provider.options.first { $0.key == key }
+        let shown = o?.isToggle == false ? (o?.choices[value] ?? value) : value
+        applyLevers(values, label: "\(o?.label ?? key): \(shown)")
+    }
+
+    /// Levers are bound to the key: new keys with `values` for both exit tunnels, the
+    /// standby's first (it never touches forwarded traffic), so a handover keeps them.
+    func applyLevers(_ values: [String: String], label: String = "New keys with options") {
+        let slots = provider.exitSlots(standby: connection.status?.standby)
+        Task {
+            Log.info("provider \(label) on slots \(slots)")
+            _ = try? await runner.submit(label) {
+                for slot in slots { try await self.provider.perform(.rotateKey(slot: slot, options: values)) }
+            }
+        }
+    }
+
+    private func loadProviderIfEmpty() async {
+        if provider.options.isEmpty || provider.keys.isEmpty { await provider.load() }
+    }
+
     func toggleFavorite(_ name: String) {
         guard let current = connection.status?.prefs.favorites else { return }
         let isFavorite = current.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
@@ -114,6 +140,7 @@ final class AppContainer {
         case .direct(let minutes): goDirect(for: TimeInterval(minutes * 60))
         case .useExitNode: exitGuard.resume()
         case .refresh: Task { await connection.refresh(); await catalog.load() }
+        case .update: updater.check(install: true)
         }
     }
 

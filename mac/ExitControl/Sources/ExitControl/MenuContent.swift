@@ -17,23 +17,13 @@ struct MenuContent: View {
         Divider()
         regionsSection
         Divider()
-        Toggle("Secure Core", isOn: Binding(
-            get: { app.connection.status?.prefs.secureCore ?? false },
-            set: { app.run(.secureCore($0)) }))
-            .disabled(!app.ready)
-        Toggle("Automatic Failover", isOn: Binding(
-            get: { app.connection.status?.prefs.autoFailover ?? true },
-            set: { app.run(.autoFailover($0)) }))
-            .disabled(!app.ready)
+        securityOptions
         Divider()
         Button("Server Browser…") { open(.servers) }.keyboardShortcut("b")
         Button("Find Server for URL…") { open(.find) }.keyboardShortcut("f")
-        Button("Event Log…") { open(.settings(.events)) }.keyboardShortcut("l")
-        Button("Open Status JSON") { app.openStatusJSON() }.disabled(!app.connection.online)
         Divider()
+        updateSection
         Button("Settings…") { open(.settings(.general)) }.keyboardShortcut(",")
-        Button("Check for Updates…") { app.updater.check() }.disabled(!app.updater.canCheck)
-        Text("ExitControl \(app.updater.version)")
         Button("Quit ExitControl") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 
@@ -41,6 +31,63 @@ struct MenuContent: View {
         if case .settings(let tab) = route { app.router.settingsTab = tab }
         openWindow(id: route.windowID)
         bringToFront()
+    }
+
+    /// The exit's switches: the controller's (failover, Secure Core) and the provider's levers
+    /// (Proton: NetShield, Moderate NAT, NAT-PMP, VPN Accelerator), which are bound to the key:
+    /// changing one makes new keys for both exit tunnels.
+    @ViewBuilder var securityOptions: some View {
+        let p = app.provider
+        let standby = app.connection.status?.standby
+        let levers = p.levers(slot: ProviderStore.activeSlot(standby: standby))
+        let canChange = app.runner.isIdle && p.isLoggedIn && !levers.isEmpty
+        Menu("Security Options") {
+            Toggle("Automatic Failover", isOn: Binding(
+                get: { app.connection.status?.prefs.autoFailover ?? true },
+                set: { app.run(.autoFailover($0)) }))
+                .disabled(!app.ready)
+            Toggle("Secure Core", isOn: Binding(
+                get: { app.connection.status?.prefs.secureCore ?? false },
+                set: { app.run(.secureCore($0)) }))
+                .disabled(!app.ready)
+            Divider()
+            ForEach(p.options) { o in
+                if o.isToggle {
+                    Toggle(o.label, isOn: Binding(get: { levers[o.key] == "on" },
+                                                  set: { app.setLever(o.key, $0 ? "on" : "off") }))
+                        .disabled(!canChange)
+                } else {
+                    Menu(o.label) {
+                        ForEach(o.sortedChoices, id: \.value) { c in
+                            Toggle(c.label.prefix(1).uppercased() + c.label.dropFirst(), isOn: Binding(
+                                get: { levers[o.key] == c.value },
+                                set: { if $0 { app.setLever(o.key, c.value) } }))
+                        }
+                    }
+                    .disabled(!canChange)
+                }
+            }
+            if p.options.isEmpty {
+                Text(p.error ?? "Loading the provider's options…")
+            } else if !p.isLoggedIn {
+                Text("Log in under Settings → Account to change these")
+            } else {
+                Text("Changing these makes new keys for both tunnels (about a minute)")
+            }
+        }
+    }
+
+    /// Like Tailscale's menu: a found update is one click away, then its download shows here
+    /// (the item's view: UpdateMenuItem).
+    @ViewBuilder var updateSection: some View {
+        let u = app.updater.progress
+        if u.title != nil {
+            Button(UpdateMenuItem.placeholder) { app.updater.act() }
+            if u.version != nil, let notes = app.updater.releaseNotes {
+                Button("Release Notes") { NSWorkspace.shared.open(notes) }
+            }
+            Divider()
+        }
     }
 
     @ViewBuilder var statusSection: some View {
@@ -128,3 +175,4 @@ struct MenuContent: View {
 
     func code(_ country: String) -> String? { app.catalog.codes[country] }
 }
+

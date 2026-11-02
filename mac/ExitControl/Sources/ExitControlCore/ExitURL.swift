@@ -11,12 +11,15 @@ import Foundation
 ///                                     then uses the exit node again (the menu's "Go Direct")
 ///     exitvpn://exitnode              this Mac uses the exit node again now
 ///     exitvpn://refresh
+///     exitvpn://update                checks for an app update and installs one it finds
+///                                     (relaunching), as the menu's update item does
 public enum ExitURL: Equatable, Sendable {
     case open(AppRoute)
     case run(ControllerCommand)
     case direct(minutes: Int)
     case useExitNode
     case refresh
+    case update
 
     public static let scheme = "exitvpn"
 
@@ -49,6 +52,8 @@ public enum ExitURL: Equatable, Sendable {
             self = .useExitNode
         case "refresh":
             self = .refresh
+        case "update":
+            self = .update
         default:
             return nil
         }
