@@ -51,6 +51,15 @@ async def test_api_responses(catalog, tmp_path, monkeypatch):
         assert job["state"] == "done" and job["results"], job
         shape.check("controller/find_job", job)
 
+        job = c.post("/v1/survey", json={"servers": 2, "seconds": 60}).json()
+        for _ in range(200):
+            job = c.get(f"/v1/survey/{job['job_id']}").json()
+            if job["state"] != "running":
+                break
+            await asyncio.sleep(0.01)
+        assert job["state"] == "done" and len(job["results"]) == 2, job
+        shape.check("controller/survey_job", job)
+
 
 async def test_prober_requests_match_the_sample(catalog, monkeypatch):
     sent = []
@@ -66,3 +75,6 @@ async def test_prober_requests_match_the_sample(catalog, monkeypatch):
                                                    forbid_ips=["192.0.2.9"])
     shape.check("prober/probe_request", sent[0])
     assert r["outcome"] == "ok"
+    await ProberClient("http://prober").measure(srv, country_code="US", seconds=60,
+                                                forbid_ips=["192.0.2.9"])
+    shape.check("prober/measure_request", sent[1])

@@ -98,6 +98,12 @@ class CatalogBody(BaseModel):
     servers: list[PushedServer] = Field(max_length=20000)
 
 
+class SurveyBody(BaseModel):
+    countries: list[str] = []        # default: the exit's country
+    servers: int = 10
+    seconds: int = 60
+
+
 class KeyBody(BaseModel):
     conf: str = Field(max_length=MAX_CONF_BYTES)
     meta: KeyMeta = KeyMeta()
@@ -183,6 +189,29 @@ def create_app(node: Node, whois: Whois, owners: list[str]) -> FastAPI:
         except SwitchError as e:
             raise HTTPException(409, f"Secure Core unchanged: {e}") from None
         return p.view()
+
+    # Quality survey ---------------------------------------------------------------------
+    def survey_service():
+        if not node.survey:
+            raise HTTPException(503, "no prober configured")
+        return node.survey
+
+    @app.post("/v1/survey", status_code=202)
+    async def survey(body: SurveyBody, who: str = Depends(owner)):
+        return survey_service().start(body.countries, body.servers, body.seconds, who).view()
+
+    @app.get("/v1/survey/{job_id}")
+    async def survey_status(job_id: str, _: str = Depends(owner)):
+        job = survey_service().jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "no such survey")
+        return job.view()
+
+    @app.delete("/v1/survey/{job_id}")
+    async def survey_cancel(job_id: str, _: str = Depends(owner)):
+        if job_id not in survey_service().jobs:
+            raise HTTPException(404, "no such survey")
+        return survey_service().cancel(job_id).view()
 
     # Find a server for a URL ------------------------------------------------------------
     def find_service():

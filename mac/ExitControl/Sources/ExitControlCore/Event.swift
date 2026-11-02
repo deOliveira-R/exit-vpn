@@ -67,6 +67,17 @@ public struct Event: Codable, Hashable, Sendable {
             case "key_suspect": return "Standby stopped: its key carries no traffic"
             default: return "Standby: \(s("state"))"
             }
+        case "quality":
+            let reasons = data["reasons"]?.array?.compactMap(\.string) ?? []
+            return "\(s("role").capitalized) \(s("server")) quality: \(s("state"))"
+                + (reasons.isEmpty ? "" : " (\(reasons.joined(separator: ", ")))")
+        case "survey_started": return "Quality survey of \(s("servers")) servers started"
+        case "survey_done":
+            let counts = ["healthy", "degraded", "critical", "error"].compactMap { k -> String? in
+                guard let n = data[k]?.double, n > 0 else { return nil }
+                return "\(Int(n)) \(k)"
+            }
+            return "Quality survey done: " + (counts.isEmpty ? "\(s("servers")) servers" : counts.joined(separator: ", "))
         case "ipv6":
             return data["open"] == .bool(true) ? "IPv6 through the exit on \(s("server"))"
                                               : "IPv6 off on \(s("server")); apps use IPv4"

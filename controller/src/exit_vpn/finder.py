@@ -49,12 +49,14 @@ class FindJob:
 
 class FindService:
     def __init__(self, service: ExitService, client: ProberClient, events: EventBus,
-                 code_for: Callable[[str], str], forbid_ips: Callable[[], list[str]]):
+                 code_for: Callable[[str], str], forbid_ips: Callable[[], list[str]],
+                 prober_lock: asyncio.Lock | None = None):
         self.service, self.client, self.events = service, client, events
         self.code_for, self.forbid_ips = code_for, forbid_ips
         self.jobs: dict[str, FindJob] = {}
         self._ids = itertools.count(1)
-        self._lock = asyncio.Lock()   # one job at a time: the prober has one tunnel
+        # One job at a time: the prober has one tunnel (shared with surveys, survey.py)
+        self._lock = prober_lock or asyncio.Lock()
 
     def start(self, url: str, countries: list[str], max_candidates: int, mode: str, js: bool,
               who: str) -> FindJob:

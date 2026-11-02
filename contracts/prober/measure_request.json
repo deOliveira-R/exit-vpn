@@ -1,0 +1,12 @@
+{
+  "server": {
+    "name": "US-NY#5",
+    "ip": "198.51.100.5",
+    "pubkey": "cGVlcnB1YmtleXBlZXJwdWJrZXlwZWVycHViazU=",
+    "country_code": "US"
+  },
+  "seconds": 60,
+  "forbid_ips": [
+    "192.0.2.1"
+  ]
+}

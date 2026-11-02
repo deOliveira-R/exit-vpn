@@ -38,9 +38,22 @@ import Testing
 @Test func statusShowsTheStandbyAndNothingForNodesWithoutOne() throws {
     var st = try sample("controller/status", as: Status.self)
     #expect(st.standby?.interface == "wg1")
-    #expect(StatusText.standby(st) == "Standby US-NY#5 ready")
+    #expect(StatusText.standby(st) == "Standby US-NY#5 ready · degraded: 2.8% loss")
+    st.standby?.quality?.reasons = []
+    #expect(StatusText.standby(st) == "Standby US-NY#5 ready · 21 ms")
     st.standby?.state = "off"
     #expect(StatusText.standby(st) == "Standby off: slot c has no key")
     st.standby = nil
     #expect(StatusText.standby(st) == nil)
+}
+
+@Test func statusShowsTheActiveTunnelsQualityAndNothingForOlderNodes() throws {
+    var st = try sample("controller/status", as: Status.self)
+    #expect(StatusText.quality(st.quality) == "Quality: healthy · 21 ms · 0% loss · jitter 1 ms")
+    st.quality?.state = "degraded"; st.quality?.reasons = ["2.8% loss"]; st.quality?.loss = 0.028
+    #expect(StatusText.quality(st.quality) == "Quality: degraded (2.8% loss) · 21 ms")
+    st.quality?.state = "measuring"
+    #expect(StatusText.quality(st.quality) == "Quality: measuring…")
+    st.quality = nil
+    #expect(StatusText.quality(st.quality) == nil)
 }

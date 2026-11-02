@@ -119,6 +119,19 @@
       ]
     }
   },
+  "quality": {
+    "ts": 1000060.0,
+    "kind": "quality",
+    "role": "active",
+    "server": "US-NY#1",
+    "state": "degraded",
+    "reasons": [
+      "2.8% loss"
+    ],
+    "rtt_ms": 21.4,
+    "loss": 0.028,
+    "jitter_ms": 1.2
+  },
   "recovered": {
     "ts": 1000400.0,
     "kind": "recovered",
@@ -141,6 +154,25 @@
     "kind": "started",
     "server": "US-NY#723",
     "standby": "US-NY#5"
+  },
+  "survey_done": {
+    "ts": 1000900.0,
+    "kind": "survey_done",
+    "job": "s1-1000100",
+    "servers": 10,
+    "healthy": 7,
+    "degraded": 2,
+    "critical": 1,
+    "measuring": 0,
+    "error": 0
+  },
+  "survey_started": {
+    "ts": 1000100.0,
+    "kind": "survey_started",
+    "by": "o@github",
+    "job": "s1-1000100",
+    "servers": 10,
+    "seconds": 60
   },
   "swap_error": {
     "ts": 1000050.0,

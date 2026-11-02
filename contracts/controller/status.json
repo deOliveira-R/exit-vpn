@@ -13,6 +13,19 @@
   "load": null,
   "health": "starting",
   "health_since": 0.0,
+  "quality": {
+    "state": "healthy",
+    "since": 1000000.0,
+    "reasons": [],
+    "rtt_ms": 21.4,
+    "rtt_p90_ms": 24.0,
+    "rtt_min_ms": 19.8,
+    "jitter_ms": 1.2,
+    "loss": 0.0,
+    "https_ms": 180.5,
+    "dns_ms": 22.0,
+    "pings": 180
+  },
   "exit_ip": null,
   "exit_loc": null,
   "handshake_age": null,
@@ -26,7 +39,22 @@
     "city": "New York",
     "since": 1000030.0,
     "exit_ip": "9.9.9.8",
-    "interface": "wg1"
+    "interface": "wg1",
+    "quality": {
+      "state": "degraded",
+      "since": 1000000.0,
+      "reasons": [
+        "2.8% loss"
+      ],
+      "rtt_ms": 21.4,
+      "rtt_p90_ms": 24.0,
+      "rtt_min_ms": 19.8,
+      "jitter_ms": 1.2,
+      "loss": 0.028,
+      "https_ms": 180.5,
+      "dns_ms": 22.0,
+      "pings": 180
+    }
   },
   "prefs": {
     "regions": [

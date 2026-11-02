@@ -1,0 +1,11 @@
+{
+  "server": "US-NY#5",
+  "exit_ip": "203.0.113.7",
+  "exit_loc": "US",
+  "interval": 1.0,
+  "https_every": 5,
+  "pings": [21.4, 20.9, null, 22.0, 21.1],
+  "https": [182.5, null],
+  "error": "",
+  "elapsed_ms": 68210
+}

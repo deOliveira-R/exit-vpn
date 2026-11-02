@@ -54,6 +54,7 @@ public struct Status: Codable, Hashable, Sendable {
     public var errors: [String]
     public var warnings: [String]?
     public var standby: Standby?      // the tunnel kept ready for a handover; nil: none (older nodes too)
+    public var quality: TunnelQuality?   // the active tunnel's measured quality; nil from older nodes
     public var prefs: Prefs
     public var provider: String
     public var keyOptions: [String: String]?
@@ -76,6 +77,18 @@ public struct Standby: Codable, Hashable, Sendable {
     public var since: Double?
     public var exitIp: String?
     public var interface: String?
+    public var quality: TunnelQuality?   // while it holds a server
+}
+
+/// A tunnel's quality over the last few minutes (pings through it, its health checks).
+public struct TunnelQuality: Codable, Hashable, Sendable {
+    public var state: String          // measuring | healthy | degraded | critical
+    public var reasons: [String]
+    public var rttMs: Double?         // median ping
+    public var jitterMs: Double?
+    public var loss: Double           // 0...1
+    public var httpsMs: Double?
+    public var pings: Int
 }
 
 public struct Server: Codable, Hashable, Sendable, Identifiable {

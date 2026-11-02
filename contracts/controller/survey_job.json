@@ -1,0 +1,41 @@
+{
+  "job_id": "s1",
+  "state": "done",
+  "error": "",
+  "seconds": 60,
+  "progress": {
+    "done": 1,
+    "total": 1
+  },
+  "results": [
+    {
+      "server": "US-NY#5",
+      "ip": "198.51.100.5",
+      "country": "United States",
+      "city": "New York",
+      "load": 34,
+      "features": [
+        "port_forward"
+      ],
+      "exit_ip": "203.0.113.7",
+      "error": "",
+      "state": "healthy",
+      "reasons": [],
+      "pings": 60,
+      "lost": 0,
+      "loss": 0.0,
+      "recent_loss": 0.0,
+      "lost_in_row": 0,
+      "rtt_min": 19.8,
+      "rtt_p50": 21.4,
+      "rtt_p90": 24.0,
+      "jitter": 1.2,
+      "https_p50": 150.0,
+      "https_checks": 12,
+      "https_failed": 0,
+      "recent_https_failed": 0,
+      "recent_https_checks": 6,
+      "dns_p50": null
+    }
+  ]
+}

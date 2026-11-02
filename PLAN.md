@@ -1435,6 +1435,29 @@ Other findings:
 Host changes: `.env` `EXIT_IPV6=off`; image digests via rollout; the `keys-c` volume (from
 compose); the checkout at `/opt/exit-node` pulled to the deployed commit. Proton: one new
 certificate (slot c); test certificates deleted.
+
+**Q-2 plan (2026-11-01).** Measurement only: no quality state starts a change (Q-3, Q-4).
+- *Meters on both exit tunnels* (controller, `quality.py`): a ping each second through each
+  tunnel holding a server (a DNS query for a cached name to the server's own resolver at the
+  far end of the tunnel: RTT, loss, jitter) and the 5 s health cycles' timings (HTTPS check,
+  DNS lookup), over a 3-minute window. A meter starts empty on every new server or key (the
+  warm-up's losses are not the server's) and moves with its tunnel at a handover.
+- *States* (provisional thresholds, to calibrate): Critical: 5 pings lost in a row (a total
+  drop, seen in ~5 s instead of 3 failed cycles' ~15 s), ≥ 20 % loss over 30 s, or every HTTPS
+  check of the last 30 s failed. Degraded: ≥ 2 % loss, RTT p90 ≥ 100 ms above the window's
+  minimum (standing queues), jitter ≥ 30 ms, or median HTTPS check ≥ 2 s. Healthy otherwise;
+  measuring before 30 pings. Better states are reported after holding 10 s, worse at once.
+- *Seen in*: status (`quality`, `standby.quality`), `quality` events, the app's menu.
+- *Quality log* (`quality.jsonl` in the state volume, rotated at 8 MB): a summary per tunnel
+  each minute, and every survey result. For calibration only: the controller never reads it.
+- *Survey* (`POST /v1/survey`, `survey.py`; prober `POST /measure`): servers of a country
+  measured one at a time through the prober's tunnel (60 s each after a 5 s settle; never the
+  exit's server), judged by the same model, logged. Shares the prober with find jobs (a find
+  job waits at most one measurement).
+- *Calibration*: a few days of both tunnels plus surveys of the pinned countries at different
+  times of day; compare the states with the Mac monitor's drops and the owner's experience;
+  set the thresholds; record them here. **Done when** the states match what clients feel
+  (Critical ⇔ a drop the monitor sees, Degraded ⇔ measurably worse service).
 ---
 
 ## 7. Security model

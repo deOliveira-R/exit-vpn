@@ -298,3 +298,41 @@ def test_a_nudge_is_a_bare_ack_from_the_server_to_the_client():
     assert (sport, dport, seq, tcp_flags) == (443, 50001, 12345, 0x10)
     pseudo = pkt[12:20] + struct.pack("!BBH", 0, socket.IPPROTO_TCP, 20)
     assert flows._checksum(pseudo + pkt[20:]) == 0, "a valid TCP checksum"
+
+
+# Quality measurement ---------------------------------------------------------------------
+async def test_a_ping_asks_the_servers_resolver_through_the_tunnel_and_times_it(monkeypatch):
+    seen = []
+
+    async def exchange(server, name, source, timeout, device="", qtype=1):
+        seen.append((server, name, device, timeout))
+        return answer(5, name, [(1, bytes([192, 0, 2, 7]))]), 5
+    monkeypatch.setattr(probes, "dns_exchange", exchange)
+    p = HealthProbe("10.2.0.2", "10.2.0.1", ["https://a/"], "www.cloudflare.com", 1, 1, 180, device="wg1")
+    ms = await p.ping()
+    assert ms is not None and ms >= 0
+    assert seen == [("10.2.0.1", "www.cloudflare.com", "wg1", 1.0)]
+
+    async def lost(*a, **kw):
+        raise TimeoutError
+    monkeypatch.setattr(probes, "dns_exchange", lost)
+    assert await p.ping() is None
+
+
+async def test_a_cycle_reports_the_fastest_passing_https_check_and_the_dns_time(monkeypatch):
+    async def https(url, source, timeout, **kw):
+        return ("good" in url), {}, "" if "good" in url else f"{url}: timeout"
+
+    async def dns(*a, **kw):
+        return True, ""
+    monkeypatch.setattr(probes, "https_probe", https)
+    monkeypatch.setattr(probes, "dns_probe", dns)
+    p = HealthProbe("10.2.0.2", "10.2.0.1", ["https://good/", "https://bad/"], "x", 1, 1, 180)
+    r = await p.cycle(1000, now=1001)
+    assert r.https_ms is not None and r.dns_ms is not None
+
+    async def https_fail(url, source, timeout, **kw):
+        return False, {}, "timeout"
+    monkeypatch.setattr(probes, "https_probe", https_fail)
+    r = await p.cycle(1000, now=1001)
+    assert r.https_ms is None and not r.ok

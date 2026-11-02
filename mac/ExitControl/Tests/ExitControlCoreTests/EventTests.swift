@@ -30,6 +30,8 @@ import Testing
     let samples = try sample("controller/events", as: [String: Event].self)
     #expect(try #require(samples["handover"]).summary == "Handed over US-NY#723 → US-NY#5 (standby, instant)")
     #expect(try #require(samples["standby"]).summary == "Standby ready on US-NY#5")
+    #expect(try #require(samples["survey_done"]).summary == "Quality survey done: 7 healthy, 2 degraded, 1 critical")
+    #expect(try #require(samples["quality"]).summary == "Active US-NY#1 quality: degraded (2.8% loss)")
     let lost = try ControllerClient.decoder.decode(Event.self, from: Data("""
         {"ts":1,"kind":"standby","state":"lost","server":"US-NY#5","reason":"x"}
         """.utf8))

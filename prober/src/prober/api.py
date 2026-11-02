@@ -1,5 +1,6 @@
 """Prober API on the stack's internal network (exitnet:9000; nftables admits only the exit
-container). Request and response: contracts/prober/. The work is `probe.Prober`."""
+container). Request and response: contracts/prober/. The work is `probe.Prober` (a URL
+through a server) and `measure.Measurer` (a server's quality)."""
 
 from __future__ import annotations
 
@@ -8,10 +9,11 @@ import logging
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .engines import BrowserEngine
 from .keyfile import KeyFileError
+from .measure import Measurer
 from .model import Target
 from .probe import Prober
 from .tunnel import TunnelError
@@ -34,7 +36,13 @@ class ProbeRequest(BaseModel):
     forbid_ips: list[str] = []  # exit IPs that prove the tunnel is not in use (the host's own)
 
 
-def create_app(prober: Prober, browser: BrowserEngine) -> FastAPI:
+class MeasureRequest(BaseModel):
+    server: TargetBody
+    seconds: int = Field(60, ge=10, le=300)
+    forbid_ips: list[str] = []
+
+
+def create_app(prober: Prober, browser: BrowserEngine, measurer: Measurer | None = None) -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(_app):
         yield
@@ -62,5 +70,13 @@ def create_app(prober: Prober, browser: BrowserEngine) -> FastAPI:
         result = await prober.run(Target(s.name, s.ip, s.pubkey, s.country_code), req.url,
                                   req.mode, req.js, req.forbid_ips)
         return result.to_dict()
+
+    @app.post("/measure")
+    async def measure(req: MeasureRequest):
+        if measurer is None:
+            raise HTTPException(404, "no measurer")
+        s = req.server
+        return await measurer.run(Target(s.name, s.ip, s.pubkey, s.country_code), req.seconds,
+                                  req.forbid_ips)
 
     return app

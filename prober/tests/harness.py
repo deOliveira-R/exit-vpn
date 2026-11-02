@@ -99,9 +99,9 @@ class FakeRun:
         return ""
 
 
-async def request(p: Prober, method: str, path: str, body=None) -> httpx.Response:
+async def request(p: Prober, method: str, path: str, body=None, measurer=None) -> httpx.Response:
     """One request to the prober's HTTP layer, in process."""
-    app = create_app(p, p.browser)
+    app = create_app(p, p.browser, measurer)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         return await c.request(method, path, json=body)
 
@@ -113,3 +113,28 @@ def trace_fetch(*answers):
     async def fetch(url, timeout):
         return queue.pop(0) if len(queue) > 1 else queue[0]
     return fetch
+
+
+class Pings:
+    """A measurer's ping: the given RTTs (None: lost) in turn, then 20 ms."""
+
+    def __init__(self, *rtts):
+        self.rtts, self.calls = list(rtts), 0
+
+    async def __call__(self):
+        self.calls += 1
+        return self.rtts.pop(0) if self.rtts else 20.0
+
+
+def measurer(p: Prober, pings=None, https=(200, "ip=1", "")):
+    """A Measurer on prober `p` with no real waiting (a fake clock that sleeps advance)."""
+    from prober.measure import Measurer
+    t = [0.0]
+
+    async def fetch(url, timeout):
+        t[0] += 0.15
+        return https
+
+    async def sleep(seconds):
+        t[0] += seconds
+    return Measurer(p, fetch, pings or Pings(), clock=lambda: t[0], sleep=sleep)

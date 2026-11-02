@@ -91,22 +91,24 @@ Shared between the shell scripts and Python, and tested on both sides:
 | Prefs | `prefs` | Pinned regions in order, Secure Core mode, automatic failover, required features, favourites. Immutable: `updated()` validates a change against the catalog and returns a new Prefs. |
 | State | `state` | `TunnelServer` (the server a tunnel talks to, with the profile of features a pick keeps), the active and standby ones, and `Blacklist` (recently failed keys). |
 | Selection | `selection` | Pure functions that order candidates: failover, rotation, region and exact picks, Secure Core switches, find. One set of rules (eligibility, tiers, favourites, profile, load). |
+| Quality | `quality` | A tunnel's server quality from live measurement only (no server history): `QualityMeter` (pings and health-cycle timings over a sliding window → `Summary`: RTT, loss, jitter, HTTPS and DNS times), `assess` (measuring, healthy, degraded, critical, with reasons; provisional `Thresholds`), `QualityTracker` (worse states at once, better ones after a dwell). |
 | Health | `health` | `HealthTracker` (starting → healthy ⇄ suspect → failing over → degraded), `Backoff`, and `IPv6Gate` (closed on every server or key change, open after one good IPv6 probe, closed after three failed in a row; after a close on the same server, reopened only after 3, 6, 12, then 24 good probes in a row). |
 
 **Services** (async, own the lock, get their collaborators injected):
 
 | Concept | Module | Responsibilities |
 |---|---|---|
-| ExitService | `service` | The two tunnels and their roles, prefs, blacklist and catalog. Runs the active health cycle (`step`: a failing active tunnel is handed over to a standby that passes a fresh check; if the standby fails too, the uplink is suspected and nothing changes for up to `uplink_hold`; without a standby, failover and degraded retry), the standby cycle (`standby_step`: keep it on a fitting server of the active server's country, find another when it fails or no longer fits), and the owner's changes (rotate, select, find: made on the standby, then handed over; update_prefs, replace catalog, replace a tunnel's key). `snapshot()` is the status. |
-| Tunnel | `tunnel` | One exit tunnel (wg0 or wg1), the only code that changes its interface: check health, try a peer, try a private key. Each is judged by real traffic, never by a handshake. On the active tunnel each cycle's IPv6 probe feeds the IPv6 gate, which every peer or key change and every handover closes first. |
+| ExitService | `service` | The two tunnels and their roles, prefs, blacklist and catalog. Runs the active health cycle (`step`: a failing active tunnel is handed over to a standby that passes a fresh check; if the standby fails too, the uplink is suspected and nothing changes for up to `uplink_hold`; without a standby, failover and degraded retry), the quality cycle (`quality_step`, each second: ping both tunnels, judge them, `quality` events, the quality log), the standby cycle (`standby_step`: keep it on a fitting server of the active server's country, find another when it fails or no longer fits), and the owner's changes (rotate, select, find: made on the standby, then handed over; update_prefs, replace catalog, replace a tunnel's key). `snapshot()` is the status. |
+| Tunnel | `tunnel` | One exit tunnel (wg0 or wg1), the only code that changes its interface: check health, try a peer, try a private key. Each is judged by real traffic, never by a handshake. It owns its server's quality meter (pings, cycle timings), emptied on every new server or key and moved with the tunnel at a handover. On the active tunnel each cycle's IPv6 probe feeds the IPv6 gate, which every peer or key change and every handover closes first. |
 | EventBus | `events` | Every event: logged, kept (last 50, `events.json`), sent to SSE subscribers. |
 | KeySlots | `slots` | Uploading keys. Slots a and c are tried on their tunnel (wg0, wg1), then saved; a first slot c key brings the standby up. Slot b is saved, then the prober reloads it and tests it. |
 | FindService | `finder` | "Find a server for this URL" jobs, run through the prober one at a time. |
+| SurveyService | `survey` | Quality surveys: servers measured through the prober (sharing its lock with find jobs, per server), judged by the quality model, logged for calibrating the thresholds. Never switches anything. |
 | CatalogSource | `catalog_source` | Where the catalog comes from: cache, pinned download, or a validated push. |
 
 **Adapters**:
 - `wg`: the `wg` CLI.
-- `probes.HealthProbe`: HTTPS, DNS and handshake checks bound to the tunnel's interface (both
+- `probes.HealthProbe`: the quality ping (a DNS query to the server's own resolver), HTTPS, DNS and handshake checks (timed), all bound to the tunnel's interface (both
   tunnels share one address), and on the active tunnel an
   IPv6 check bound to its IPv6 address (reported apart: it never decides health; it has its own,
   longer timeout and runs across cycles, so a slow first IPv6 connection neither fails it nor
@@ -118,7 +120,9 @@ Shared between the shell scripts and Python, and tested on both sides:
   reset at once, instead of waiting for data that can no longer arrive.
 - `prober_client`: the prober's HTTP API.
 - `auth`: whois.
-- `persistence`: `state.json`, `peer.env`, `standby.env`, `events.json`, `catalog.json`.
+- `persistence`: `state.json`, `peer.env`, `standby.env`, `events.json`, `catalog.json`, and
+  `quality.jsonl` (`QualityLog`: a summary per tunnel each minute and every survey result;
+  never read back).
 - `keys.KeyStore`: the key files.
 - `api`: input shapes; errors mapped to HTTP (PolicyError → 400, SwitchError → 409).
 
@@ -132,7 +136,8 @@ api ──► ExitService ──► Tunnel ×2 (active, standby) ──► WireG
  │        ├──► EventBus ──► EventStore, SSE subscribers
  │        └──► StateStore, CatalogCache
  ├──► KeySlots ──► ExitService.replace_exit_key, KeyStore, ProberClient
- ├──► FindService ──► ExitService.find_candidates / switch_to, ProberClient
+ ├──► FindService ──► ExitService.find_candidates / switch_to, ProberClient ─┐ prober_lock
+ ├──► SurveyService ──► ExitService.survey_candidates, ProberClient, QualityLog ┘
  └──► CatalogSource
 ```
 
@@ -158,8 +163,9 @@ Rules worth knowing:
 | ProbeTunnel | `tunnel` | wg-probe peer control; `session()` always detaches. |
 | KeyFile | `keyfile` | Slot b's key: uploaded, else bootstrap (the same choice as `entrypoint.sh`). |
 | Prober | `probe` | One probe, start to finish, under the lock; `needs_browser` is the escalation policy. |
+| Measurer | `measure` | A server's quality samples for a survey, under the same lock: attach, exit check, settle, then a ping each second (DNS to the server's resolver) and an HTTPS check every fifth; judged by the controller. |
 
-`api` maps the HTTP request onto `Prober.run`; `__main__` builds the parts. The prober's
+`api` maps the HTTP requests onto `Prober.run` and `Measurer.run`; `__main__` builds the parts. The prober's
 netns has its own kill switch: everything leaves through wg-probe or not at all. It is IPv4
 only (its IPv6 table holds just an unreachable route): probes judge the IPv4 exit.
 

@@ -168,3 +168,28 @@ def find_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
         if len(out) >= limit:
             break
     return out
+
+
+def survey_candidates(servers: list[Server], current: Server | None, prefs: Prefs,
+                      countries: list[str], limit: int, rng: random.Random) -> list[Server]:
+    """Servers for a quality survey (calibration): eligible ones in these countries (default:
+    the current one), blacklisted ones included (their quality is part of the picture), cities
+    interleaved at random so a short survey still spans the country; never the active server
+    (the prober must not share it)."""
+    order = list(countries) or ([current.country] if current and current.country else [])
+    wanted = {c.lower() for c in order}
+    pool = [s for s in _pool(servers, current, prefs, set(), [])
+            if s.country.lower() in wanted]
+    by_city: dict[tuple[str, str], list[Server]] = {}
+    for s in pool:
+        by_city.setdefault((s.country, s.city), []).append(s)
+    for lst in by_city.values():
+        rng.shuffle(lst)
+    cities = list(by_city)
+    rng.shuffle(cities)
+    out: list[Server] = []
+    while any(by_city.values()) and len(out) < limit:
+        for c in cities:
+            if by_city[c] and len(out) < limit:
+                out.append(by_city[c].pop(0))
+    return out

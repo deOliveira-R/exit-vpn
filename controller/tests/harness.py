@@ -2,7 +2,7 @@
 tunnels (wg0; with `standby=True` also wg1), fake health probes, a fake route and a fake
 clock. Traffic works unless the peer's public key or the interface's private key is marked
 dead, or the uplink is down (`World`, shared by both tunnels); IPv6 works too unless the peer
-is marked as without IPv6. Also the builders and fakes the tests share:
+is marked as without IPv6. Pings answer in 20 ms (`World.rtt` per peer) while traffic works. Also the builders and fakes the tests share:
 WireGuard configs and keys, pushed catalog rows, a scripted prober, an owner-only whois."""
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ class World:
         self.dead_peers, self.dead_keys = set(), set()
         self.no_ipv6 = set()   # peers whose IPv6 drops (servers without IPv6)
         self.uplink_down = False
+        self.rtt: dict[str, float] = {}   # a peer's ping time (ms); 20 when not set
 
 
 class FakeWg:
@@ -85,6 +86,10 @@ class FakeHealth:
                            [] if ok else ["https: timeout"], v6, "2001:db8::9" if v6 else None,
                            "" if v6 or v6 is None else "ipv6: ConnectTimeout")
 
+    async def ping(self, timeout=1.0):
+        """The peer's RTT, None while traffic fails (tests move the clock per quality step)."""
+        return self.wg.world.rtt.get(self.wg.peer.pubkey, 20.0) if self.wg.works() else None
+
     def reset_ipv6(self):
         pass
 
@@ -111,11 +116,23 @@ class FakeProberClient:
     def __init__(self, keys: KeyStore, answer: dict | None = None):
         self.keys, self.answer, self.reloads, self.dead, self.key = keys, answer, 0, set(), None
         self.probes = []
+        self.measured, self.measures = [], {}
 
     async def reload_key(self):
         self.reloads += 1
         self.key = self.keys.current("b").private_key
         return {"ok": True}
+
+    async def measure(self, srv, *, country_code, seconds, forbid_ips=()):
+        """Steady 20 ms pings, or the server's `measures[name]` answer (a dict merged in, or
+        an exception raised)."""
+        self.measured.append((srv.name, country_code, seconds))
+        a = self.measures.get(srv.name, {})
+        if isinstance(a, Exception):
+            raise a
+        return {"server": srv.name, "exit_ip": "203.0.113.7", "exit_loc": country_code,
+                "interval": 1.0, "https_every": 5, "pings": [20.0] * seconds,
+                "https": [150.0] * (seconds // 5), "error": "", "elapsed_ms": seconds * 1000, **a}
 
     async def probe(self, srv, *, country_code, url, mode="auto", js=False, forbid_ips=()):
         self.probes.append((srv.name, country_code, tuple(forbid_ips)))

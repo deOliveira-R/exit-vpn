@@ -24,6 +24,11 @@ Active health cycle (`step`, every `health_interval` seconds):
 - IPv6: the active tunnel's IPv6 gate opens and closes with its own probe (`Tunnel`); an
   `ipv6` event reports each change as seen after a cycle or a switch. It never starts a change.
 
+Quality (`quality_step`, every `ping_interval`): both tunnels with a server are pinged and
+their quality judged (`quality`); a `quality` event reports each change of a tunnel's state,
+and the quality log keeps a summary per tunnel each `quality_log_interval` (for calibrating
+the thresholds). Measurement only: no quality state starts a change yet.
+
 Standby cycle (`standby_step`, same interval): the standby is checked; it searches another
 server when it has none, when its server no longer fits (outside the active server's
 country, not eligible, blacklisted, or the active server itself), or when its own checks
@@ -58,7 +63,7 @@ from .config import Settings
 from .errors import PolicyError, SwitchError
 from .events import EventBus
 from .health import Backoff, Health
-from .persistence import CatalogCache, StateStore
+from .persistence import CatalogCache, QualityLog, StateStore
 from .prefs import Prefs
 from .routes import ActiveRoute, RouteError
 from .servers import Region, Server, common_features
@@ -85,6 +90,7 @@ class ExitService:
                  store: StateStore, events: EventBus, exit_conf: WgConf, *,
                  standby: Tunnel | None = None, route: ActiveRoute | None = None,
                  catalog_cache: CatalogCache | None = None,
+                 quality_log: QualityLog | None = None,
                  clock: Callable[[], float] = time.time, rng: random.Random | None = None):
         self.s, self.tunnel, self.catalog = settings, tunnel, catalog   # tunnel: the active one
         self.standby = standby   # the standby tunnel (None: this exit has no second interface)
@@ -108,6 +114,8 @@ class ExitService:
         # status warnings from other parts (key expiry): callables of `now`
         self.warning_sources: list[Callable[[float], list[str]]] = []
         self._ipv6_reported = False   # the gate as the last `ipv6` event told it
+        self.quality_log = quality_log
+        self._next_quality_log = 0.0
 
     @property
     def health(self) -> Health:
@@ -181,9 +189,11 @@ class ExitService:
 
     # Health -------------------------------------------------------------------------
     async def run(self) -> None:
-        await asyncio.gather(self._loop(self._active_cycle), self._loop(self.standby_step))
+        await asyncio.gather(self._loop(self._active_cycle), self._loop(self.standby_step),
+                             self._loop(self.quality_step, self.s.ping_interval))
 
-    async def _loop(self, cycle) -> None:
+    async def _loop(self, cycle, interval: float | None = None) -> None:
+        interval = self.s.health_interval if interval is None else interval
         while True:
             started = self.clock()
             try:
@@ -192,7 +202,7 @@ class ExitService:
                 log.exception("health loop error")
             # Fixed cadence: a failing cycle already spent its probe timeouts, so waiting a
             # full interval on top would stretch 3 strikes from ~15 s to ~24 s.
-            await asyncio.sleep(max(0.5, self.s.health_interval - (self.clock() - started)))
+            await asyncio.sleep(max(min(0.5, interval), interval - (self.clock() - started)))
 
     async def _active_cycle(self) -> None:
         if self.health == Health.DEGRADED:
@@ -233,6 +243,46 @@ class ExitService:
                 await self._failover(reason)
         elif need:
             self.events.publish("unhealthy_no_failover", errors=res.errors)
+
+    # Quality --------------------------------------------------------------------------
+    def _measured(self) -> list[tuple[str, Tunnel, TunnelServer | None]]:
+        """The tunnels whose quality is measured now: the active one, and the standby while
+        it holds a server (not while it searches one)."""
+        out = [("active", self.tunnel, self.state.active)]
+        if self.standby_on() and self.state.standby is not None and not self.standby_searching:
+            out.append(("standby", self.standby, self.state.standby))
+        return out
+
+    async def quality_step(self) -> None:
+        """One ping on each measured tunnel, then each one's quality judged."""
+        tunnels = self._measured()
+        await asyncio.gather(*(t.ping() for _, t, _ in tunnels))
+        for role, t, srv in tunnels:
+            if t.assess_quality():
+                sm = t.quality_summary
+                self.events.publish("quality", role=role, server=srv.name if srv else None,
+                                    state=str(t.quality_state), reasons=t.quality.reasons,
+                                    rtt_ms=_r(sm.rtt_p50), loss=round(sm.loss, 3),
+                                    jitter_ms=_r(sm.jitter))
+        now = self.clock()
+        if self.quality_log and now >= self._next_quality_log:
+            self._next_quality_log = now + self.s.quality_log_interval
+            for role, t, srv in tunnels:
+                self.quality_log.append({
+                    "ts": round(now), "role": role, "interface": t.ifname,
+                    "server": srv.name if srv else None, "country": srv.country if srv else None,
+                    "city": srv.city if srv else None, "state": str(t.quality_state),
+                    "reasons": t.quality.reasons, **t.quality_summary.view()})
+
+    @staticmethod
+    def quality_view(t: Tunnel) -> dict:
+        """A tunnel's quality in status (contracts/controller/status.json)."""
+        sm = t.quality_summary
+        return {"state": str(t.quality_state), "since": t.quality.since,
+                "reasons": t.quality.reasons, "rtt_ms": _r(sm.rtt_p50),
+                "rtt_p90_ms": _r(sm.rtt_p90), "rtt_min_ms": _r(sm.rtt_min),
+                "jitter_ms": _r(sm.jitter), "loss": round(sm.loss, 3),
+                "https_ms": _r(sm.https_p50), "dns_ms": _r(sm.dns_p50), "pings": sm.pings}
 
     def _report_ipv6(self) -> None:
         """An `ipv6` event when the gate differs from what the last one said."""
@@ -677,6 +727,15 @@ class ExitService:
                                          self._blacklisted(), [known[c.lower()] for c in countries],
                                          limit, self.rng)
 
+    def survey_candidates(self, countries: list[str], limit: int) -> list[Server]:
+        known = {c.lower(): c for c in self.catalog.countries()}
+        bad = [c for c in countries if c.lower() not in known]
+        if bad:
+            raise PolicyError(f"unknown countries: {bad}")
+        return selection.survey_candidates(self.catalog.servers, self.current_server(),
+                                           self.prefs, [known[c.lower()] for c in countries],
+                                           limit, self.rng)
+
     def test_servers(self, n: int) -> list[Server]:
         """Servers in the current country, to test a prober key against."""
         return selection.choose_candidates(self.catalog.servers, self.current_server(), self.prefs,
@@ -734,7 +793,9 @@ class ExitService:
                 "country": sb.country if sb else None, "city": sb.city if sb else None,
                 "since": sb.since if sb else None,
                 "exit_ip": r.exit_ip if r and r.ok and sb else None,
-                "interface": st.ifname}
+                "interface": st.ifname,
+                "quality": self.quality_view(st) if sb and state not in (
+                    "off", "key_suspect", "searching") else None}
 
     def snapshot(self) -> dict:
         """`/v1/status` (contracts/controller/status.json)."""
@@ -756,6 +817,7 @@ class ExitService:
             "load": cur.load if cur else None,
             "health": str(tracker.state),
             "health_since": tracker.since,
+            "quality": self.quality_view(self.tunnel),
             "exit_ip": r.exit_ip if r else None,
             "exit_loc": r.loc if r else None,
             "ipv6": self.tunnel.ipv6_open,   # forwarded IPv6 goes through the tunnel
@@ -772,3 +834,7 @@ class ExitService:
             "blacklisted": len(self.state.blacklist.active(now)),
             "events": self.events.recent(10),
         }
+
+
+def _r(v: float | None) -> float | None:
+    return round(v, 1) if v is not None else None

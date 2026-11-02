@@ -101,6 +101,7 @@ struct MenuContent: View {
             if let v6 = StatusText.ipv6(st) { Text(v6) }
             if let sb = StatusText.standby(st) { Text(sb) }
             Text(c.online ? st.health.label : "Offline: \(c.offlineReason ?? "controller unreachable")")
+            if c.online, let q = StatusText.quality(st.quality) { Text(q) }
             if let p = st.profile, !p.isEmpty {
                 Text("Keeping: \(p.map(Feature.name).joined(separator: ", "))")
             }

@@ -32,3 +32,11 @@ async def test_healthz_matches_the_sample():
 def test_the_controllers_request_sample_is_accepted():
     req = ProbeRequest.model_validate(shape.load("prober/probe_request"))
     assert req.server.pubkey and req.url.startswith("https://")
+
+
+async def test_a_measure_response_matches_the_sample():
+    from harness import measurer
+    p = prober()
+    r = await request(p, "POST", "/measure", shape.load("prober/measure_request"), measurer=measurer(p))
+    assert r.status_code == 200
+    shape.check("prober/measure_response", r.json())

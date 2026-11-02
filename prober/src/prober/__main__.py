@@ -9,6 +9,7 @@ import uvicorn
 from .api import create_app
 from .engines import BrowserEngine, HttpEngine
 from .exitcheck import ExitCheck
+from .measure import Measurer
 from .probe import Prober
 from .tunnel import ProbeTunnel
 
@@ -19,7 +20,7 @@ def main() -> None:
     http, browser = HttpEngine(), BrowserEngine()
     prober = Prober(ProbeTunnel(os.environ.get("PROBE_IF", "wg-probe")), ExitCheck(http.get_text),
                     http, browser)
-    uvicorn.run(create_app(prober, browser), host=os.environ.get("PROBER_BIND", "0.0.0.0"),
+    uvicorn.run(create_app(prober, browser, Measurer(prober, http.get_text)), host=os.environ.get("PROBER_BIND", "0.0.0.0"),
                 port=int(os.environ.get("PROBER_PORT", "9000")),
                 access_log=False, log_level="warning")
 

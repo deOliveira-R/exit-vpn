@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .quality import Thresholds
+
 # gluetun-servers, pinned: the catalog supplies WireGuard endpoints and public keys, so a
 # tampered catalog could steer exit traffic to a server we don't trust. Update by
 # bumping the commit deliberately.
@@ -79,6 +81,12 @@ class Settings:
     probe6_url: str = "https://www.cloudflare.com/cdn-cgi/trace"
     probe6_timeout: float = 10.0   # longer than Proton's first-IPv6-connection stalls (4-8 s)
     ipv6_gate_file: Path = Path("/run/exit-vpn/ipv6")
+    # Quality (quality.py): a ping per tunnel this often, judged by these thresholds; the
+    # quality log keeps a summary per tunnel this often
+    ping_interval: float = 1.0
+    quality: Thresholds = field(default_factory=Thresholds)
+    quality_log_interval: float = 60.0
+    quality_log_max_bytes: int = 8 * 1024 * 1024
 
     @property
     def state_file(self) -> Path:
@@ -95,6 +103,10 @@ class Settings:
     @property
     def standby_env_file(self) -> Path:
         return self.state_dir / "standby.env"
+
+    @property
+    def quality_log_file(self) -> Path:
+        return self.state_dir / "quality.jsonl"
 
     @property
     def events_file(self) -> Path:

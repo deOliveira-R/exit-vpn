@@ -17,12 +17,37 @@ public enum StatusText {
         return on ? "IPv6 \(st.exitIp6 ?? "—")" : "IPv6 off on this server"
     }
 
-    /// "Standby US-NY#5 ready", "Standby: searching for a server", ...; nil without a standby
-    /// tunnel.
+    /// "Quality: healthy · 21 ms · 0% loss · jitter 1 ms", "Quality: degraded (2.8% loss) ·
+    /// 21 ms"; nil from nodes that do not measure it.
+    public static func quality(_ q: TunnelQuality?) -> String? {
+        guard let q else { return nil }
+        if q.state == "measuring" { return "Quality: measuring…" }
+        var parts = [q.rttMs.map { "\(Int($0.rounded())) ms" }, "\(percent(q.loss)) loss",
+                     q.jitterMs.map { "jitter \(Int($0.rounded())) ms" }].compactMap { $0 }
+        let head = q.reasons.isEmpty ? "Quality: \(q.state)" : "Quality: \(q.state) (\(q.reasons.joined(separator: ", ")))"
+        if !q.reasons.isEmpty { parts = Array(parts.prefix(1)) }
+        return ([head] + parts).joined(separator: " · ")
+    }
+
+    /// "0%", "2.8%", "35%".
+    static func percent(_ fraction: Double) -> String {
+        let p = fraction * 100
+        if p == 0 { return "0%" }
+        return p < 10 ? String(format: "%.1f%%", p) : "\(Int(p.rounded()))%"
+    }
+
+    /// "Standby US-NY#5 ready · 21 ms", "Standby US-NY#5 ready · degraded: 2.8% loss",
+    /// "Standby: searching for a server", ...; nil without a standby tunnel.
     public static func standby(_ st: Status) -> String? {
         guard let sb = st.standby else { return nil }
         switch sb.state {
-        case "ready": return "Standby \(sb.server ?? "—") ready"
+        case "ready":
+            var line = "Standby \(sb.server ?? "—") ready"
+            if let q = sb.quality, q.state != "measuring" {
+                line += q.reasons.isEmpty ? (q.rttMs.map { " · \(Int($0.rounded())) ms" } ?? "")
+                                          : " · \(q.state): \(q.reasons.joined(separator: ", "))"
+            }
+            return line
         case "searching": return "Standby: searching for a server"
         case "off": return "Standby off: slot c has no key"
         case "key_suspect": return "Standby stopped: its key carries no traffic"

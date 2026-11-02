@@ -8,6 +8,8 @@ has a **producer** and a **consumer**, and both test against the same sample:
 | `controller/*.json` | controller (`controller/tests/test_contracts.py`, events via `conftest.py`'s hook) | ExitControl (`ContractTests.swift`) |
 | `prober/probe_request.json` | controller (`ProberClient`) | prober (`ProbeRequest`) |
 | `prober/probe_response*.json`, `prober/healthz.json` | prober (`prober/tests/test_contracts.py`) | controller (`Finder`, via `find_job.json`) |
+| `prober/measure_request.json` | controller (`ProberClient.measure`) | prober (`MeasureRequest`) |
+| `prober/measure_response.json` | prober (`measure.Measurer`) | controller (`SurveyService`, via `survey_job.json`) |
 | `exitctl/*.json` | exitctl (`helper/tests/test_contracts.py`) | ExitControl (`ContractTests.swift`) |
 
 The checker is `shape.py` (stdlib only):
@@ -35,10 +37,11 @@ The app updates itself and the exit node does not, so a field the app needs must
 
 | Sample | Route |
 |---|---|
-| `status.json` | `GET /status`, and the result of `POST /rotate`, `POST /select`, `POST /find/{id}/apply`. Its `events` are the last 10 events (below); `catalog` is also the result of `PUT /catalog` and `DELETE /catalog`; `ipv6` says whether forwarded IPv6 goes through the tunnel (the IPv6 gate), `exit_ip6` its exit address then; `standby` the standby tunnel (`state`: `ready`, `searching`, `starting`, `suspect`, `off` without a slot c key, `key_suspect`; its server and exit IP), null on an exit without a second tunnel |
+| `status.json` | `GET /status`, and the result of `POST /rotate`, `POST /select`, `POST /find/{id}/apply`. Its `events` are the last 10 events (below); `catalog` is also the result of `PUT /catalog` and `DELETE /catalog`; `ipv6` says whether forwarded IPv6 goes through the tunnel (the IPv6 gate), `exit_ip6` its exit address then; `standby` the standby tunnel (`state`: `ready`, `searching`, `starting`, `suspect`, `off` without a slot c key, `key_suspect`; its server and exit IP, its `quality` while it holds a server), null on an exit without a second tunnel; `quality` the active tunnel's quality: `state` (`measuring`, `healthy`, `degraded`, `critical`), `since`, `reasons`, over the last few minutes `rtt_ms` (median ping), `rtt_p90_ms`, `rtt_min_ms`, `jitter_ms`, `loss` (0..1), `https_ms` (median HTTPS check), `dns_ms`, `pings` |
 | `servers.json` | `GET /servers[?country=&city=&feature=]`; `countries` is null when `country` is given |
 | `prefs.json` | `GET /prefs`, and the result of `PUT /prefs` |
 | `keys.json`, `key_slot.json` | `GET /keys`; one slot is the result of `PUT /keys/{slot}` and `PUT /keys/{slot}/meta`. `meta` holds what exitctl recorded (`KeyMeta` in `api.py`); it is empty for a bootstrap key |
+| `survey_job.json` | `POST /survey` (202), `GET /survey/{id}`, `DELETE /survey/{id}` (cancel); `results[]`: each server's `state` and `reasons` from the quality model, its summary (as the quality log), `load`, `features`, `exit_ip`, or `error` |
 | `find_job.json` | `POST /find` (202) and `GET /find/{id}`; `results[]` are prober responses plus the candidate's `ip`, `country`, `city` |
 | `events.json` | one sample per event kind (below) |
 
@@ -73,6 +76,9 @@ Every event has `ts` (Unix seconds) and `kind`; the other fields by kind:
 | `key_replaced` | `slot`, `reason`, `seconds` |
 | `prefs` | `by`, `prefs` |
 | `recovered` | `server` |
+| `quality` | `role` (`active`, `standby`), `server`, `state`, `reasons`, `rtt_ms`, `loss`, `jitter_ms`: a tunnel's quality changed (measurement only; nothing switches on it yet) |
+| `survey_started` | `by`, `job`, `servers`, `seconds`: a quality survey began (`POST /survey`) |
+| `survey_done` | `job`, `servers`, and how many were `healthy`, `degraded`, `critical`, `measuring`, `error` |
 | `standby` | `state` (`ready`, `lost`, `moving`, `candidate_failed`, `none_found`, `key_suspect`), `server`; `reason`, `exit_ip`, `tried`, `errors` (a candidate's last health cycle) as they apply |
 | `started` | `server`, `standby` |
 | `swap_error` | `server`, `error` |

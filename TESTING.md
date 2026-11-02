@@ -45,16 +45,19 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_selection.py` | logic | failover, rotate and find candidates |
 | `test_prefs.py` | logic | preferences: validation, normalisation, updates |
 | `test_health.py` | logic | the health state machine: strikes, warm-up, backoff; the IPv6 gate |
+| `test_quality.py` | logic | a tunnel's quality: the window, Healthy / Degraded / Critical and their thresholds, damped changes |
 | `test_state.py` | logic | the active server and the blacklist |
 | `test_service.py` | component | the health cycle: failover, degraded, recovery, restart |
 | `test_standby.py` | component | the standby and the handover: kept ready on another server of the region, a failing active tunnel handed over in one route change, the second opinion (both failing: the uplink, no switch), owner switches made on the standby first, the standby's key |
+| `test_quality_measurement.py` | component | measuring both tunnels: pings, `quality` events, quality in status, a fresh meter per server, the quality log |
 | `test_ipv6.py` | component | IPv6 through the exit: the IPv6 gate in health cycles, switches and key changes; status, events, warnings |
 | `test_switching.py` | component | select, rotate, exact servers, Secure Core, all-or-nothing preference changes |
 | `test_slots.py` | component | key slots: validate, try, keep or roll back, mirror |
 | `test_finder.py` | component | find jobs |
+| `test_survey.py` | component | quality surveys: judged like the exit's tunnels, logged, one at a time, over HTTP |
 | `test_api.py` | component | the HTTP layer: auth, status codes, validation, nothing secret echoed; catalog push and revert |
 | `test_persistence.py` | boundary | state, event log and catalog cache files, migration of old state |
-| `test_adapters.py` | boundary | `wg` dump, WireGuard config, DNS, trace and IPv6 probes, the IPv6 gate file, Tailscale whois |
+| `test_adapters.py` | boundary | `wg` dump, WireGuard config, DNS, trace and IPv6 probes, pings and probe timings, the IPv6 gate file, Tailscale whois |
 | `test_shell_contract.py` | boundary | `peer.env`, `common.sh` (key choice, tunnel addresses, `EXIT_IPV6`) and the gate file's path, shared with the exit's shell scripts |
 | `test_contracts.py` | contract | API responses, events, prober requests |
 
@@ -68,6 +71,7 @@ only fixtures (`rig`, `catalog`) and checks every event any test publishes again
 | `test_classify.py` | logic | the classification rules (and reading a page's title and text) |
 | `test_probe.py` | component | one probe: tunnel session, exit check, engine escalation |
 | `test_exitcheck.py` | component | traffic leaves through the VPN, in the expected country, before a page loads |
+| `test_measure.py` | component | measuring a server: session, exit check, settle, pings and HTTPS checks, `/measure` |
 | `test_api.py` | component | the HTTP layer: `/probe`, `/healthz`, key reload |
 | `test_tunnel.py` | boundary | the `wg` and `ip` commands that attach, detach and re-key `wg-probe` |
 | `test_keyfile.py` | boundary | the slot-b WireGuard config |

@@ -7,6 +7,9 @@ atomically (temp file, fsync, rename; 0600):
   `standby.env`: likewise the standby's peer (on wg1). Shell contract: `PEER_NAME`,
   `PEER_PUBKEY`, `PEER_ENDPOINT`, single-quoted (see `common.sh`).
 - `events.json`: the recent event log (`EventStore`).
+- `quality.jsonl`: a quality summary per tunnel each minute (`QualityLog`), for calibrating
+  the quality thresholds; rotated to `quality.jsonl.1` at its size limit. Never read back:
+  the controller keeps no server history.
 - `catalog.json`: the last good catalog (`CatalogCache`), so restarts and upstream outages
   keep a working server list.
 Key files live in the key volumes (`keys.KeyStore`).
@@ -114,3 +117,22 @@ class CatalogCache:
         atomic_write(self.path, json.dumps({
             "source": catalog.source, "fetched_at": catalog.fetched_at,
             "servers": [s.to_dict() for s in catalog.servers]}))
+
+
+class QualityLog:
+    """Append-only JSON lines; at `max_bytes` the file becomes `<name>.1` (replacing the
+    previous one) and a new one starts. Best effort: a full disk never stops the controller."""
+
+    def __init__(self, path: Path, max_bytes: int):
+        self.path, self.max_bytes = path, max_bytes
+
+    def append(self, record: dict) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists() and self.path.stat().st_size >= self.max_bytes:
+                os.replace(self.path, self.path.with_name(self.path.name + ".1"))
+            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write(json.dumps(record, separators=(",", ":")) + "\n")
+        except OSError as e:
+            log.warning("quality log: %s", e)

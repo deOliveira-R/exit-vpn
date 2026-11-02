@@ -32,6 +32,10 @@ class CycleResult:
     ipv6_ok: bool | None = None
     exit_ip6: str | None = None
     ipv6_error: str = ""
+    # Timings (milliseconds) for the quality meter: the fastest passing HTTPS check and the
+    # DNS lookup; None when they failed
+    https_ms: float | None = None
+    dns_ms: float | None = None
 
 
 def parse_trace(text: str) -> dict[str, str]:
@@ -195,6 +199,13 @@ async def dns_probe(server: str, name: str, source: str, timeout: float,
         return False, f"dns: {type(e).__name__}"
 
 
+async def timed(coro: Awaitable) -> tuple[object, float]:
+    """A coroutine's result and how long it took (milliseconds)."""
+    t0 = time.monotonic()
+    out = await coro
+    return out, (time.monotonic() - t0) * 1000
+
+
 class HealthProbe:
     """One health cycle: (a) >= 1 HTTPS probe OK, (b) DNS OK, (c) fresh handshake.
     A handshake alone proves nothing (Proton completes it even for unknown keys), so
@@ -210,6 +221,17 @@ class HealthProbe:
         self.timeout6 = timeout6
         self.ipv6_on = True   # IPv6 is probed on the active tunnel only (it carries the gate)
         self._v6: asyncio.Task | None = None
+
+    async def ping(self, timeout: float = 1.0) -> float | None:
+        """One ping for the quality meter: a query for a cached name to the server's own
+        resolver (at the far end of the tunnel). Round-trip milliseconds, None if lost."""
+        t0 = time.monotonic()
+        try:
+            resp, qid = await dns_exchange(self.dns_server, self.dns_name, self.source, timeout,
+                                           self.device)
+        except (TimeoutError, OSError):
+            return None
+        return (time.monotonic() - t0) * 1000 if dns_answer_ok(resp, qid) else None
 
     async def resolve(self, host: str, family: int) -> str:
         """A probe's host, looked up through this tunnel's own DNS: the container's resolver
@@ -252,13 +274,14 @@ class HealthProbe:
     async def cycle(self, latest_handshake: int, now: float | None = None) -> CycleResult:
         now = time.time() if now is None else now
         results = await asyncio.gather(
-            *(https_probe(u, self.source, self.timeout, device=self.device,
-                          resolver=self.resolve) for u in self.urls),
-            dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout,
-                      device=self.device),
+            *(timed(https_probe(u, self.source, self.timeout, device=self.device,
+                                resolver=self.resolve)) for u in self.urls),
+            timed(dns_probe(self.dns_server, self.dns_name, self.source, self.dns_timeout,
+                            device=self.device)),
             self._ipv6())
-        https = results[:-2]
-        dns_ok, dns_err = results[-2]
+        https = [r for r, _ in results[:-2]]
+        https_ms = min((ms for (ok, _, _), ms in results[:-2] if ok), default=None)
+        (dns_ok, dns_err), dns_ms = results[-2]
         v6_ok, v6_trace, v6_err = results[-1]
         https_ok = any(ok for ok, _, _ in https)
         trace = next((t for ok, t, _ in https if ok and t), {})
@@ -269,4 +292,5 @@ class HealthProbe:
             errors.append(f"handshake age {age if age is None else round(age)}")
         return CycleResult(https_ok and dns_ok and hs_ok, https_ok, dns_ok, age,
                            trace.get("ip"), trace.get("loc"), errors,
-                           v6_ok, v6_trace.get("ip") if v6_ok else None, v6_err)
+                           v6_ok, v6_trace.get("ip") if v6_ok else None, v6_err,
+                           https_ms, dns_ms if dns_ok else None)

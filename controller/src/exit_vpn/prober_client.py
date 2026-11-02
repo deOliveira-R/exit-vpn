@@ -27,6 +27,17 @@ class ProberClient:
             r.raise_for_status()
             return r.json()
 
+    async def measure(self, srv: Server, *, country_code: str, seconds: int,
+                      forbid_ips: Sequence[str] = ()) -> dict:
+        """The server's quality samples (contracts/prober/measure_response.json)."""
+        body = {"server": {"name": srv.name, "ip": srv.ip, "pubkey": srv.pubkey,
+                           "country_code": country_code},
+                "seconds": seconds, "forbid_ips": list(forbid_ips)}
+        async with httpx.AsyncClient(timeout=self.timeout + seconds) as c:
+            r = await c.post(f"{self.base_url}/measure", json=body)
+            r.raise_for_status()
+            return r.json()
+
     async def reload_key(self) -> dict:
         """The prober re-reads its key (slot b) and sets it on wg-probe."""
         async with httpx.AsyncClient(timeout=self.timeout) as c:

@@ -7,6 +7,10 @@ A WireGuard handshake proves nothing (Proton completes it even for unregistered 
 "works" always means one fully passing health cycle, waited for through a warm-up: fresh
 sessions drop TCP for 4-14 s.
 
+Its quality (`quality.QualityMeter`, fed by the health cycles and by `ping`) belongs to the
+tunnel's current server and key: it starts empty whenever either changes and moves with
+the tunnel at a handover.
+
 IPv6 rides along on the active tunnel: each cycle's IPv6 probe feeds the IPv6 gate (closed on
 every server or key change, and at a handover), and the gate file tells route-keeper whether
 forwarded IPv6 goes via the active tunnel. IPv6 never decides whether the tunnel works.
@@ -19,6 +23,7 @@ from collections.abc import Callable
 
 from .health import HealthTracker, IPv6Gate
 from .probes import CycleResult, HealthProbe
+from .quality import Quality, QualityMeter, QualityTracker, Summary, Thresholds
 from .routes import GateFile
 from .wg import Peer, WgError, WireGuard
 
@@ -26,7 +31,7 @@ from .wg import Peer, WgError, WireGuard
 class Tunnel:
     def __init__(self, wg: WireGuard, probe: HealthProbe, tracker: HealthTracker,
                  clock: Callable[[], float], gate_file: GateFile | None = None,
-                 slot: str = "a", keyed: bool = True):
+                 slot: str = "a", keyed: bool = True, quality: Thresholds | None = None):
         self.wg, self.probe, self.tracker, self.clock = wg, probe, tracker, clock
         self.last: CycleResult | None = None   # the latest health cycle
         self.last_ok_at = 0.0
@@ -34,6 +39,9 @@ class Tunnel:
         self.gate_file = gate_file   # set while this is the active tunnel
         self.slot = slot             # the key slot whose key this interface runs
         self.keyed = keyed           # False: an interface without a key yet (no standby)
+        self.meter = QualityMeter(quality)
+        self.quality = QualityTracker(self.meter.th.dwell)
+        self.quality_summary = Summary()
 
     @property
     def ifname(self) -> str:
@@ -77,11 +85,33 @@ class Tunnel:
         hs = peers[0].latest_handshake if peers else 0
         res = await self.probe.cycle(hs, self.clock())
         self.last = res
+        self.meter.cycle(self.clock(), res.https_ms, res.dns_ms)
         if self.ipv6.feed(res.ipv6_ok) and self.gate_file:
             self.gate_file.set(self.ipv6.open)
         if res.ok:
             self.last_ok_at = self.clock()
         return res
+
+    async def ping(self) -> None:
+        """One ping for the quality meter."""
+        self.meter.ping(self.clock(), await self.probe.ping())
+
+    def assess_quality(self) -> bool:
+        """Judge the meter now. Returns True when the reported quality changed."""
+        now = self.clock()
+        q, reasons, self.quality_summary = self.meter.assess(now)
+        return self.quality.feed(q, reasons, now)
+
+    def reset_quality(self) -> None:
+        """A new server or key: its quality is measured afresh (the warm-up's losses are not
+        the server's)."""
+        self.meter.reset()
+        self.quality.reset(self.clock())
+        self.quality_summary = Summary()
+
+    @property
+    def quality_state(self) -> Quality:
+        return self.quality.state
 
     async def healthy_within(self, seconds: float) -> bool:
         """After a change: wait up to `seconds` for one fully passing cycle."""
@@ -102,7 +132,9 @@ class Tunnel:
         swap itself fails (the tunnel is unchanged then)."""
         self.close_ipv6()   # before the swap: the next server may not carry IPv6
         await self.wg.swap_peer(pubkey, endpoint)
-        return await self.healthy_within(warmup)
+        ok = await self.healthy_within(warmup)
+        self.reset_quality()
+        return ok
 
     async def try_private_key(self, new: str, old: str, warmup: float,
                               fallback_warmup: float) -> tuple[bool, bool]:
@@ -111,7 +143,10 @@ class Tunnel:
         self.close_ipv6()
         await self.wg.set_private_key(new)
         if await self.healthy_within(warmup):
+            self.reset_quality()
             return True, True
         self.close_ipv6()
         await self.wg.set_private_key(old)
-        return False, await self.healthy_within(fallback_warmup)
+        back = await self.healthy_within(fallback_warmup)
+        self.reset_quality()
+        return False, back
