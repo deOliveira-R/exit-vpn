@@ -102,3 +102,16 @@ def test_the_quality_log_rotates_at_its_size_limit(tmp_path):
         log.append({"i": i, "pad": "x" * 30})
     assert (tmp_path / "q.jsonl.1").exists()
     assert (tmp_path / "q.jsonl").stat().st_size <= 100 + 50
+
+
+async def test_a_fresh_sessions_warm_up_drops_are_not_measured(two):
+    await two.svc.start()                       # adopted at start: warming up until a cycle passes
+    two.world.dead_peers.add(two.start.pubkey)  # the warm-up drops traffic
+    await seconds(two, 10)
+    assert two.svc.snapshot()["quality"]["pings"] == 0 and not quality_events(two)
+    two.world.dead_peers.discard(two.start.pubkey)
+    await two.svc.step()                        # the first passing cycle ends the warm-up
+    await seconds(two, 30)
+    q = two.svc.snapshot()["quality"]
+    assert q["state"] == "healthy" and q["loss"] == 0
+    assert [e["state"] for e in quality_events(two) if e["role"] == "active"] == ["healthy"]

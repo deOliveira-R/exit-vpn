@@ -8,8 +8,9 @@ A WireGuard handshake proves nothing (Proton completes it even for unregistered 
 sessions drop TCP for 4-14 s.
 
 Its quality (`quality.QualityMeter`, fed by the health cycles and by `ping`) belongs to the
-tunnel's current server and key: it starts empty whenever either changes and moves with
-the tunnel at a handover.
+tunnel's current server and key: it starts empty whenever either changes, takes samples
+only once the fresh session passed a health cycle (its warm-up drops are not the server's),
+and moves with the tunnel at a handover.
 
 IPv6 rides along on the active tunnel: each cycle's IPv6 probe feeds the IPv6 gate (closed on
 every server or key change, and at a handover), and the gate file tells route-keeper whether
@@ -21,7 +22,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
-from .health import HealthTracker, IPv6Gate
+from .health import Health, HealthTracker, IPv6Gate
 from .probes import CycleResult, HealthProbe
 from .quality import Quality, QualityMeter, QualityTracker, Summary, Thresholds
 from .routes import GateFile
@@ -85,16 +86,27 @@ class Tunnel:
         hs = peers[0].latest_handshake if peers else 0
         res = await self.probe.cycle(hs, self.clock())
         self.last = res
-        self.meter.cycle(self.clock(), res.https_ms, res.dns_ms)
+        if not self.warming_up:
+            self.meter.cycle(self.clock(), res.https_ms, res.dns_ms)
         if self.ipv6.feed(res.ipv6_ok) and self.gate_file:
             self.gate_file.set(self.ipv6.open)
         if res.ok:
             self.last_ok_at = self.clock()
         return res
 
+    @property
+    def warming_up(self) -> bool:
+        """A fresh session (start, a new server or key) before its first passing cycle: its
+        drops are the warm-up's, not the server's, so the meter takes no samples."""
+        return self.tracker.state == Health.STARTING
+
     async def ping(self) -> None:
-        """One ping for the quality meter."""
-        self.meter.ping(self.clock(), await self.probe.ping())
+        """One ping for the quality meter (none while warming up)."""
+        if self.warming_up:
+            return
+        rtt = await self.probe.ping()
+        if not self.warming_up:
+            self.meter.ping(self.clock(), rtt)
 
     def assess_quality(self) -> bool:
         """Judge the meter now. Returns True when the reported quality changed."""
